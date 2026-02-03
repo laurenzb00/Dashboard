@@ -12,6 +12,7 @@ import faulthandler
 import signal
 import traceback
 import atexit
+import tracemalloc
 from pathlib import Path
 from core.datastore import DataStore, set_shared_datastore, close_shared_datastore
 import importlib
@@ -172,6 +173,48 @@ def _install_crash_logger(log_path: Path | str | None = None) -> None:
 
 
 _install_crash_logger()
+
+
+def _start_tracemalloc_snapshotter():
+    """Enable tracemalloc and dump snapshot on exit/SIGUSR2 for Pi debugging."""
+    if os.getenv("TRACEMALLOC_DISABLE",
+                 "0").strip().lower() in {"1", "true", "yes"}:
+        return
+    depth_env = os.getenv("TRACEMALLOC_DEPTH", "25").strip()
+    try:
+        depth = max(1, min(100, int(depth_env)))
+    except ValueError:
+        depth = 25
+    snapshot_path = Path(os.getenv("TRACEMALLOC_SNAPSHOT",
+                                   "tracemalloc_snapshot.bin")).resolve()
+    try:
+        tracemalloc.start(depth)
+        print(f"[TRACEMALLOC] Enabled (depth={depth}) -> {snapshot_path}")
+    except Exception as exc:
+        logging.warning("Tracemalloc start failed: %s", exc)
+        return
+
+    def _dump_snapshot(reason: str) -> None:
+        try:
+            snapshot = tracemalloc.take_snapshot()
+            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            snapshot.dump(str(snapshot_path))
+            print(f"[TRACEMALLOC] Snapshot written ({reason}) -> {snapshot_path}")
+        except Exception as exc:
+            logging.error("Tracemalloc snapshot (%s) failed: %s", reason, exc)
+
+    atexit.register(lambda: _dump_snapshot("atexit"))
+
+    if hasattr(signal, "SIGUSR2"):
+        def _sigusr2_handler(signum, frame):
+            _dump_snapshot("SIGUSR2")
+        try:
+            signal.signal(signal.SIGUSR2, _sigusr2_handler)
+        except Exception:
+            pass
+
+
+_start_tracemalloc_snapshotter()
 
 def run_wechselrichter():
     try:
