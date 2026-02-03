@@ -350,6 +350,85 @@ class SpotifyTab:
         else:
             self._safe_spotify_call(self.client.start_playback)
 
+    def _prev_track(self):
+        if not self.client:
+            return
+        self._safe_spotify_call(self.client.previous_track)
+
+    def _next_track(self):
+        if not self.client:
+            return
+        self._safe_spotify_call(self.client.next_track)
+
+    def _adjust_volume(self, delta: int):
+        current = 0
+        try:
+            current = float(self.volume_scale.get())
+        except Exception:
+            pass
+        new_value = max(0, min(100, int(current + delta)))
+        self._ignore_volume_event = True
+        self.volume_scale.set(new_value)
+        self._ignore_volume_event = False
+        self._queue_volume_update(new_value)
+
+    def _on_volume_change(self, value: str):
+        if self._ignore_volume_event:
+            return
+        try:
+            volume = int(float(value))
+        except (TypeError, ValueError):
+            return
+        self._queue_volume_update(volume)
+
+    def _queue_volume_update(self, volume: int) -> None:
+        volume = max(0, min(100, int(volume)))
+        self._pending_volume = volume
+        if self._volume_after_id:
+            try:
+                self.root.after_cancel(self._volume_after_id)
+            except Exception:
+                pass
+        self._volume_after_id = self.root.after(400, self._apply_volume_change)
+
+    def _apply_volume_change(self) -> None:
+        self._volume_after_id = None
+        if self._pending_volume is None or not self.client:
+            return
+        self._safe_spotify_call(self.client.volume, self._pending_volume)
+        self._pending_volume = None
+
+    def _set_shuffle(self):
+        if not self.client:
+            return
+        state = bool(self.shuffle_var.get())
+        self._safe_spotify_call(self.client.shuffle, state)
+
+    def _cycle_repeat(self):
+        if not self.client:
+            return
+        modes = ["off", "context", "track"]
+        try:
+            idx = modes.index(self.repeat_mode.get())
+        except ValueError:
+            idx = 0
+        new_mode = modes[(idx + 1) % len(modes)]
+        self._safe_spotify_call(self.client.repeat, new_mode)
+        self.repeat_mode.set(new_mode)
+        self.repeat_button.configure(text=f"Repeat: {new_mode}")
+
+    def _toggle_like(self):
+        if not self.client or not self._last_track_id:
+            return
+        track_id = self._last_track_id
+        if self._liked_track:
+            self._safe_spotify_call(self.client.current_user_saved_tracks_delete, [track_id])
+            self._liked_track = False
+        else:
+            self._safe_spotify_call(self.client.current_user_saved_tracks_add, [track_id])
+            self._liked_track = True
+        self._sync_like_button()
+
     def _build_ui(self) -> None:
         wrapper = ttk.Frame(self.tab_frame)
         wrapper.pack(fill=BOTH, expand=True)
