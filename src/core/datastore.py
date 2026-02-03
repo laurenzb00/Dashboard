@@ -7,6 +7,7 @@ import csv
 import os
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -58,12 +59,13 @@ class DataStore:
     def _init_db(self):
         """Initialisiere Datenbank mit Tabellen."""
         # check_same_thread=False erlaubt Nutzung in verschiedenen Threads (safe für read-only)
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=15.0)
         # Pi 5 Optimierungen: WAL + moderater Cache
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA cache_size=-32000")  # 32MB Cache (sicherer)
         self.conn.execute("PRAGMA mmap_size=67108864")  # 64MB Memory-Map (reduziert)
         self.conn.execute("PRAGMA temp_store=MEMORY")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         cursor = self.conn.cursor()
         
         # Fronius PV Daten
@@ -281,7 +283,7 @@ class DataStore:
         batt = _safe_float(record.get('Batterie-Leistung (kW)') or record.get('batt'))
         soc = _safe_float(record.get('Batterieladestand (%)') or record.get('soc'))
         with self._lock:
-            self.conn.execute(
+            self._execute_with_retry(
                 """
                 INSERT OR REPLACE INTO fronius (timestamp, pv_power, grid_power, batt_power, soc)
                 VALUES (?, ?, ?, ?, ?)
@@ -305,7 +307,7 @@ class DataStore:
         bot = _safe_float(record.get('Pufferspeicher Unten') or record.get('Puffer_Unten') or record.get('puffer_bot'))
         warm = _safe_float(record.get('Warmwasser') or record.get('Warmwassertemperatur'))
         with self._lock:
-            self.conn.execute(
+            self._execute_with_retry(
                 """
                 INSERT OR REPLACE INTO heating (timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -400,6 +402,20 @@ class DataStore:
         if not dt:
             return None
         return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _execute_with_retry(self, query: str, params: tuple | list = (), retries: int = 5, base_delay: float = 0.05) -> None:
+        last_exc: Optional[Exception] = None
+        for attempt in range(retries):
+            try:
+                self.conn.execute(query, params)
+                return
+            except sqlite3.OperationalError as exc:
+                last_exc = exc
+                if "locked" not in str(exc).lower():
+                    raise
+                time.sleep(base_delay * (attempt + 1))
+        if last_exc:
+            raise last_exc
 
     def _get_latest_timestamp_unlocked(self) -> Optional[str]:
         cursor = self.conn.cursor()
