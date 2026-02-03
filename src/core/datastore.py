@@ -387,7 +387,11 @@ class DataStore:
         fr_count = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM heating")
         heat_count = cursor.fetchone()[0]
-        if fr_count == 0 and fr_csv.exists():
+        fr_needs_signal = fr_csv.exists() and not self._table_has_signal("fronius", "pv_power")
+        if (fr_count == 0 or fr_needs_signal) and fr_csv.exists():
+            if fr_count > 0:
+                self.conn.execute("DELETE FROM fronius")
+                self.conn.commit()
             self.import_fronius_csv(fr_csv)
         if heat_count == 0 and heat_csv.exists():
             self.import_heating_csv(heat_csv)
@@ -427,6 +431,15 @@ class DataStore:
             return True
         except Exception:
             return False
+
+    def _table_has_signal(self, table: str, column: str, threshold: float = 1e-6) -> bool:
+        cursor = self.conn.cursor()
+        query = (
+            f"SELECT COUNT(*) FROM {table} "
+            f"WHERE {column} IS NOT NULL AND ABS({column}) > ?"
+        )
+        cursor.execute(query, (threshold,))
+        return cursor.fetchone()[0] > 0
 
 
 # Quick Startup Helper
