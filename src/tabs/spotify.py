@@ -66,7 +66,7 @@ class SpotifyTab:
         # Optional Auto-Login per Umgebungsvariable (Standard = aus)
         if os.getenv("SPOTIFY_AUTO_LOGIN", "0") == "1" and self.client is None:
             self._set_status("Spotify Auto-Login gestartet…")
-            self._start_login_flow(auto_open=True)
+            self._start_login_flow(auto_open=False)
     
     def _ensure_cached_session(self):
         spotifylogin = self._import_spotifylogin()
@@ -85,11 +85,11 @@ class SpotifyTab:
             self._set_status("Spotify Login erforderlich")
 
     def _open_browser_login(self):
-        """Force opening the Spotify login in the browser on demand."""
-        self._set_status("Öffne Browser-Login…")
-        self._start_login_flow(auto_open=True)
+        """Generate a login URL without auto-launching the browser."""
+        self._set_status("Erzeuge Spotify Login-Link…")
+        self._start_login_flow(auto_open=False)
 
-    def _start_login_flow(self, auto_open: bool | None = None):
+    def _start_login_flow(self, auto_open: bool | None = False):
         def _worker():
             spotifylogin = self._import_spotifylogin()
             if not spotifylogin:
@@ -104,6 +104,8 @@ class SpotifyTab:
             login_url = result.get("url")
             if login_url:
                 self._update_login_url(login_url)
+                logging.info("[SPOTIFY] Login-Link: %s", login_url)
+                print(f"[SPOTIFY] Login-Link: {login_url}")
             if not result.get("ok"):
                 self._set_status(f"Spotify Fehler: {result.get('error')}")
                 return
@@ -115,7 +117,7 @@ class SpotifyTab:
             if hint:
                 self._set_status(f"Login-Link gespeichert in {hint}")
             else:
-                self._set_status("Browser geöffnet – bitte Login abschließen")
+                self._set_status("Link wurde im Terminal ausgegeben – bitte im Browser öffnen")
             ok, err = spotifylogin.wait_for_login_result()
             if ok:
                 self._set_status("Spotify Login abgeschlossen – Token gespeichert")
