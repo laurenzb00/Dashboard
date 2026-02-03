@@ -141,9 +141,11 @@ def abrufen_und_speichern():
             daten_puffer = _extrahiere_pufferdaten(values, zeitstempel)
             if daten_puffer:
                 _speichere_pufferdaten(daten_puffer)
-                
+            return daten_heizung if daten_heizung else daten_kurz
+
     except Exception as e:
         logger.error(f"Fehler bei BMK: {e}")
+    return None
 
 
 def _extrahiere_alle_daten(values, zeitstempel):
@@ -258,50 +260,23 @@ def _speichere_heizungsdaten(daten):
                 ])
             aussen = _get("Außentemperatur", "Aussentemperatur")
             puffer_oben = _get("Puffer_Oben", "Pufferspeicher Oben", "Puffer Oben")
-            writer.writerow([
-                _get("Zeitstempel"),
-                _get("Kesseltemperatur"),
-                aussen,
-                puffer_oben,
-                _get("Pufferspeicher_Mitte", "Puffer_Mitte", "Pufferspeicher Mitte", "Puffer Mitte"),
-                _get("Puffer_Unten", "Pufferspeicher Unten", "Puffer Unten"),
-                _get("Warmwassertemperatur", "Warmwasser"),
-            ])
-        logger.debug(f"Heizungsdaten gespeichert: {daten.get('Zeitstempel')}")
-    except Exception as e:
-        logger.error(f"Fehler beim Speichern von Heizungsdaten: {e}")
+                        temp_oben = _safe_float(values[4]) if len(values) > 4 else None
+                        temp_mitte = _safe_float(values[5]) if len(values) > 5 else None
+                        temp_unten = _safe_float(values[6]) if len(values) > 6 else None
 
+                        temps = [temp_oben, temp_mitte, temp_unten]
+                        temps_valid = [t for t in temps if t is not None]
 
-def _speichere_pufferdaten(daten):
-    # Speichert Pufferanlage-Daten in JSON (für strukturierte Abfragen)
-    json_datei = "Pufferspeicher.json"
-    
-    try:
-        # Lade bestehende Daten
-        puffer_history = []
-        if os.path.exists(json_datei):
-            try:
-                with open(json_datei, "r", encoding="utf-8") as f:
-                    puffer_history = json.load(f)
-            except:
-                puffer_history = []
-        
-        # Füge neue Daten hinzu
-        puffer_history.append(daten)
-        
-        # Halte nur die letzten 1000 Einträge (für Performance)
-        if len(puffer_history) > 1000:
-            puffer_history = puffer_history[-1000:]
-        
-        # Speichere
-        with open(json_datei, "w", encoding="utf-8") as f:
-            json.dump(puffer_history, f, ensure_ascii=False, indent=2)
-        
-        logger.debug(f"Pufferdaten gespeichert: {daten.get('Zeitstempel')}")
-    except Exception as e:
-        logger.error(f"Fehler beim Speichern von Pufferdaten: {e}")
+                        if not temps_valid:
+                            return None
 
-
-# Falls man es einzeln testen will
-if __name__ == "__main__":
-    abrufen_und_speichern()
+                        puffer_data = {
+                            "Zeitstempel": zeitstempel,
+                            "Oben": temp_oben,
+                            "Mitte": temp_mitte,
+                            "Unten": temp_unten,
+                            "Durchschnitt": sum(temps_valid) / len(temps_valid) if temps_valid else None,
+                            "Stratifikation": (temp_oben - temp_unten) if (temp_oben is not None and temp_unten is not None) else None,
+                            "Status": _bestimme_puffer_status(temp_oben, temp_mitte, temp_unten),
+                        }
+                        return puffer_data
