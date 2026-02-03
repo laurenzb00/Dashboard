@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import csv
+import csv
 import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from collections import defaultdict
 from typing import Iterable, List, Optional
 
 
@@ -112,21 +112,27 @@ class DataStore:
         """Importiere FroniusDaten.csv in Datenbank."""
         if not os.path.exists(csv_path):
             return False
-        
+
         cursor = self.conn.cursor()
         count = 0
-        
+
         try:
             with open(csv_path, 'r', encoding='utf-8-sig') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     try:
                         ts = row.get('Zeitstempel') or row.get('timestamp')
-                        pv = float(row.get('PV', 0) or 0)
-                        grid = float(row.get('Netz', 0) or 0)
-                        batt = float(row.get('Batterie', 0) or 0)
-                        soc = float(row.get('SOC', 0) or 0)
-                        
+                        if not ts:
+                            continue
+                        pv = _safe_float(_first_value(row,
+                            'PV-Leistung (kW)', 'PV', 'PV [kW]', 'P_PV'))
+                        grid = _safe_float(_first_value(row,
+                            'Netz-Leistung (kW)', 'Netz', 'Netz [kW]', 'P_Grid'))
+                        batt = _safe_float(_first_value(row,
+                            'Batterie-Leistung (kW)', 'Batterie', 'Batterie [kW]', 'P_Akku'))
+                        soc = _safe_float(_first_value(row,
+                            'Batterieladestand (%)', 'SOC', 'SoC', 'State of Charge'))
+
                         cursor.execute(
                             """
                             INSERT OR REPLACE INTO fronius
@@ -136,13 +142,13 @@ class DataStore:
                             (ts, pv, grid, batt, soc),
                         )
                         count += 1
-                        
-                        if count % 1000 == 0:
+
+                        if count % 2000 == 0:
                             self.conn.commit()
                             print(f"[DB] Imported {count} Fronius records...")
-                    except Exception as e:
+                    except Exception:
                         continue
-            
+
             self.conn.commit()
             print(f"[DB] ✅ Imported {count} Fronius records")
             return True
@@ -514,6 +520,13 @@ def _hours_ago_iso(hours: int | None) -> Optional[str]:
     if hours is None:
         return None
     return (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _first_value(row: dict, *keys: str):
+    for key in keys:
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+    return None
 
 
 def _safe_float(value):
