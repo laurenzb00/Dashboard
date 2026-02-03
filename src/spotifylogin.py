@@ -235,9 +235,30 @@ def _should_auto_open(auto_open: Optional[bool]) -> bool:
 def _launch_browser(url: str) -> None:
     try:
         import webbrowser
-
-        if not webbrowser.open(url, new=1):
-            logging.warning("[SPOTIFY] Bitte Browser selbst öffnen: %s", url)
+        # Try to use a real browser, not a text-based or terminal browser
+        browsers = [
+            "windows-default",
+            "chrome",
+            "chromium",
+            "firefox",
+            "edge",
+            "opera",
+        ]
+        opened = False
+        for b in browsers:
+            try:
+                browser = webbrowser.get(b)
+                if browser.open(url, new=1):
+                    opened = True
+                    break
+            except webbrowser.Error:
+                continue
+        if not opened:
+            # Fallback to system default
+            if not webbrowser.open(url, new=1):
+                logging.warning("[SPOTIFY] Bitte Browser selbst öffnen: %s", url)
+        else:
+            logging.info("[SPOTIFY] Login-URL im Browser geöffnet")
     except Exception as exc:
         logging.warning("[SPOTIFY] Browser konnte nicht geöffnet werden: %s", exc)
 

@@ -99,7 +99,7 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
     try:
         values = [line.strip() for line in response.text.splitlines() if line.strip()]
         zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.debug(f"BMK Response hat {len(values)} Werte")
+        # logger.debug(f"BMK Response hat {len(values)} Werte")
 
         daten_heizung = _extrahiere_alle_daten(values, zeitstempel)
 
