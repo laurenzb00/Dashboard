@@ -620,7 +620,7 @@ class SpotifyTab:
 
     def _open_browser_login(self):
         self._set_status("Erzeuge Spotify Login-Link…")
-        self._start_login_flow(auto_open=False)
+        self._start_login_flow(auto_open=True)
 
     def _start_login_flow(self, auto_open: Optional[bool] = False):
         def _worker():
