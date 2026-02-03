@@ -1,0 +1,43 @@
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cache-spotify
+*.log
+_archive/
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data / State
+Pufferspeicher.json
+config/Pufferspeicher.json
+
+.DS_Store
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Cache
+.cache/
+.pytest_cache/
+.mypy_cache/
+
+# OS
+Thumbs.db
+
+# Environment
+.env
+.env.local

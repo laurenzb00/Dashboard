@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-01-30T13:05:47.411360",
+  "fronius_entries": 954524,
+  "fronius_range": {
+    "start": "2025-04-09T13:18:39",
+    "end": "2026-01-30T13:05:30"
+  },
+  "current_entries": 26,
+  "current_total_kwh": 225.9106144894061,
+  "reconstructed_entries": 26,
+  "reconstructed_total_kwh": 226.3704445997886,
+  "difference_percent": 0.2035451549816733,
+  "backup_created": "C:\\Users\\laure\\OneDrive\\Studium-SBG\\SoS 25\\Datenerfassung\\eigenes projekt\\Projekt1-1\\ErtragHistory_backup.csv"
+}
