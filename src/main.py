@@ -177,8 +177,10 @@ _install_crash_logger()
 
 def _start_tracemalloc_snapshotter():
     """Enable tracemalloc and dump snapshot on exit/SIGUSR2 for Pi debugging."""
-    if os.getenv("TRACEMALLOC_DISABLE",
-                 "0").strip().lower() in {"1", "true", "yes"}:
+    enable_flag = os.getenv("TRACEMALLOC_ENABLE", "0").strip().lower()
+    if enable_flag not in {"1", "true", "yes"}:
+        return
+    if os.getenv("TRACEMALLOC_DISABLE", "0").strip().lower() in {"1", "true", "yes"}:
         return
     depth_env = os.getenv("TRACEMALLOC_DEPTH", "25").strip()
     try:
