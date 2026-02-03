@@ -212,6 +212,7 @@ def _speichere_heizungsdaten(daten):
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     csv_datei = os.path.join(base_dir, "data", "Heizungstemperaturen.csv")
     datei_existiert = os.path.exists(csv_datei)
+    _ensure_parent_dir(csv_datei)
 
     def _get(*keys):
         for key in keys:
@@ -244,6 +245,13 @@ def _speichere_heizungsdaten(daten):
         logger.debug(f"Heizungsdaten gespeichert: {daten.get('Zeitstempel')}")
     except Exception as exc:
         logger.error(f"Fehler beim Speichern von Heizungsdaten: {exc}")
+
+
+def _ensure_parent_dir(path: str):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except Exception as exc:
+        logger.error(f"Kann Zielverzeichnis nicht anlegen: {exc}")
 
 
 if __name__ == "__main__":

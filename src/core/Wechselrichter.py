@@ -31,6 +31,7 @@ def abrufen_und_speichern():
             csv_datei = os.path.join(base_dir, "data", "FroniusDaten.csv")
             datei_existiert = os.path.exists(csv_datei)
 
+            os.makedirs(os.path.dirname(csv_datei), exist_ok=True)
             with open(csv_datei, "a", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
                 if not datei_existiert or os.stat(csv_datei).st_size == 0:
