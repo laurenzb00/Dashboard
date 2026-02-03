@@ -29,8 +29,14 @@ class SpotifyTab:
         self.tab_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_frame, text="Spotify")
 
-        self._build_header()
-        self._build_content()
+        self.status_var = tk.StringVar(value="Spotify Integration bereit")
+        self.link_var = tk.StringVar(value="Noch kein Login-Link erzeugt")
+        self.status_detail_var = tk.StringVar(value="Konfiguration wird geprüft…")
+        self.token_info_var = tk.StringVar(value="Noch kein Token gefunden")
+        callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
+        self.redirect_var = tk.StringVar(value=f"Callback-URL: {callback_uri}")
+
+        self._build_ui()
 
         # Runtime state holders
         self.client = None
@@ -344,59 +350,59 @@ class SpotifyTab:
         else:
             self._safe_spotify_call(self.client.start_playback)
 
-    def _next_track(self):
-        if self.client:
-            self._safe_spotify_call(self.client.next_track)
+    def _build_ui(self) -> None:
+        wrapper = ttk.Frame(self.tab_frame)
+        wrapper.pack(fill=BOTH, expand=True)
 
-    def _prev_track(self):
-        if self.client:
-            self._safe_spotify_call(self.client.previous_track)
+        ttk.Label(wrapper, textvariable=self.status_var, font=("Arial", 12), padding=6).pack(fill=tk.X, padx=12, pady=(10, 6))
 
-    def _on_volume_change(self, value: str):
-        if self._ignore_volume_event:
-            return
-        self._pending_volume = int(float(value))
-        if self._volume_after_id:
-            self.root.after_cancel(self._volume_after_id)
-        self._volume_after_id = self.root.after(350, self._send_volume)
+        self.content_notebook = ttk.Notebook(wrapper, bootstyle="dark")
+        self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
 
-    def _adjust_volume(self, delta: int):
-        current = int(float(self.volume_scale.get()))
-        new_value = max(0, min(100, current + delta))
-        self.volume_scale.set(new_value)
-        self._on_volume_change(str(new_value))
+        self.status_frame = ttk.Frame(self.content_notebook, padding=16)
+        self.now_playing_frame = ttk.Frame(self.content_notebook, padding=12)
+        self.library_frame = ttk.Frame(self.content_notebook, padding=12)
+        self.devices_frame = ttk.Frame(self.content_notebook, padding=12)
+        self.content_notebook.add(self.status_frame, text="Status")
+        self.content_notebook.add(self.now_playing_frame, text="Now Playing")
+        self.content_notebook.add(self.library_frame, text="Playlists")
+        self.content_notebook.add(self.devices_frame, text="Geräte")
 
-    def _send_volume(self):
-        if self.client and self._pending_volume is not None:
-            self._safe_spotify_call(self.client.volume, self._pending_volume)
-        self._volume_after_id = None
+        self._build_status_tab()
+        self._build_now_playing_tab()
+        self._build_library_tab()
+        self._build_devices_tab()
 
-    def _set_shuffle(self):
-        if self.client:
-            self._safe_spotify_call(self.client.shuffle, self.shuffle_var.get())
+    def _build_status_tab(self) -> None:
+        frame = self.status_frame
+        control_frame = ttk.Frame(frame)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Button(control_frame, text="Browser-Login öffnen", command=self._open_browser_login,
+                   bootstyle="success-outline").pack(side=LEFT, padx=4)
+        ttk.Button(control_frame, text="Status aktualisieren", command=self._refresh_status,
+                   bootstyle="secondary-outline").pack(side=LEFT, padx=4)
+        ttk.Button(control_frame, text="Logout", command=self._logout,
+                   bootstyle="danger-outline").pack(side=LEFT, padx=4)
 
-    def _cycle_repeat(self):
-        modes = ["off", "context", "track"]
-        current = self.repeat_mode.get()
-        next_mode = modes[(modes.index(current) + 1) % len(modes)] if current in modes else "context"
-        if self.client:
-            self._safe_spotify_call(self.client.repeat, next_mode)
-        self.repeat_mode.set(next_mode)
-        self.repeat_button.configure(text=f"Repeat: {next_mode}")
+        link_frame = ttk.Labelframe(frame, text="Login-Link")
+        link_frame.pack(fill=tk.X, pady=(0, 12))
+        self.link_entry = ttk.Entry(link_frame, textvariable=self.link_var, state="readonly")
+        self.link_entry.pack(fill=tk.X, expand=True, pady=(6, 4))
+        link_buttons = ttk.Frame(link_frame)
+        link_buttons.pack(anchor=W, pady=(0, 6))
+        ttk.Button(link_buttons, text="Link kopieren", command=self._copy_login_url,
+                   bootstyle="secondary-outline").pack(side=LEFT, padx=(0, 6))
+        ttk.Button(link_buttons, text="Link im Browser öffnen", command=self._open_latest_in_browser,
+                   bootstyle="info-outline").pack(side=LEFT)
+        ttk.Label(link_frame, textvariable=self.redirect_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W)
+        ttk.Label(link_frame,
+                  text="Öffne den Link auf einem Gerät im selben Netzwerk – der Dashboard-Port 8889 nimmt den Rückruf automatisch an.",
+                  font=("Arial", 9), wraplength=560).pack(anchor=W, pady=(2, 0))
 
-    def _toggle_like(self):
-        if not self.client or not self._last_track_id:
-            return
-        if self._liked_track:
-            self._safe_spotify_call(self.client.current_user_saved_tracks_delete, [self._last_track_id])
-            self._liked_track = False
-        else:
-            self._safe_spotify_call(self.client.current_user_saved_tracks_add, [self._last_track_id])
-            self._liked_track = True
-        self._sync_like_button()
-
-    # ------------------------------------------------------------------
-    # Geräte & Playlists
+        info_frame = ttk.Labelframe(frame, text="Status & Token")
+        info_frame.pack(fill=tk.X)
+        ttk.Label(info_frame, textvariable=self.status_detail_var, font=("Arial", 10)).pack(anchor=W, pady=(4, 2))
+        ttk.Label(info_frame, textvariable=self.token_info_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W, pady=(0, 4))
     # ------------------------------------------------------------------
     def _update_devices(self, devices: list[dict]) -> None:
         if devices == self._devices:
