@@ -310,7 +310,7 @@ class EnergyFlowView(tk.Frame):
         right = (x1 - ux * size - uy * size * 0.6, y1 - uy * size + ux * size * 0.6)
         draw.polygon([left, right, (x1, y1)], fill=color)
 
-    def _draw_flow_label(self, base_img: Image.Image, src, dst, watts: float, offset: int = 8, along: int = 0, color: str = COLOR_TEXT, flip_text: bool = False):
+    def _draw_flow_label(self, base_img: Image.Image, src, dst, watts: float, offset: int = 8, along: int = 0, color: str = COLOR_TEXT):
         start, end = self._edge_points(src, dst, self.node_radius + 6)
         mx = (start[0] + end[0]) / 2
         my = (start[1] + end[1]) / 2
@@ -327,9 +327,6 @@ class EnergyFlowView(tk.Frame):
         angle = -1 * (180 / math.pi) * (0 if length == 0 else math.atan2(vy, vx))
         # Auto-flip if upside down (keep labels readable)
         if abs(angle) > 90:
-            angle += 180
-        # Optional extra flip
-        if flip_text:
             angle += 180
         value_text, unit_text = self._format_power_parts(abs(watts))
         font_val = self._font_small if self._font_small else ImageFont.load_default()
@@ -453,7 +450,7 @@ class EnergyFlowView(tk.Frame):
         # Grid Import/Export
         if grid_w > 0:
             self._draw_arrow(draw, grid, home, COLOR_INFO, thickness(grid_w))
-            self._draw_flow_label(img, grid, home, grid_w, offset=28, along=0, color=COLOR_INFO, flip_text=True)
+            self._draw_flow_label(img, grid, home, grid_w, offset=28, along=0, color=COLOR_INFO)
         elif grid_w < 0:
             self._draw_arrow(draw, home, grid, COLOR_INFO, thickness(grid_w))
             self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_INFO)

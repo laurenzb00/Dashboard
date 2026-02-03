@@ -290,7 +290,7 @@ class DataStore:
                 """,
                 (ts, pv, grid, batt, soc),
             )
-            self.conn.commit()
+            self._commit_with_retry()
             self._update_last_ingest_locked(ts)
 
     def insert_heating_record(self, record: dict) -> None:
@@ -314,7 +314,7 @@ class DataStore:
                 """,
                 (ts, kessel, outdoor, top, mid, bot, warm),
             )
-            self.conn.commit()
+            self._commit_with_retry()
             self._update_last_ingest_locked(ts)
 
     def get_recent_fronius(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
@@ -408,6 +408,20 @@ class DataStore:
         for attempt in range(retries):
             try:
                 self.conn.execute(query, params)
+                return
+            except sqlite3.OperationalError as exc:
+                last_exc = exc
+                if "locked" not in str(exc).lower():
+                    raise
+                time.sleep(base_delay * (attempt + 1))
+        if last_exc:
+            raise last_exc
+
+    def _commit_with_retry(self, retries: int = 5, base_delay: float = 0.05) -> None:
+        last_exc: Optional[Exception] = None
+        for attempt in range(retries):
+            try:
+                self.conn.commit()
                 return
             except sqlite3.OperationalError as exc:
                 last_exc = exc
