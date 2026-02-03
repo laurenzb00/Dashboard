@@ -256,23 +256,4 @@ def _speichere_heizungsdaten(daten):
                 ])
             aussen = _get("Außentemperatur", "Aussentemperatur")
             puffer_oben = _get("Puffer_Oben", "Pufferspeicher Oben", "Puffer Oben")
-                        temp_oben = _safe_float(values[4]) if len(values) > 4 else None
-                        temp_mitte = _safe_float(values[5]) if len(values) > 5 else None
-                        temp_unten = _safe_float(values[6]) if len(values) > 6 else None
-
-                        temps = [temp_oben, temp_mitte, temp_unten]
-                        temps_valid = [t for t in temps if t is not None]
-
-                        if not temps_valid:
-                            return None
-
-                        puffer_data = {
-                            "Zeitstempel": zeitstempel,
-                            "Oben": temp_oben,
-                            "Mitte": temp_mitte,
-                            "Unten": temp_unten,
-                            "Durchschnitt": sum(temps_valid) / len(temps_valid) if temps_valid else None,
-                            "Stratifikation": (temp_oben - temp_unten) if (temp_oben is not None and temp_unten is not None) else None,
-                            "Status": _bestimme_puffer_status(temp_oben, temp_mitte, temp_unten),
-                        }
-                        return puffer_data
+                # Removed duplicated block of code that caused indentation/syntax error
