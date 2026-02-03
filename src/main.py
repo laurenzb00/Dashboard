@@ -122,20 +122,23 @@ def run_bmkdaten():
 
 
 def main():
-        # Starte Spotify-Login nach GUI-Start, damit Terminal nicht blockiert
-        try:
-            import spotifylogin
-            threading.Thread(target=spotifylogin.start_oauth, daemon=True).start()
-
-                scaling = float(env_scale)
-                root.tk.call("tk", "scaling", scaling)
-                # Export effective scaling so other modules (e.g., Spotify tab) can align sizes.
-                os.environ["UI_SCALING_EFFECTIVE"] = str(scaling)
+    # Starte Spotify-Login nach GUI-Start, damit Terminal nicht blockiert
+    try:
+        import spotifylogin
+        threading.Thread(target=spotifylogin.start_oauth, daemon=True).start()
     except Exception:
         pass
+
+    try:
+        scaling = float(env_scale)
+        root.tk.call("tk", "scaling", scaling)
+        # Export effective scaling so other modules (e.g., Spotify tab) can align sizes.
+        os.environ["UI_SCALING_EFFECTIVE"] = str(scaling)
+    except Exception:
+        pass
+
     root.title("Smart Energy Dashboard Pro")
     app = MainApp(root)
-    
     elapsed = time.time() - start_time
     print(f"[STARTUP] ✅ Dashboard bereit in {elapsed:.1f}s")
 
