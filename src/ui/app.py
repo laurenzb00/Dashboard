@@ -46,7 +46,28 @@ _DATA_ROOT = os.path.join(_PROJECT_ROOT, "data")
 
 
 def _data_path(filename: str) -> str:
-    return os.path.join(_DATA_ROOT, filename)
+    """Berechnet den effektiv verfügbaren Datenpfad mit Fallbacks."""
+    candidates = [
+        os.path.join(_DATA_ROOT, filename),            # Neues data/-Verzeichnis im Repo
+        os.path.join(_PROJECT_ROOT, filename),          # Direkt im Projektroot (legacy)
+    ]
+
+    if platform.system() == "Linux":
+        candidates.extend([
+            os.path.join("/home/laurenz/projekt1/Projekt1/data", filename),
+            os.path.join("/home/laurenz/projekt1/Projekt1", filename),
+        ])
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    # Stelle sicher, dass das erste Ziel existiert, damit Writer es anlegen können
+    try:
+        os.makedirs(os.path.dirname(candidates[0]), exist_ok=True)
+    except Exception:
+        pass
+    return candidates[0]
 
 
 def _read_lines_safe(path: str) -> list[str]:
