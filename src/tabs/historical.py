@@ -212,7 +212,17 @@ class HistoricalTab:
                 self.var_boiler.set("-- °C")
                 self.var_out.set("-- °C")
 
-            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.18)
+            # Responsive margins for better scaling
+            self.fig.subplots_adjust(left=0.12, right=0.98, top=0.92, bottom=0.22)
+            # Responsive font size for small windows
+            w, h = self.canvas.get_tk_widget().winfo_width(), self.canvas.get_tk_widget().winfo_height()
+            font_size = 10 if min(w, h) > 500 else 8
+            self.ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=font_size, fontweight='bold')
+            self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=font_size)
+            self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=font_size-1)
+            legend = self.ax.get_legend()
+            if legend:
+                legend.set_fontsize(font_size-2)
             try:
                 if self.canvas.get_tk_widget().winfo_exists():
                     self.canvas.draw_idle()

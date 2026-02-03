@@ -89,7 +89,9 @@ class BufferStorageView(tk.Frame):
         self.ax.set_facecolor("none")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.configure(width=int(fig_width * 100), height=int(fig_height * 100))
+        # Enforce minimum figure size for scaling
+        min_width, min_height = 320, 180
+        self.canvas_widget.configure(width=max(int(fig_width * 100), min_width), height=max(int(fig_height * 100), min_height))
         self.canvas_widget.pack(fill=tk.BOTH, expand=True)
 
     def _setup_plot(self) -> None:
@@ -128,8 +130,11 @@ class BufferStorageView(tk.Frame):
                                   edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
         self.ax.add_patch(Rectangle((0.10, 0.10), 0.03, 0.80, transform=self.ax.transAxes,
                                     facecolor="#ffffff", alpha=0.07, linewidth=0))
+        # Responsive font size for title
+        w = self.canvas_widget.winfo_width() if hasattr(self, "canvas_widget") else 320
+        font_size = 12 if w > 500 else 9
         self.ax.text(0.20, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
-                     color=COLOR_TITLE, fontsize=12, va="top", ha="center", weight="bold")
+                 color=COLOR_TITLE, fontsize=font_size, va="top", ha="center", weight="bold")
 
         self.boiler_rect = FancyBboxPatch(
             (0.58, 0.08),
@@ -150,7 +155,7 @@ class BufferStorageView(tk.Frame):
         self.ax.add_patch(Rectangle((0.60, 0.10), 0.03, 0.41, transform=self.ax.transAxes,
                                     facecolor="#ffffff", alpha=0.06, linewidth=0))
         self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes,
-                     color=COLOR_TITLE, fontsize=12, va="top", ha="center", weight="bold")
+                 color=COLOR_TITLE, fontsize=font_size, va="top", ha="center", weight="bold")
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)
