@@ -191,6 +191,7 @@ class ErtragTab:
         self._resize_pending = True
         
         try:
+            self._resize_figure(w, h)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.2)
             self.root.after(100, lambda: self._do_canvas_draw())
         except Exception:
@@ -204,5 +205,11 @@ class ErtragTab:
             pass
         finally:
             self._resize_pending = False
+
+    def _resize_figure(self, width_px: int, height_px: int) -> None:
+        dpi = self.fig.dpi or 100
+        width_in = max(4.5, width_px / dpi)
+        height_in = max(2.6, height_px / dpi)
+        self.fig.set_size_inches(width_in, height_in, forward=True)
 
 

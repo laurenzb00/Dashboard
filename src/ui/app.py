@@ -139,6 +139,7 @@ class MainApp:
             pass
         init_style(self.root)
         self._ensure_emoji_font()
+        self._status_icon_ok, self._status_icon_warn = self._resolve_status_icons()
         
         if self._debug_log:
             print(f"[DEBUG] Screen: {sw}x{sh}, Target: {target_w}x{target_h}")
@@ -146,7 +147,7 @@ class MainApp:
         # Grid Setup: Minimize fixed row sizes to maximize content area
         self._base_header_h = 52
         self._base_tabs_h = 30
-        self._base_status_h = 24
+        self._base_status_h = 34
         self._base_energy_w = 460
         self._base_energy_h = 230
         self._base_buffer_h = 180
@@ -653,6 +654,13 @@ class MainApp:
         except Exception:
             self.status.update_status("Emoji-Font Installation fehlgeschlagen")
 
+    def _resolve_status_icons(self) -> tuple[str, str]:
+        """Use clean ASCII markers unless emojis are explicitly requested."""
+        prefer_emoji = os.getenv("DASH_STATUS_EMOJI", "0").strip().lower() in {"1", "true", "yes"}
+        if prefer_emoji and EMOJI_OK:
+            return "✅", "⚠️"
+        return "~", "▲"
+
     # --- Update Loop mit echten Daten (OPTIMIZED for Pi performance) ---
     def _loop(self):
         self._tick += 1
@@ -802,14 +810,14 @@ class MainApp:
                 parts.append(f"{info['label']} ⚠️ --")
                 continue
             age = (now - ts).total_seconds()
-            icon = "✅" if age <= 90 else "⚠️"
+            icon = self._status_icon_ok if age <= 90 else self._status_icon_warn
             parts.append(f"{info['label']} {icon} {self._format_age_compact(age)}")
 
         if self._data_fresh_seconds is not None:
-            icon = "✅" if self._data_fresh_seconds <= 120 else "⚠️"
+            icon = self._status_icon_ok if self._data_fresh_seconds <= 120 else self._status_icon_warn
             parts.append(f"DB {icon} {self._format_age_compact(self._data_fresh_seconds)}")
         else:
-            parts.append("DB ⚠️ --")
+            parts.append(f"DB {self._status_icon_warn} --")
 
         summary = " | ".join(parts)
         if summary != self._last_status_compact:
@@ -839,6 +847,12 @@ class MainApp:
     def _get_last_timestamp(self) -> datetime | None:
         if not self.datastore:
             return None
+        try:
+            cached = self.datastore.get_last_ingest_datetime()
+        except Exception:
+            cached = None
+        if cached:
+            return cached
         ts_str = self.datastore.get_latest_timestamp()
         if not ts_str:
             return None

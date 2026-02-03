@@ -51,7 +51,9 @@ class DataStore:
         self.db_path = str(db_path)
         self.conn = None
         self._lock = threading.RLock()
+        self._last_ingest_dt: Optional[datetime] = None
         self._init_db()
+        self._hydrate_last_ingest_cache()
     
     def _init_db(self):
         """Initialisiere Datenbank mit Tabellen."""
@@ -107,6 +109,16 @@ class DataStore:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_heating_ts ON heating(timestamp)")
         
         self.conn.commit()
+
+    def _hydrate_last_ingest_cache(self) -> None:
+        """Populate ingest cache from existing DB content on startup."""
+        with self._lock:
+            ts = self._get_latest_timestamp_unlocked()
+            if not ts:
+                self._last_ingest_dt = None
+                return
+            parsed = _parse_iso_timestamp(ts)
+            self._last_ingest_dt = parsed
     
     def import_fronius_csv(self, csv_path: str | os.PathLike[str]) -> bool:
         """Importiere FroniusDaten.csv in Datenbank."""
@@ -277,6 +289,7 @@ class DataStore:
                 (ts, pv, grid, batt, soc),
             )
             self.conn.commit()
+            self._update_last_ingest_locked(ts)
 
     def insert_heating_record(self, record: dict) -> None:
         """Persistiere Heizungs-/Pufferdaten."""
@@ -300,6 +313,7 @@ class DataStore:
                 (ts, kessel, outdoor, top, mid, bot, warm),
             )
             self.conn.commit()
+            self._update_last_ingest_locked(ts)
 
     def get_recent_fronius(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
         cutoff = _hours_ago_iso(hours)
@@ -371,12 +385,39 @@ class DataStore:
         return None
 
     def get_latest_timestamp(self) -> Optional[str]:
+        with self._lock:
+            ts = self._get_latest_timestamp_unlocked()
+            if ts:
+                self._update_last_ingest_locked(ts)
+            return ts
+
+    def get_last_ingest_datetime(self) -> Optional[datetime]:
+        with self._lock:
+            return self._last_ingest_dt
+
+    def get_last_ingest_timestamp(self) -> Optional[str]:
+        dt = self.get_last_ingest_datetime()
+        if not dt:
+            return None
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _get_latest_timestamp_unlocked(self) -> Optional[str]:
         cursor = self.conn.cursor()
         cursor.execute("SELECT MAX(timestamp) FROM fronius")
         fr = cursor.fetchone()[0]
         cursor.execute("SELECT MAX(timestamp) FROM heating")
         ht = cursor.fetchone()[0]
-        return max(filter(None, [fr, ht]), default=None)
+        values = [ts for ts in (fr, ht) if ts]
+        if not values:
+            return None
+        return max(values)
+
+    def _update_last_ingest_locked(self, ts: str) -> None:
+        dt = _parse_iso_timestamp(ts)
+        if not dt:
+            return
+        if self._last_ingest_dt is None or dt > self._last_ingest_dt:
+            self._last_ingest_dt = dt
 
     def seed_from_csv(self, data_dir: Optional[Path] = None) -> None:
         base = Path(data_dir) if data_dir else DATA_DIR
@@ -533,6 +574,20 @@ def _hours_ago_iso(hours: int | None) -> Optional[str]:
     if hours is None:
         return None
     return (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1]
+    try:
+        return datetime.fromisoformat(cleaned.replace("T", " ", 1))
+    except ValueError:
+        return None
 
 
 def _first_value(row: dict, *keys: str):

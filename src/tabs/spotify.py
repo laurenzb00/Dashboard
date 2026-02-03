@@ -99,11 +99,14 @@ class SpotifyTab:
 
         self.now_playing_frame = ttk.Frame(self.content_notebook, padding=12)
         self.library_frame = ttk.Frame(self.content_notebook, padding=12)
+        self.devices_frame = ttk.Frame(self.content_notebook, padding=12)
         self.content_notebook.add(self.now_playing_frame, text="Now Playing")
         self.content_notebook.add(self.library_frame, text="Playlists")
+        self.content_notebook.add(self.devices_frame, text="Geräte")
 
         self._build_now_playing_tab()
         self._build_library_tab()
+        self._build_devices_tab()
 
     def _build_now_playing_tab(self) -> None:
         container = ttk.Frame(self.now_playing_frame)
@@ -150,13 +153,8 @@ class SpotifyTab:
         self.volume_scale.pack(side=LEFT, expand=True, fill=tk.X)
         ttk.Button(volume_controls, text="+", width=4, command=lambda: self._adjust_volume(10), bootstyle="secondary").pack(side=LEFT, padx=3)
 
-        device_box = ttk.Labelframe(right, text="Geräte")
-        device_box.grid(row=1, column=0, sticky="nsew")
-        self.device_container = ttk.Frame(device_box)
-        self.device_container.pack(fill=tk.BOTH, expand=True)
-
         quick_box = ttk.Labelframe(right, text="Schnellaktionen")
-        quick_box.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        quick_box.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         self.shuffle_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
                         command=self._set_shuffle, bootstyle="round-toggle").pack(side=LEFT, padx=8)
@@ -167,6 +165,21 @@ class SpotifyTab:
         self.like_button = ttk.Button(quick_box, text="❤ Like", command=self._toggle_like,
                                       bootstyle="outline-success")
         self.like_button.pack(side=LEFT, padx=8)
+
+    def _build_devices_tab(self) -> None:
+        header = ttk.Frame(self.devices_frame)
+        header.pack(fill=tk.X)
+        ttk.Label(header, text="Geräteauswahl", font=("Arial", 14, "bold")).pack(anchor=W)
+        ttk.Label(header, text="Wähle hier das Ausgabegerät für Spotify.",
+                  font=("Arial", 10), foreground="#94a3b8").pack(anchor=W, pady=(2, 6))
+        ttk.Button(header, text="Geräte aktualisieren", command=self._refresh_devices,
+                   bootstyle="info-outline").pack(anchor=W)
+
+        body = ttk.Frame(self.devices_frame)
+        body.pack(fill=BOTH, expand=True, pady=(12, 0))
+        self.device_container = ttk.Frame(body)
+        self.device_container.pack(fill=BOTH, expand=True)
+        ttk.Label(self.device_container, text="Keine Geräte geladen", padding=12).pack()
 
     def _build_library_tab(self) -> None:
         top = ttk.Frame(self.library_frame)
@@ -405,6 +418,14 @@ class SpotifyTab:
         if not self.client or not device.get("id"):
             return
         self._safe_spotify_call(self.client.transfer_playback, device.get("id"), force_play=False)
+
+    def _refresh_devices(self):
+        if not self.client:
+            self._set_status("Spotify Login erforderlich")
+            return
+        devices = self._safe_spotify_call(self.client.devices)
+        if devices:
+            self._update_devices(devices.get("devices", []))
 
     def _refresh_playlists(self):
         if not self.client:

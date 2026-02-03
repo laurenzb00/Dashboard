@@ -140,7 +140,11 @@ class TadoTab:
             self.history_fig = fig
             self.history_ax = ax
             self.history_canvas = FigureCanvasTkAgg(fig, master=history_card.content())
-            self.history_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            widget = self.history_canvas.get_tk_widget()
+            widget.pack(fill=tk.BOTH, expand=True)
+            self._history_resize_pending = False
+            self._history_last_size = None
+            widget.bind("<Configure>", self._on_history_resize)
             self.history_temps = []  # Liste für Temperatur-Historie
         except Exception as e:
             logging.debug("[TADO] History chart unavailable: %s", e)
@@ -416,3 +420,37 @@ class TadoTab:
                 pass
         except Exception as e:
             logging.debug("[TADO] Chart update error: %s", e)
+
+    def _on_history_resize(self, event):
+        if getattr(self, "_history_resize_pending", False):
+            return
+        w = max(1, event.width)
+        h = max(1, event.height)
+        if getattr(self, "_history_last_size", None):
+            last_w, last_h = self._history_last_size
+            if abs(w - last_w) < 10 and abs(h - last_h) < 10:
+                return
+        self._history_last_size = (w, h)
+        self._history_resize_pending = True
+        try:
+            self._resize_history_figure(w, h)
+            self.root.after(80, self._finish_history_resize)
+        except Exception:
+            self._history_resize_pending = False
+
+    def _resize_history_figure(self, width_px: int, height_px: int) -> None:
+        if not getattr(self, "history_fig", None):
+            return
+        dpi = self.history_fig.dpi or 80
+        width_in = max(4.0, width_px / dpi)
+        height_in = max(2.2, height_px / dpi)
+        self.history_fig.set_size_inches(width_in, height_in, forward=True)
+
+    def _finish_history_resize(self):
+        try:
+            if self.history_canvas and self.history_canvas.get_tk_widget().winfo_exists():
+                self.history_canvas.draw_idle()
+        except Exception:
+            pass
+        finally:
+            self._history_resize_pending = False

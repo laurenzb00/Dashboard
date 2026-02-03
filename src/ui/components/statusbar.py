@@ -8,11 +8,11 @@ class StatusBar(tk.Frame):
     """32px Statusbar mit Zeitstempel, Fenster- und Exit-Button."""
 
     def __init__(self, parent: tk.Widget, on_exit=None, on_toggle_fullscreen=None):
-        super().__init__(parent, height=20, bg=COLOR_HEADER)
+        super().__init__(parent, height=32, bg=COLOR_HEADER)
         self.pack_propagate(False)
 
         rounded = RoundedFrame(self, bg=COLOR_CARD, border=None, radius=18, padding=0)
-        rounded.pack(fill=tk.BOTH, expand=True, padx=6, pady=3)
+        rounded.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
         inner = rounded.content()
 
         inner.grid_columnconfigure(0, weight=1)
@@ -20,26 +20,26 @@ class StatusBar(tk.Frame):
         inner.grid_columnconfigure(2, weight=0)
         inner.grid_columnconfigure(3, weight=0)
 
-        self.status_label = tk.Label(inner, text="Updated --:--:--", fg=COLOR_TEXT, bg=COLOR_CARD, font=("Segoe UI", 10))
+        self.status_label = tk.Label(inner, text="Updated --:--:--", fg=COLOR_TEXT, bg=COLOR_CARD, font=("Segoe UI", 11))
         self.status_label.grid(row=0, column=0, sticky="w", padx=12)
 
         self.center_frame = tk.Frame(inner, bg=COLOR_CARD)
         self.center_frame.grid(row=0, column=1, sticky="nsew")
 
-        self.center_label = tk.Label(self.center_frame, text="", fg=COLOR_SUBTEXT, bg=COLOR_CARD, font=("Segoe UI", 10))
+        self.center_label = tk.Label(self.center_frame, text="", fg=COLOR_SUBTEXT, bg=COLOR_CARD, font=("Segoe UI", 11))
         self.center_label.pack(side=tk.LEFT, padx=(6, 8))
 
-        self.fresh_label = tk.Label(self.center_frame, text="Daten: --", fg=COLOR_SUBTEXT, bg=COLOR_CARD, font=("Segoe UI", 9))
+        self.fresh_label = tk.Label(self.center_frame, text="Daten: --", fg=COLOR_SUBTEXT, bg=COLOR_CARD, font=("Segoe UI", 10))
         self.fresh_label.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.spark_canvas = tk.Canvas(self.center_frame, width=110, height=16, bg=COLOR_CARD, highlightthickness=0)
+        self.spark_canvas = tk.Canvas(self.center_frame, width=110, height=18, bg=COLOR_CARD, highlightthickness=0)
         self.spark_canvas.pack(side=tk.LEFT, padx=(0, 6))
 
         from ui.components.rounded_button import RoundedButton
         self.window_btn = RoundedButton(
             inner, text="⊡", command=on_toggle_fullscreen,
             bg=COLOR_BORDER, fg=COLOR_TEXT,
-            radius=10, padding=(10, 3), font_size=11, width=44, height=24
+            radius=10, padding=(10, 4), font_size=11, width=44, height=26
         )
         self.window_btn.grid(row=0, column=2, sticky="e", padx=(6, 4), pady=0)
 
@@ -47,7 +47,7 @@ class StatusBar(tk.Frame):
         self.exit_btn = RoundedButton(
             inner, text="⏻", command=on_exit,
             bg=COLOR_DANGER, fg="#fff",
-            radius=10, padding=(10, 3), font_size=11, width=44, height=24
+            radius=10, padding=(10, 4), font_size=11, width=44, height=26
         )
         self.exit_btn.grid(row=0, column=3, sticky="e", padx=(4, 8), pady=0)
 

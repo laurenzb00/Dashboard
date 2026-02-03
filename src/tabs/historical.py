@@ -231,7 +231,7 @@ class HistoricalTab:
         # Prevent Configure event loop - debounce rapid resize events
         if self._resize_pending:
             return
-        
+
         w = max(1, event.width)
         h = max(1, event.height)
         if self._last_canvas_size:
@@ -244,6 +244,7 @@ class HistoricalTab:
         self._resize_pending = True
         
         try:
+            self._resize_figure(w, h)
             self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.18)
             # Use after() to defer the draw and prevent event loop
             self.root.after(100, lambda: self._do_canvas_draw())
@@ -259,6 +260,12 @@ class HistoricalTab:
             pass
         finally:
             self._resize_pending = False
+
+    def _resize_figure(self, width_px: int, height_px: int) -> None:
+        dpi = self.fig.dpi or 100
+        width_in = max(4.5, width_px / dpi)
+        height_in = max(2.8, height_px / dpi)
+        self.fig.set_size_inches(width_in, height_in, forward=True)
 
     @staticmethod
     def _parse_ts(value):
