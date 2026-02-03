@@ -3,7 +3,7 @@
 import json
 import os
 from datetime import datetime
-from typing import List
+from typing import List, Tuple
 
 from core.datastore import DataStore
 
@@ -14,14 +14,15 @@ ERTRAG_VALIDATION_LOG = os.path.join(WORKING_DIR, "ertrag_validation.json")
 
 
 def load_current_ertrag(store: DataStore) -> List[dict]:
-    cursor = store.conn.cursor()
-    rows = cursor.execute(
+    with store._lock:  # noqa: SLF001 - interne Synchronisation nötig
+        cursor = store.conn.cursor()
+        rows = cursor.execute(
         """
         SELECT date, daily_ertrag, total_ertrag
         FROM ertrag_history
         ORDER BY date ASC
         """
-    ).fetchall()
+        ).fetchall()
     return [
         {
             "date": row[0],
@@ -60,26 +61,28 @@ def reconstruct_ertrag_from_store(store: DataStore) -> List[dict]:
 
 
 def persist_ertrag_history(store: DataStore, rows: List[dict]) -> None:
-    cursor = store.conn.cursor()
-    cursor.execute("DELETE FROM ertrag_history")
-    cursor.executemany(
-        """
-        INSERT INTO ertrag_history (date, total_ertrag, daily_ertrag)
-        VALUES (?, ?, ?)
-        """,
-        [
-            (row["date"], row["total_ertrag"], row["daily_ertrag"])
-            for row in rows
-        ],
-    )
-    store.conn.commit()
+    with store._lock:  # noqa: SLF001 - blockiert parallele Writer sauber
+        cursor = store.conn.cursor()
+        cursor.execute("DELETE FROM ertrag_history")
+        cursor.executemany(
+            """
+            INSERT INTO ertrag_history (date, total_ertrag, daily_ertrag)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (row["date"], row["total_ertrag"], row["daily_ertrag"])
+                for row in rows
+            ],
+        )
+        store.conn.commit()
 
 
 def get_fronius_stats(store: DataStore) -> dict:
-    cursor = store.conn.cursor()
-    count, start, end = cursor.execute(
+    with store._lock:  # noqa: SLF001 - Leser schützt sich vor parallelen Writes
+        cursor = store.conn.cursor()
+        count, start, end = cursor.execute(
         "SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM fronius"
-    ).fetchone()
+        ).fetchone()
     return {
         "count": count or 0,
         "start": start,
@@ -87,13 +90,18 @@ def get_fronius_stats(store: DataStore) -> dict:
     }
 
 
-def validate_and_repair_ertrag() -> bool:
+def _acquire_store(store: DataStore | None) -> Tuple[DataStore, bool]:
+    if store is not None:
+        return store, False
+    return DataStore(), True
+
+
+def validate_and_repair_ertrag(store: DataStore | None = None) -> bool:
     """Rekonstruiert ErtragHistory direkt aus SQLite-Daten."""
     print("\n" + "=" * 60)
     print("ERTRAG-VALIDIERUNG GESTARTET")
     print("=" * 60)
-
-    store = DataStore()
+    store, owns_store = _acquire_store(store)
     try:
         stats = get_fronius_stats(store)
         if stats["count"] == 0:
@@ -149,7 +157,8 @@ def validate_and_repair_ertrag() -> bool:
         print("=" * 60 + "\n")
         return True
     finally:
-        store.close()
+        if owns_store:
+            store.close()
 
 
 if __name__ == "__main__":

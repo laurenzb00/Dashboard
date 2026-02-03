@@ -426,7 +426,7 @@ class MainApp:
             try:
                 from core.ertrag_validator import validate_and_repair_ertrag
                 print("[ERTRAG] Validation beim Start...")
-                validate_and_repair_ertrag()
+                validate_and_repair_ertrag(self.datastore)
                 print("[ERTRAG] Ertrag- und Heizungs-Tabs werden aktualisiert...")
                 # Update tabs after validation
                 if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
@@ -444,7 +444,7 @@ class MainApp:
                 try:
                     from core.ertrag_validator import validate_and_repair_ertrag
                     print("[ERTRAG] Wöchentliche Validierung...")
-                    validate_and_repair_ertrag()
+                    validate_and_repair_ertrag(self.datastore)
                     # Update tabs after validation
                     if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
                         self.ertrag_tab._last_key = None
