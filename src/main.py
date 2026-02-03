@@ -141,14 +141,6 @@ def main():
 
     env_scale = os.getenv("UI_SCALING")
 
-    # Optional: Spotify-Login nur starten, wenn ausdrücklich gewünscht
-    if os.getenv("SPOTIFY_AUTO_LOGIN", "0") == "1":
-        try:
-            import spotifylogin
-            threading.Thread(target=spotifylogin.start_oauth, daemon=True).start()
-        except Exception:
-            pass
-
     try:
         if env_scale:
             scaling = float(env_scale)

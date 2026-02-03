@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 import tkinter as tk
 from tkinter import ttk
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 from core.datastore import get_shared_datastore
 from ui.styles import (
     COLOR_ROOT,
@@ -33,17 +33,21 @@ class ErtragTab:
         self.card.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         self.card.add_title("PV-Ertrag (täglich)", icon="📈")
 
-        self.fig, self.ax = plt.subplots(figsize=(7.6, 3.0), dpi=100)
+        chart_frame = tk.Frame(self.card.content(), bg=COLOR_CARD)
+        chart_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.fig = Figure(figsize=(7.6, 3.2), dpi=100)
+        self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.card.content())
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self._last_canvas_size = None
         self._resize_pending = False
         self.canvas.get_tk_widget().bind("<Configure>", self._on_canvas_resize)
 
         stats_frame = ttk.Frame(self.card.content())
-        stats_frame.pack(fill=tk.X, pady=(8, 0))
+        stats_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
         self.var_sum = tk.StringVar(value="Summe: -- kWh")
         self.var_avg = tk.StringVar(value="Schnitt/Tag: -- kWh")
         self.var_last = tk.StringVar(value="Letzter Tag: -- kWh")
@@ -104,8 +108,8 @@ class ErtragTab:
         if not self.canvas.get_tk_widget().winfo_exists():
             return
 
-        # Monatsansicht statt Täglich - viel übersichtlicher!
-        data = self._load_pv_monthly(12)  # Letzte 12 Monate
+        window_days = 90
+        data = self._load_pv_daily(window_days)
         key = (len(data), data[-1] if data else None) if data else ("empty",)
         
         # Nur redraw wenn sich Daten wirklich geändert haben
@@ -124,25 +128,28 @@ class ErtragTab:
 
         if data:
             ts, vals = zip(*data)
-            # Balkendiagramm für monatliche Werte - viel übersichtlicher!
-            self.ax.bar(ts, vals, width=25, color=COLOR_PRIMARY, alpha=0.8, edgecolor=COLOR_PRIMARY, linewidth=1.5)
-            
-            self.ax.set_ylabel("Ertrag (kWh/Monat)", color=COLOR_TEXT, fontsize=10, fontweight='bold')
+            self.ax.plot(ts, vals, color=COLOR_PRIMARY, linewidth=2.0, alpha=0.9, marker="o", markersize=3)
+            self.ax.fill_between(ts, vals, color=COLOR_PRIMARY, alpha=0.15)
+
+            self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=10, fontweight='bold')
             self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)
             self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=8)
-            
-            # Monatsbeschriftung
-            self.ax.xaxis.set_major_locator(mdates.MonthLocator())
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %y"))
-            plt.setp(self.ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
-            self.ax.grid(True, color=COLOR_BORDER, alpha=0.2, linewidth=0.5, axis="y")
+            locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
+            self.ax.xaxis.set_major_locator(locator)
+            self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+            for label in self.ax.get_xticklabels():
+                label.set_rotation(45)
+                label.set_horizontalalignment("right")
+            self.ax.grid(True, color=COLOR_BORDER, alpha=0.2, linewidth=0.6)
+            self.ax.set_ylim(bottom=0)
 
             total = sum(vals)
             avg = total / max(1, len(vals))
-            max_val = max(vals) if vals else 0
-            self.var_sum.set(f"Summe: {total:.0f} kWh")
-            self.var_avg.set(f"Ø Monat: {avg:.0f} kWh")
-            self.var_last.set(f"Max: {max_val:.0f} kWh")
+            last_ts = ts[-1].strftime("%d.%m.%Y")
+            last_val = vals[-1]
+            self.var_sum.set(f"Summe ({window_days}T): {total:.0f} kWh")
+            self.var_avg.set(f"Ø Tag: {avg:.1f} kWh")
+            self.var_last.set(f"{last_ts}: {last_val:.1f} kWh")
         else:
             self.ax.text(0.5, 0.5, "Keine Daten", color=COLOR_SUBTEXT, ha="center", va="center", 
                         fontsize=12, transform=self.ax.transAxes)

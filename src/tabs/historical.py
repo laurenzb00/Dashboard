@@ -1,10 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 from core.datastore import get_shared_datastore
 from ui.styles import (
     COLOR_ROOT,
@@ -71,7 +71,8 @@ class HistoricalTab:
             ttk.Label(stat_card, textvariable=var, font=("Arial", 14, "bold")).pack(anchor="w", padx=6, pady=(0, 4))
 
         # Plot
-        self.fig, self.ax = plt.subplots(figsize=(7.2, 3.6), dpi=100)
+        self.fig = Figure(figsize=(7.2, 3.6), dpi=100)
+        self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.card.content())

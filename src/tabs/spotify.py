@@ -63,11 +63,6 @@ class SpotifyTab:
         self._latest_login_url: str | None = None
         self._ensure_cached_session()
 
-        # Optional Auto-Login per Umgebungsvariable (Standard = aus)
-        if os.getenv("SPOTIFY_AUTO_LOGIN", "0") == "1" and self.client is None:
-            self._set_status("Spotify Auto-Login gestartet…")
-            self._start_login_flow(auto_open=False)
-    
     def _ensure_cached_session(self):
         spotifylogin = self._import_spotifylogin()
         if not spotifylogin:
