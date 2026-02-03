@@ -207,22 +207,38 @@ class SpotifyTab:
     # Spotify API Helpers
     # ------------------------------------------------------------------
     def _ensure_cached_session(self):
+        # --- New login logic ---
         spotifylogin = self._import_spotifylogin()
         if not spotifylogin:
+            self.client = None
             self._set_status("Spotify Modul fehlt")
+            self.status_var.set("Spotify Modul fehlt")
+            self.token_info_var.set("Kein Spotify Modul gefunden")
             return
+
+        self.status_var.set("Login wird geprüft…")
+        self.token_info_var.set("")
         try:
             client = spotifylogin.start_oauth()
         except Exception as exc:
-            logging.error("[SPOTIFY] Start OAuth failed: %s", exc)
-            client = None
+            logging.error("[SPOTIFY] OAuth Fehler: %s", exc)
+            self.client = None
+            self._set_status("Login fehlgeschlagen")
+            self.status_var.set("Login fehlgeschlagen")
+            self.token_info_var.set(f"Fehler: {exc}")
+            return
+
         if client:
             self.client = client
             self._set_status("Login erfolgreich – Spotify verbunden")
             self.status_var.set("Login erfolgreich – Spotify verbunden")
+            self.token_info_var.set("Token gefunden und verbunden")
         else:
+            self.client = None
             self._set_status("Spotify Login erforderlich")
             self.status_var.set("Spotify Login erforderlich")
+            self.token_info_var.set("Kein Token gefunden – bitte im Browser einloggen")
+
         self._refresh_status()
 
     def _start_playback_poll(self):
