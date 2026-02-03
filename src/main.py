@@ -7,6 +7,10 @@ import subprocess
 import sys
 import platform
 import os
+import faulthandler
+import traceback
+import atexit
+from pathlib import Path
 from core.datastore import DataStore, set_shared_datastore, close_shared_datastore
 import importlib
 
@@ -95,10 +99,42 @@ for noisy in [
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 shutdown_event = threading.Event()
+_CRASH_LOG_FILE = None
+CRASH_LOG_PATH = Path(__file__).resolve().with_name("crash.log")
 
 
 # Thread-safe queue for data updates
 data_queue = queue.Queue()
+
+def _install_crash_logger(log_path: Path | str | None = None) -> None:
+    global _CRASH_LOG_FILE
+    if _CRASH_LOG_FILE is not None:
+        return
+    target = Path(log_path) if log_path else CRASH_LOG_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _CRASH_LOG_FILE = target.open("a", encoding="utf-8", buffering=1)
+    except OSError:
+        _CRASH_LOG_FILE = None
+        return
+
+    def _handle_exception(exc_type, exc_value, exc_traceback):
+        logging.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+        if _CRASH_LOG_FILE:
+            _CRASH_LOG_FILE.write("\n==== Crash at {} ====".format(time.strftime("%Y-%m-%d %H:%M:%S")))
+            _CRASH_LOG_FILE.write("\n")
+            traceback.print_exception(exc_type, exc_value, exc_traceback, file=_CRASH_LOG_FILE)
+            _CRASH_LOG_FILE.flush()
+
+    try:
+        faulthandler.enable(_CRASH_LOG_FILE)
+    except Exception:
+        pass
+    sys.excepthook = _handle_exception
+    atexit.register(lambda: _CRASH_LOG_FILE and _CRASH_LOG_FILE.close())
+
+
+_install_crash_logger()
 
 def run_wechselrichter():
     try:

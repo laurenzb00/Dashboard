@@ -1,6 +1,7 @@
 import threading
 import os
 import time
+import logging
 import tkinter as tk
 from tkinter import ttk
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -37,7 +38,7 @@ class TadoTab:
         self.alive = True
         self.api = None
         self.zone_id = None
-        print("[TADO] TadoTab initialized")
+        logging.info("[TADO] Tab initialisiert")
         
         # UI Variablen
         self.var_temp_ist = tk.StringVar(value="--.- °C")
@@ -142,7 +143,7 @@ class TadoTab:
             self.history_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
             self.history_temps = []  # Liste für Temperatur-Historie
         except Exception as e:
-            print(f"[TADO] History chart error: {e}")
+            logging.debug("[TADO] History chart unavailable: %s", e)
             self.history_canvas = None
 
         # Start Update Loop
@@ -235,7 +236,7 @@ class TadoTab:
 
     def _loop(self):
         """Hintergrund-Update Loop."""
-        print("[TADO] Loop started")
+        logging.info("[TADO] Loop gestartet")
         # Login
         try:
             from PyTado.interface import Tado
@@ -243,11 +244,11 @@ class TadoTab:
             # OAuth Device Flow (seit 2025) + Token-Cache
             self.api = Tado(token_file_path=TADO_TOKEN_FILE)
             status = self.api.device_activation_status()
-            print(f"[TADO] device_activation_status: {status}")
+            logging.debug("[TADO] device_activation_status: %s", status)
             if status != "COMPLETED":
                 url = self._normalize_device_url(self.api.device_verification_url())
                 if url:
-                    print(f"[TADO] Device activation URL: {url}")
+                    logging.info("[TADO] Device activation URL: %s", url)
                     self._ui_set(self.var_status, "Tado: Bitte Gerät im Browser aktivieren")
 
                 # Wait until flow is pending before activation
@@ -259,7 +260,7 @@ class TadoTab:
                 if status == "PENDING":
                     self.api.device_activation()
                     status = self.api.device_activation_status()
-                    print(f"[TADO] device_activation_status after activation: {status}")
+                    logging.debug("[TADO] Status nach Aktivierung: %s", status)
 
                 if status != "COMPLETED":
                     self._ui_set(self.var_status, "Tado Aktivierung fehlgeschlagen")
@@ -270,7 +271,7 @@ class TadoTab:
                     return
             
             zones = self.api.get_zones()
-            print(f"[TADO] zones: {len(zones)}")
+            logging.debug("[TADO] zones gefunden: %s", len(zones))
             for z in zones:
                 if "Schlaf" in z.get('name', '') or "Bed" in z.get('name', ''):
                     self.zone_id = z.get('id')
@@ -308,11 +309,11 @@ class TadoTab:
                 state = self._state_to_dict(state)
 
                 if not getattr(self, "_state_logged", False):
-                    print("[TADO] zone_state keys:", list(state.keys()))
-                    print("[TADO] sensorDataPoints keys:", list(state.get("sensorDataPoints", {}).keys()))
-                    print("[TADO] activityDataPoints keys:", list(state.get("activityDataPoints", {}).keys()))
-                    print("[TADO] setting keys:", list(state.get("setting", {}).keys()))
-                    print("[TADO] overlay keys:", list(state.get("overlay", {}).keys()))
+                    logging.debug("[TADO] zone_state keys: %s", list(state.keys()))
+                    logging.debug("[TADO] sensorDataPoints keys: %s", list(state.get("sensorDataPoints", {}).keys()))
+                    logging.debug("[TADO] activityDataPoints keys: %s", list(state.get("activityDataPoints", {}).keys()))
+                    logging.debug("[TADO] setting keys: %s", list(state.get("setting", {}).keys()))
+                    logging.debug("[TADO] overlay keys: %s", list(state.get("overlay", {}).keys()))
                     self._state_logged = True
                 
                 # Temperatur
@@ -379,7 +380,7 @@ class TadoTab:
                     
             except Exception as e:
                 if not getattr(self, "_state_error_logged", False):
-                    print(f"[TADO] zone_state error: {type(e).__name__}: {e}")
+                    logging.warning("[TADO] zone_state error: %s: %s", type(e).__name__, e)
                     self._state_error_logged = True
             
             time.sleep(30)  # Update alle 30 Sekunden
@@ -415,4 +416,4 @@ class TadoTab:
             except:
                 pass
         except Exception as e:
-            print(f"[TADO] Chart update error: {e}")
+            logging.debug("[TADO] Chart update error: %s", e)
