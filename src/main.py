@@ -126,31 +126,7 @@ def main():
         try:
             import spotifylogin
             threading.Thread(target=spotifylogin.start_oauth, daemon=True).start()
-        except ImportError:
-            print("[MAIN] Could not import spotifylogin")
-        except Exception as e:
-            print(f"[MAIN] Error initializing Spotify: {e}")
-    print("[STARTUP] 🚀 Starte Smart Home Dashboard...")
-    start_time = time.time()
-    
-    # Starte Datensammler parallel
-    threads = [
-        threading.Thread(target=run_wechselrichter, daemon=True, name="Wechselrichter"),
-        threading.Thread(target=run_bmkdaten, daemon=True, name="BMKDATEN"),
-    ]
-    
-    print("[STARTUP] 📊 Starte Datensammler (parallel)...")
-    for t in threads:
-        t.start()
-        print(f"[STARTUP]   ✓ {t.name} Thread gestartet")
-    
-    # UI starten (geschieht parallel zu Datensammlung)
-    print("[STARTUP] 🎨 Initialisiere UI...")
-    root = tk.Tk()
-    # Auto-detect DPI-based scaling; can be overridden via UI_SCALING env.
-    try:
-        env_scale = os.getenv("UI_SCALING")
-        if env_scale:
+
             scaling = float(env_scale)
         else:
             dpi = float(root.winfo_fpixels("1i"))  # pixels per inch
