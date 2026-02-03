@@ -127,14 +127,10 @@ def main():
             import spotifylogin
             threading.Thread(target=spotifylogin.start_oauth, daemon=True).start()
 
-            scaling = float(env_scale)
-        else:
-            dpi = float(root.winfo_fpixels("1i"))  # pixels per inch
-            scaling = dpi / 96.0  # normalize to 96 DPI baseline
-            scaling = max(0.9, min(1.6, scaling))  # clamp reasonable range
-        root.tk.call("tk", "scaling", scaling)
-        # Export effective scaling so other modules (e.g., Spotify tab) can align sizes.
-        os.environ["UI_SCALING_EFFECTIVE"] = str(scaling)
+                scaling = float(env_scale)
+                root.tk.call("tk", "scaling", scaling)
+                # Export effective scaling so other modules (e.g., Spotify tab) can align sizes.
+                os.environ["UI_SCALING_EFFECTIVE"] = str(scaling)
     except Exception:
         pass
     root.title("Smart Energy Dashboard Pro")
