@@ -187,58 +187,47 @@ def _extrahiere_pufferdaten(values, zeitstempel):
         temps = [temp_oben, temp_mitte, temp_unten]
         temps_valid = [t for t in temps if t is not None]
         
-        if not temps_valid:
+        try:
+            url = "http://192.168.1.201/daqdata.cgi"
+            response = requests.get(url, timeout=5)
+
+            if response.status_code == 200:
+                lines = response.text.split("\n")
+                values = [line.strip() for line in lines if line.strip()]
+                zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                logger.debug(f"BMK Response hat {len(values)} Werte")
+                daten_heizung = _extrahiere_alle_daten(values, zeitstempel)
+                def _get_field(name: str, *alts: str):
+                    if not daten_heizung:
+                        return ""
+                    if name in daten_heizung:
+                        return daten_heizung.get(name)
+                    for alt in alts:
+                        if alt in daten_heizung:
+                            return daten_heizung.get(alt)
+                    return ""
+                daten_kurz = {
+                    "Zeitstempel": zeitstempel,
+                    "Kesseltemperatur": _get_field("Kesseltemperatur"),
+                    "Außentemperatur": _get_field("Außentemperatur"),
+                    "Pufferspeicher Oben": _get_field("Puffer_Oben", "Pufferspeicher Oben"),
+                    "Pufferspeicher Mitte": _get_field("Pufferspeicher_Mitte", "Pufferspeicher Mitte"),
+                    "Pufferspeicher Unten": _get_field("Puffer_Unten", "Pufferspeicher Unten"),
+                    "Warmwasser": _get_field("Warmwassertemperatur", "Warmwasser"),
+                }
+                if daten_heizung:
+                    daten_heizung.update(daten_kurz)
+                    _speichere_heizungsdaten(daten_heizung)
+                else:
+                    _speichere_heizungsdaten(daten_kurz)
+                daten_puffer = _extrahiere_pufferdaten(values, zeitstempel)
+                if daten_puffer:
+                    _speichere_pufferdaten(daten_puffer)
+                return daten_heizung if daten_heizung else daten_kurz
             return None
-        
-        puffer_data = {
-            "Zeitstempel": zeitstempel,
-            "Oben": temp_oben,
-            "Mitte": temp_mitte,
-            "Unten": temp_unten,
-            "Durchschnitt": sum(temps_valid) / len(temps_valid) if temps_valid else None,
-            "Stratifikation": temp_oben - temp_unten if (temp_oben and temp_unten) else None,
-            "Status": _bestimme_puffer_status(temp_oben, temp_mitte, temp_unten)
-        }
-        
-        return puffer_data
-    except Exception as e:
-        logger.error(f"Fehler bei Pufferextraktion: {e}")
-        return None
-
-
-def _bestimme_puffer_status(oben, mitte, unten):
-    """
-    Bestimmt den Betriebsstatus des Pufferspeichers
-    """
-    if not all([oben, mitte, unten]):
-        return "FEHLER"
-    
-    temp_durchschnitt = (oben + mitte + unten) / 3
-    
-    if temp_durchschnitt > 70:
-        return "GELADEN"
-    elif temp_durchschnitt > 50:
-        return "TEILGELADEN"
-    elif temp_durchschnitt > 30:
-        return "ENTLADEN"
-    else:
-        return "KALT"
-
-
-def _safe_float(value):
-    """
-    Sicher zu float konvertieren
-    """
-    if not value or value == "":
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
-
-
-def _speichere_heizungsdaten(daten):
-    """
+        except Exception as e:
+            logger.error(f"Fehler bei BMK: {e}")
+            return None
     Speichert Heizungsdaten in CSV (data/ Verzeichnis nach Reorganisierung)
     """
     # Nach Reorganisierung: data/ Verzeichnis im Root
