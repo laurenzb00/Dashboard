@@ -164,12 +164,33 @@ def main():
 
     root.title("Smart Energy Dashboard Pro")
     app = MainApp(root)
+
+    def _start_collectors() -> list[threading.Thread]:
+        threads: list[threading.Thread] = []
+        for target, name in (
+            (run_wechselrichter, "WechselrichterCollector"),
+            (run_bmkdaten, "BMKDATENCollector"),
+        ):
+            try:
+                thread = threading.Thread(target=target, name=name, daemon=True)
+                thread.start()
+                threads.append(thread)
+            except Exception as exc:
+                logging.error("%s konnte nicht gestartet werden: %s", name, exc)
+        return threads
+
+    collector_threads = _start_collectors()
     elapsed = time.time() - start_time
     print(f"[STARTUP] ✅ Dashboard bereit in {elapsed:.1f}s")
 
     def on_close():
         logging.info("Programm wird beendet…")
         shutdown_event.set()
+        for thread in collector_threads:
+            try:
+                thread.join(timeout=2.0)
+            except Exception:
+                pass
         try:
             close_shared_datastore()
         except Exception:

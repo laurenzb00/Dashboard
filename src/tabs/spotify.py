@@ -32,40 +32,70 @@ class SpotifyTab:
         )
         login_button.pack(pady=5)
 
+        self.client = None
+        self._ensure_cached_session()
+
         # Optional Auto-Login per Umgebungsvariable (Standard = aus)
-        if os.getenv("SPOTIFY_AUTO_LOGIN", "0") == "1":
-            threading.Thread(target=self._auto_login, daemon=True).start()
+        if os.getenv("SPOTIFY_AUTO_LOGIN", "0") == "1" and self.client is None:
+            self._set_status("Spotify Auto-Login gestartet…")
+            self._start_login_flow(auto_open=True)
     
-    def _auto_login(self):
-        """Nur verwenden, wenn Auto-Login explizit aktiviert wurde."""
-        self.status_var.set("Starte Spotify OAuth…")
+    def _ensure_cached_session(self):
+        spotifylogin = self._import_spotifylogin()
+        if not spotifylogin:
+            self._set_status("Spotify Modul fehlt")
+            return
         try:
-            spotifylogin = self._import_spotifylogin()
-            if spotifylogin:
-                spotifylogin.start_oauth()
-            logging.info("[SPOTIFY] OAuth init completed")
-            self.status_var.set("Spotify OAuth aktiv")
-        except Exception as e:
-            logging.error(f"[SPOTIFY] OAuth init failed: {e}")
-            self.status_var.set("Spotify OAuth Fehler")
+            client = spotifylogin.start_oauth()
+        except Exception as exc:
+            logging.error(f"[SPOTIFY] Start OAuth failed: {exc}")
+            client = None
+        if client:
+            self.client = client
+            self._set_status("Spotify Token gefunden – verbunden")
+        else:
+            self._set_status("Spotify Login erforderlich")
 
     def _open_browser_login(self):
         """Force opening the Spotify login in the browser on demand."""
-        self.status_var.set("Öffne Browser-Login…")
+        self._set_status("Öffne Browser-Login…")
+        self._start_login_flow(auto_open=True)
 
+    def _start_login_flow(self, auto_open: bool | None = None):
         def _worker():
+            spotifylogin = self._import_spotifylogin()
+            if not spotifylogin:
+                self._set_status("Spotify Modul fehlt")
+                return
             try:
-                spotifylogin = self._import_spotifylogin()
-                if spotifylogin:
-                    spotifylogin.start_oauth()
-                    self.status_var.set("Browser-Login gestartet")
-                else:
-                    self.status_var.set("Spotify Modul fehlt")
+                result = spotifylogin.begin_login_flow(auto_open=auto_open)
             except Exception as exc:
-                logging.error(f"[SPOTIFY] Browser-Login Fehler: {exc}")
-                self.status_var.set("Login fehlgeschlagen")
+                logging.error(f"[SPOTIFY] Login-Flow Fehler: {exc}")
+                self._set_status("Login-Flow konnte nicht gestartet werden")
+                return
+            if not result.get("ok"):
+                self._set_status(f"Spotify Fehler: {result.get('error')}")
+                return
+            hint = None
+            try:
+                hint = spotifylogin.get_login_hint_path()
+            except Exception:
+                hint = None
+            if hint:
+                self._set_status(f"Login-Link gespeichert in {hint}")
+            else:
+                self._set_status("Browser geöffnet – bitte Login abschließen")
+            ok, err = spotifylogin.wait_for_login_result()
+            if ok:
+                self._set_status("Spotify Login abgeschlossen – Token gespeichert")
+                self._ensure_cached_session()
+            else:
+                self._set_status(f"Login fehlgeschlagen: {err}")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _set_status(self, message: str) -> None:
+        self.root.after(0, self.status_var.set, message)
 
     def _import_spotifylogin(self):
         try:
