@@ -33,7 +33,19 @@ class SpotifyTab:
         self.link_var = tk.StringVar(value="Noch kein Login-Link erzeugt")
         self.status_detail_var = tk.StringVar(value="Konfiguration wird geprüft…")
         self.token_info_var = tk.StringVar(value="Noch kein Token gefunden")
-        callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
+        # Load callback URI from config file if available
+        import json
+        config_path = os.path.join(os.path.dirname(__file__), '../../config/spotify.json')
+        callback_uri = None
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                    callback_uri = cfg.get('redirect_uri')
+            except Exception:
+                callback_uri = None
+        if not callback_uri:
+            callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
         self.redirect_var = tk.StringVar(value=f"Callback-URL: {callback_uri}")
 
         self._build_ui()
