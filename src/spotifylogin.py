@@ -68,21 +68,20 @@ def start_oauth() -> Optional["spotipy.Spotify"]:
 
     # check if we have a valid token
     token_info = auth.get_cached_token()
-    
+
+    # Immer Browser öffnen, auch wenn Token vorhanden
+    try:
+        auth_url = auth.get_authorize_url()
+        print("\n" + "="*60)
+        print("[SPOTIFY] Authentication Required!")
+        print(f"Open this URL: {auth_url}")
+        print("="*60 + "\n")
+        logging.info("[SPOTIFY] Auth URL: %s", auth_url)
+        webbrowser.open(auth_url, new=1)
+    except Exception as e:
+        logging.error(f"[SPOTIFY] Error opening auth url: {e}")
+
     if not token_info:
-        # No token found, need to authorize
-        try:
-            auth_url = auth.get_authorize_url()
-            print("\n" + "="*60)
-            print("[SPOTIFY] Authentication Required!")
-            print(f"Open this URL: {auth_url}")
-            print("="*60 + "\n")
-            logging.info("[SPOTIFY] Auth URL: %s", auth_url)
-            
-            # Try to open browser
-            webbrowser.open(auth_url, new=1)
-        except Exception as e:
-            logging.error(f"[SPOTIFY] Error opening auth url: {e}")
         return None
 
     logging.info("[SPOTIFY] Authenticated successfully with cached token.")
