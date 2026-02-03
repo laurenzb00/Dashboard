@@ -125,12 +125,13 @@ def main():
 
     env_scale = os.getenv("UI_SCALING")
 
-    # Starte Spotify-Login nach GUI-Start, damit Terminal nicht blockiert
-    try:
-        import spotifylogin
-        threading.Thread(target=spotifylogin.start_oauth, daemon=True).start()
-    except Exception:
-        pass
+    # Optional: Spotify-Login nur starten, wenn ausdrücklich gewünscht
+    if os.getenv("SPOTIFY_AUTO_LOGIN", "0") == "1":
+        try:
+            import spotifylogin
+            threading.Thread(target=spotifylogin.start_oauth, daemon=True).start()
+        except Exception:
+            pass
 
     try:
         if env_scale:

@@ -32,11 +32,13 @@ class SpotifyTab:
         )
         login_button.pack(pady=5)
 
-        # Start OAuth initialization in background
-        threading.Thread(target=self._init, daemon=True).start()
+        # Optional Auto-Login per Umgebungsvariable (Standard = aus)
+        if os.getenv("SPOTIFY_AUTO_LOGIN", "0") == "1":
+            threading.Thread(target=self._auto_login, daemon=True).start()
     
-    def _init(self):
-        """Initialize Spotify OAuth in background"""
+    def _auto_login(self):
+        """Nur verwenden, wenn Auto-Login explizit aktiviert wurde."""
+        self.status_var.set("Starte Spotify OAuth…")
         try:
             spotifylogin = self._import_spotifylogin()
             if spotifylogin:
