@@ -624,12 +624,14 @@ class SpotifyTab:
 
     def _start_login_flow(self, auto_open: Optional[bool] = False):
         def _worker():
+            import os
+            os.environ["SPOTIFY_FORCE_BROWSER"] = "1"
             spotifylogin = self._import_spotifylogin()
             if not spotifylogin:
                 self._set_status("Spotify Modul fehlt")
                 return
             try:
-                result = spotifylogin.begin_login_flow(auto_open=auto_open)
+                result = spotifylogin.begin_login_flow(auto_open=True)
             except Exception as exc:
                 logging.error("[SPOTIFY] Login-Flow Fehler: %s", exc)
                 self._set_status("Login-Flow konnte nicht gestartet werden")
@@ -638,6 +640,12 @@ class SpotifyTab:
             if login_url:
                 self._update_login_url(login_url)
                 logging.info("[SPOTIFY] Login-Link: %s", login_url)
+                # Fallback: always try to open in browser if not already opened
+                try:
+                    import webbrowser
+                    webbrowser.open(login_url, new=1)
+                except Exception as exc:
+                    logging.error("[SPOTIFY] Fallback Browser-Start fehlgeschlagen: %s", exc)
             if not result.get("ok"):
                 self._set_status(f"Spotify Fehler: {result.get('error')}")
                 return
