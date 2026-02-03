@@ -476,14 +476,28 @@ class MainApp:
 
     def toggle_fullscreen(self):
         # Statt Fullscreen: Sicher minimieren (ohne overrideredirect)
+        import time
         try:
+            print("[MINIMIZE] Removing fullscreen and overrideredirect...")
             try:
                 self.root.attributes("-fullscreen", False)
             except Exception:
                 pass
             self.root.overrideredirect(False)
             self.root.update_idletasks()
+            time.sleep(0.1)  # Give window manager time to process
+            print("[MINIMIZE] Calling iconify...")
             self.root.iconify()
+            self.root.update_idletasks()
+            # Check if window is minimized, retry if needed
+            for attempt in range(3):
+                state = self.root.state()
+                print(f"[MINIMIZE] Window state after iconify: {state}")
+                if state == "iconic":
+                    break
+                time.sleep(0.2)
+                self.root.iconify()
+                self.root.update_idletasks()
             self.status.update_status("Minimiert")
         except Exception as e:
             print(f"[MINIMIZE] Fehler: {e}")
