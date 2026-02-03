@@ -228,8 +228,10 @@ def _extrahiere_pufferdaten(values, zeitstempel):
         except Exception as e:
             logger.error(f"Fehler bei BMK: {e}")
             return None
-    Speichert Heizungsdaten in CSV (data/ Verzeichnis nach Reorganisierung)
-    """
+
+
+def _speichere_heizungsdaten(daten):
+    """Speichert Heizungsdaten in CSV (data/ Verzeichnis nach Reorganisierung)."""
     # Nach Reorganisierung: data/ Verzeichnis im Root
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     csv_datei = os.path.join(base_dir, "data", "Heizungstemperaturen.csv")

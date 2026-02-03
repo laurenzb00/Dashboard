@@ -123,6 +123,8 @@ def main():
     start_time = time.time()
     root = tk.Tk()
 
+    env_scale = os.getenv("UI_SCALING")
+
     # Starte Spotify-Login nach GUI-Start, damit Terminal nicht blockiert
     try:
         import spotifylogin
@@ -131,10 +133,15 @@ def main():
         pass
 
     try:
-        scaling = float(env_scale)
+        if env_scale:
+            scaling = float(env_scale)
+        else:
+            dpi = float(root.winfo_fpixels("1i"))
+            scaling = dpi / 96.0
+            scaling = max(0.9, min(1.6, scaling))
         root.tk.call("tk", "scaling", scaling)
         # Export effective scaling so other modules (e.g., Spotify tab) can align sizes.
-        os.environ["UI_SCALING_EFFECTIVE"] = str(scaling)
+        os.environ["UI_SCALING_EFFECTIVE"] = str(round(scaling, 3))
     except Exception:
         pass
 
@@ -152,16 +159,16 @@ def main():
 
     # Poll the queue for data updates and schedule GUI updates in the main thread
     def poll_queue():
-            try:
-                while True:
-                    item = data_queue.get_nowait()
-                    if item[0] == 'wechselrichter':
-                        app.handle_wechselrichter_data(item[1])
-                    elif item[0] == 'bmkdaten':
-                        app.handle_bmkdaten_data(item[1])
-            except queue.Empty:
-                pass
-            root.after(500, poll_queue)
+        try:
+            while True:
+                item = data_queue.get_nowait()
+                if item[0] == 'wechselrichter':
+                    app.handle_wechselrichter_data(item[1])
+                elif item[0] == 'bmkdaten':
+                    app.handle_bmkdaten_data(item[1])
+        except queue.Empty:
+            pass
+        root.after(500, poll_queue)
 
     poll_queue()
     root.mainloop()
