@@ -466,20 +466,8 @@ class SpotifyTab:
         ttk.Button(control_frame, text="Logout", command=self._logout,
                    bootstyle="danger-outline").pack(side=LEFT, padx=4)
 
-        link_frame = ttk.Labelframe(frame, text="Login-Link")
-        link_frame.pack(fill=tk.X, pady=(0, 12))
-        self.link_entry = ttk.Entry(link_frame, textvariable=self.link_var, state="readonly")
-        self.link_entry.pack(fill=tk.X, expand=True, pady=(6, 4))
-        link_buttons = ttk.Frame(link_frame)
-        link_buttons.pack(anchor=W, pady=(0, 6))
-        ttk.Button(link_buttons, text="Link kopieren", command=self._copy_login_url,
-                   bootstyle="secondary-outline").pack(side=LEFT, padx=(0, 6))
-        ttk.Button(link_buttons, text="Link im Browser öffnen", command=self._open_latest_in_browser,
-                   bootstyle="info-outline").pack(side=LEFT)
-        ttk.Label(link_frame, textvariable=self.redirect_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W)
-        ttk.Label(link_frame,
-                  text="Öffne den Link auf einem Gerät im selben Netzwerk – der Dashboard-Port 8889 nimmt den Rückruf automatisch an.",
-                  font=("Arial", 9), wraplength=560).pack(anchor=W, pady=(2, 0))
+        # Login link UI and browser logic removed for local-only use
+        ttk.Label(frame, textvariable=self.redirect_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W)
 
         info_frame = ttk.Labelframe(frame, text="Status & Token")
         info_frame.pack(fill=tk.X)
@@ -592,34 +580,9 @@ class SpotifyTab:
     def _set_status(self, message: str) -> None:
         self.root.after(0, self.status_var.set, message)
 
-    def _update_login_url(self, url: str) -> None:
-        self._latest_login_url = url
-        self.root.after(0, self.link_var.set, url)
 
-    def _copy_login_url(self) -> None:
-        if not self._latest_login_url:
-            self._set_status("Kein Login-Link verfügbar")
-            return
-        try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(self._latest_login_url)
-            self._set_status("Login-Link in Zwischenablage")
-        except Exception as exc:
-            logging.error("[SPOTIFY] Clipboard Fehler: %s", exc)
-            self._set_status("Zwischenablage nicht verfügbar")
 
-    def _open_latest_in_browser(self) -> None:
-        if not self._latest_login_url:
-            self._set_status("Kein Login-Link verfügbar")
-            return
-        try:
-            if not webbrowser.open(self._latest_login_url, new=1):
-                self._set_status("Browser konnte nicht geöffnet werden")
-            else:
-                self._set_status("Login-Link im Browser geöffnet")
-        except Exception as exc:
-            logging.error("[SPOTIFY] Browser-Start fehlgeschlagen: %s", exc)
-            self._set_status("Browser-Start fehlgeschlagen")
+    # _open_latest_in_browser removed for local-only use
 
     def _open_browser_login(self):
         self._set_status("Erzeuge Spotify Login-Link…")
