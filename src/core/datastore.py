@@ -219,7 +219,7 @@ class DataStore:
             ORDER BY timestamp ASC
             """,
             params,
-        ).fetchall()
+        )
         return _integrate_daily_energy(rows)
 
     def get_monthly_totals(self, months: int = 12) -> List[dict]:
@@ -451,30 +451,30 @@ def quick_import_if_needed():
 
 
 def _integrate_daily_energy(rows: Iterable[tuple[str, Optional[float]]]) -> List[dict]:
-    """Trapez-Integration zur Energie pro Tag."""
-    parsed: list[tuple[datetime, float]] = []
+    """Trapez-Integration zur Energie pro Tag (streaming, speichersparend)."""
+    buckets: dict[str, dict[str, float | int]] = defaultdict(lambda: {'pv_kwh': 0.0, 'samples': 0})
+    prev_ts: Optional[datetime] = None
+    prev_power: Optional[float] = None
+
     for ts, pv in rows:
         if ts is None or pv is None:
             continue
         try:
-            parsed.append((datetime.fromisoformat(ts), float(pv)))
+            cur_ts = datetime.fromisoformat(ts)
+            cur_power = float(pv)
         except ValueError:
             continue
-    if len(parsed) < 2:
+
+        if prev_ts is not None and prev_power is not None:
+            delta_h = (cur_ts - prev_ts).total_seconds() / 3600
+            # Filter offensichtliche Ausreißer (z.B. wenn Logger aus war)
+            if 0 < delta_h <= 6:
+                _distribute_segment_energy(buckets, prev_ts, prev_power, cur_ts, cur_power)
+
+        prev_ts, prev_power = cur_ts, cur_power
+
+    if not buckets:
         return []
-
-    buckets: dict[str, dict[str, float | int]] = defaultdict(lambda: {'pv_kwh': 0.0, 'samples': 0})
-
-    for idx in range(len(parsed) - 1):
-        t0, p0 = parsed[idx]
-        t1, p1 = parsed[idx + 1]
-        if p0 is None or p1 is None:
-            continue
-        delta_h = (t1 - t0).total_seconds() / 3600
-        # Filter offensichtliche Ausreißer (z.B. wenn Logger aus war)
-        if delta_h <= 0 or delta_h > 6:
-            continue
-        _distribute_segment_energy(buckets, t0, p0, t1, p1)
 
     out = [
         {
