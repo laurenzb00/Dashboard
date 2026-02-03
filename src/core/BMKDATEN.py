@@ -87,65 +87,61 @@ PP_INDEX_MAPPING = {
 
 # Diese Funktion wird von main.py gesucht!
 def abrufen_und_speichern():
-    """
-    Ruft alle Daten von der Heizungs-API ab und speichert sie.
-    Unterstützt:
-    - Heizungstemperaturen.csv (komplett mit allen Werten)
-    - Pufferspeicher.json (strukturierte Pufferanlage-Daten)
-    """
+    """Ruft Daten von der Heizungs-API ab und speichert sie."""
+    url = "http://192.168.1.201/daqdata.cgi"
+
     try:
-        url = "http://192.168.1.201/daqdata.cgi"
-        # Timeout verhindert Hänger, wenn Heizung nicht antwortet
         response = requests.get(url, timeout=5)
+    except Exception as exc:
+        logger.error(f"Fehler bei BMK HTTP-Request: {exc}")
+        return None
 
-        if response.status_code == 200:
-            lines = response.text.split("\n")
-            values = [line.strip() for line in lines if line.strip()]
+    if response.status_code != 200:
+        logger.error(f"BMK HTTP Status {response.status_code}")
+        return None
 
-            zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            logger.debug(f"BMK Response hat {len(values)} Werte")
-            
-            # Extrahiere ALLE verfügbaren Daten
-            daten_heizung = _extrahiere_alle_daten(values, zeitstempel)
+    try:
+        lines = response.text.split("\n")
+        values = [line.strip() for line in lines if line.strip()]
+        zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.debug(f"BMK Response hat {len(values)} Werte")
 
-            def _get_field(name: str, *alts: str):
-                if not daten_heizung:
-                    return ""
-                if name in daten_heizung:
-                    return daten_heizung.get(name)
-                for alt in alts:
-                    if alt in daten_heizung:
-                        return daten_heizung.get(alt)
+        daten_heizung = _extrahiere_alle_daten(values, zeitstempel)
+
+        def _get_field(name: str, *alts: str):
+            if not daten_heizung:
                 return ""
+            if name in daten_heizung:
+                return daten_heizung.get(name)
+            for alt in alts:
+                if alt in daten_heizung:
+                    return daten_heizung.get(alt)
+            return ""
 
-            # Kurz-Zuordnung basierend auf PP_INDEX_MAPPING
-            daten_kurz = {
-                "Zeitstempel": zeitstempel,
-                "Kesseltemperatur": _get_field("Kesseltemperatur"),
-                "Außentemperatur": _get_field("Außentemperatur"),
-                "Pufferspeicher Oben": _get_field("Puffer_Oben", "Pufferspeicher Oben"),
-                "Pufferspeicher Mitte": _get_field("Pufferspeicher_Mitte", "Pufferspeicher Mitte"),
-                "Pufferspeicher Unten": _get_field("Puffer_Unten", "Pufferspeicher Unten"),
-                "Warmwasser": _get_field("Warmwassertemperatur", "Warmwasser"),
-            }
-            
-            # Speichere in Heizungstemperaturen.csv
-            if daten_heizung:
-                daten_heizung.update(daten_kurz)
-                _speichere_heizungsdaten(daten_heizung)
-            else:
-                _speichere_heizungsdaten(daten_kurz)
-            
-            # Speichere Pufferanlage-Daten separat (strukturiert)
-            daten_puffer = _extrahiere_pufferdaten(values, zeitstempel)
-            if daten_puffer:
-                _speichere_pufferdaten(daten_puffer)
-            return daten_heizung if daten_heizung else daten_kurz
+        daten_kurz = {
+            "Zeitstempel": zeitstempel,
+            "Kesseltemperatur": _get_field("Kesseltemperatur"),
+            "Außentemperatur": _get_field("Außentemperatur"),
+            "Pufferspeicher Oben": _get_field("Puffer_Oben", "Pufferspeicher Oben"),
+            "Pufferspeicher Mitte": _get_field("Pufferspeicher_Mitte", "Pufferspeicher Mitte"),
+            "Pufferspeicher Unten": _get_field("Puffer_Unten", "Pufferspeicher Unten"),
+            "Warmwasser": _get_field("Warmwassertemperatur", "Warmwasser"),
+        }
 
-    except Exception as e:
-        logger.error(f"Fehler bei BMK: {e}")
-    return None
+        if daten_heizung:
+            daten_heizung.update(daten_kurz)
+            _speichere_heizungsdaten(daten_heizung)
+        else:
+            _speichere_heizungsdaten(daten_kurz)
+
+        daten_puffer = _extrahiere_pufferdaten(values, zeitstempel)
+        if daten_puffer:
+            _speichere_pufferdaten(daten_puffer)
+
+        return daten_heizung if daten_heizung else daten_kurz
+    except Exception as exc:
+        logger.error(f"Fehler bei BMK Verarbeitung: {exc}")
+        return None
 
 
 def _extrahiere_alle_daten(values, zeitstempel):
