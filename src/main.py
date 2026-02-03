@@ -122,6 +122,8 @@ def run_bmkdaten():
 
 
 def main():
+    root = tk.Tk()
+
     # Starte Spotify-Login nach GUI-Start, damit Terminal nicht blockiert
     try:
         import spotifylogin
