@@ -7,6 +7,7 @@ import subprocess
 import sys
 import platform
 import os
+import socket
 import faulthandler
 import traceback
 import atexit
@@ -24,7 +25,29 @@ from core import Wechselrichter
 from ui.app import MainApp
 
 # Force Spotify redirect URI but allow override via env
-redirect_host = os.getenv("SPOTIFY_REDIRECT_HOST")
+def _detect_redirect_host() -> str | None:
+    env_host = os.getenv("SPOTIFY_REDIRECT_HOST")
+    if env_host:
+        return env_host.strip()
+    try:
+        hostname = socket.gethostname()
+        ip = socket.gethostbyname(hostname)
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+    return None
+
+
+redirect_host = _detect_redirect_host()
 if redirect_host:
     os.environ["SPOTIPY_REDIRECT_URI"] = f"http://{redirect_host}:8889/callback"
 elif "SPOTIPY_REDIRECT_URI" not in os.environ:

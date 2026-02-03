@@ -59,6 +59,20 @@ class SpotifyTab:
             bootstyle="info-outline"
         ).pack(side=tk.LEFT)
 
+        callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
+        ttk.Label(
+            link_frame,
+            text=f"Callback-URL: {callback_uri}",
+            font=("Arial", 9),
+            foreground="#94a3b8"
+        ).pack(anchor=tk.W, pady=(6, 0))
+        ttk.Label(
+            link_frame,
+            text="Öffne den Link auf einem Gerät im selben Netzwerk – der Dashboard-Port 8889 nimmt den Rückruf automatisch an.",
+            font=("Arial", 9),
+            wraplength=520
+        ).pack(anchor=tk.W, pady=(2, 0))
+
         self.client = None
         self._latest_login_url: str | None = None
         self._ensure_cached_session()

@@ -33,21 +33,25 @@ class ErtragTab:
         self.card.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         self.card.add_title("PV-Ertrag (täglich)", icon="📈")
 
-        chart_frame = tk.Frame(self.card.content(), bg=COLOR_CARD)
-        chart_frame.pack(fill=tk.BOTH, expand=True)
+        body = self.card.content()
+        body.grid_rowconfigure(0, weight=1)
+        body.grid_columnconfigure(0, weight=1)
+
+        self.chart_frame = tk.Frame(body, bg=COLOR_CARD)
+        self.chart_frame.grid(row=0, column=0, sticky="nsew")
 
         self.fig = Figure(figsize=(7.6, 3.2), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._last_canvas_size = None
         self._resize_pending = False
         self.canvas.get_tk_widget().bind("<Configure>", self._on_canvas_resize)
 
-        stats_frame = ttk.Frame(self.card.content())
-        stats_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        stats_frame = ttk.Frame(body)
+        stats_frame.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.var_sum = tk.StringVar(value="Summe: -- kWh")
         self.var_avg = tk.StringVar(value="Schnitt/Tag: -- kWh")
         self.var_last = tk.StringVar(value="Letzter Tag: -- kWh")
@@ -159,8 +163,7 @@ class ErtragTab:
             self.var_avg.set("Ø Tag: -- kWh")
             self.var_last.set("Max: -- kWh")
 
-        self.fig.autofmt_xdate()
-        self.fig.tight_layout(pad=0.8)
+        self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.2)
         
         try:
             if self.canvas.get_tk_widget().winfo_exists():
@@ -186,7 +189,7 @@ class ErtragTab:
         self._resize_pending = True
         
         try:
-            self.fig.tight_layout(pad=0.6)
+            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.2)
             self.root.after(100, lambda: self._do_canvas_draw())
         except Exception:
             self._resize_pending = False

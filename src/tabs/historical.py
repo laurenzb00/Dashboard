@@ -45,9 +45,12 @@ class HistoricalTab:
         self.card.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=12, pady=12)
         self.card.add_title("Heizungsdaten (letzte 7 Tage)", icon="🌡️")
 
-        # Stats Grid: 5 stat cards in one frame
-        stats_frame = tk.Frame(self.card.content(), bg=COLOR_CARD)
-        stats_frame.pack(fill=tk.X, pady=(0, 12))
+        body = self.card.content()
+        body.grid_rowconfigure(1, weight=1)
+        body.grid_columnconfigure(0, weight=1)
+
+        stats_frame = tk.Frame(body, bg=COLOR_CARD)
+        stats_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         
         self.var_top = tk.StringVar(value="-- °C")
         self.var_mid = tk.StringVar(value="-- °C")
@@ -75,7 +78,9 @@ class HistoricalTab:
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.card.content())
+        plot_frame = tk.Frame(body, bg=COLOR_CARD)
+        plot_frame.grid(row=1, column=0, sticky="nsew")
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._last_canvas_size = None
         self.canvas.get_tk_widget().bind("<Configure>", self._on_canvas_resize)
@@ -204,8 +209,7 @@ class HistoricalTab:
                 self.var_boiler.set("-- °C")
                 self.var_out.set("-- °C")
 
-            self.fig.autofmt_xdate()
-            self.fig.tight_layout(pad=0.8)
+            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.18)
             try:
                 if self.canvas.get_tk_widget().winfo_exists():
                     self.canvas.draw_idle()
@@ -237,7 +241,7 @@ class HistoricalTab:
         self._resize_pending = True
         
         try:
-            self.fig.tight_layout(pad=0.6)
+            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.18)
             # Use after() to defer the draw and prevent event loop
             self.root.after(100, lambda: self._do_canvas_draw())
         except Exception:
