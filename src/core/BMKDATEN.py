@@ -271,9 +271,7 @@ def _extrahiere_pufferdaten(values, zeitstempel):
 
 
 def _speichere_pufferdaten(daten):
-    """
-    Speichert Pufferanlage-Daten in JSON (für strukturierte Abfragen)
-    """
+    # Speichert Pufferanlage-Daten in JSON (für strukturierte Abfragen)
     json_datei = "Pufferspeicher.json"
     
     try:
