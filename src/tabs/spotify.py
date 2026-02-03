@@ -1,6 +1,7 @@
 import logging
 import threading
 import os
+from datetime import datetime
 import tkinter as tk
 import webbrowser
 import ttkbootstrap as ttk
@@ -25,13 +26,26 @@ class SpotifyTab:
         )
         status_label.pack(pady=20)
 
-        login_button = ttk.Button(
-            self.tab_frame,
+        control_frame = ttk.Frame(self.tab_frame)
+        control_frame.pack(pady=5)
+        ttk.Button(
+            control_frame,
             text="Browser-Login öffnen",
             command=self._open_browser_login,
             bootstyle="success-outline"
-        )
-        login_button.pack(pady=5)
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            control_frame,
+            text="Status aktualisieren",
+            command=self._refresh_status,
+            bootstyle="secondary-outline"
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            control_frame,
+            text="Logout",
+            command=self._logout,
+            bootstyle="danger-outline"
+        ).pack(side=tk.LEFT, padx=4)
 
         link_frame = ttk.Frame(self.tab_frame)
         link_frame.pack(fill=tk.X, padx=20, pady=10)
@@ -60,9 +74,10 @@ class SpotifyTab:
         ).pack(side=tk.LEFT)
 
         callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
+        self.redirect_var = tk.StringVar(value=f"Callback-URL: {callback_uri}")
         ttk.Label(
             link_frame,
-            text=f"Callback-URL: {callback_uri}",
+            textvariable=self.redirect_var,
             font=("Arial", 9),
             foreground="#94a3b8"
         ).pack(anchor=tk.W, pady=(6, 0))
@@ -72,6 +87,22 @@ class SpotifyTab:
             font=("Arial", 9),
             wraplength=520
         ).pack(anchor=tk.W, pady=(2, 0))
+
+        info_frame = ttk.Frame(self.tab_frame)
+        info_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        self.status_detail_var = tk.StringVar(value="Konfiguration wird geprüft…")
+        self.token_info_var = tk.StringVar(value="Noch kein Token gefunden")
+        ttk.Label(
+            info_frame,
+            textvariable=self.status_detail_var,
+            font=("Arial", 10)
+        ).pack(anchor=tk.W)
+        ttk.Label(
+            info_frame,
+            textvariable=self.token_info_var,
+            font=("Arial", 9),
+            foreground="#94a3b8"
+        ).pack(anchor=tk.W)
 
         self.client = None
         self._latest_login_url: str | None = None
@@ -92,6 +123,7 @@ class SpotifyTab:
             self._set_status("Spotify Token gefunden – verbunden")
         else:
             self._set_status("Spotify Login erforderlich")
+        self._refresh_status()
 
     def _open_browser_login(self):
         """Generate a login URL without auto-launching the browser."""
@@ -179,6 +211,69 @@ class SpotifyTab:
         except Exception as exc:
             logging.error(f"[SPOTIFY] spotifylogin Importfehler: {exc}")
             return None
+
+    def _refresh_status(self):
+        spotifylogin = self._import_spotifylogin()
+        if not spotifylogin:
+            self._set_status("Spotify Modul fehlt")
+            self._set_status_details("spotifylogin.py konnte nicht geladen werden")
+            self._set_token_info("Keine Informationen verfügbar")
+            return
+        try:
+            status = spotifylogin.get_login_status()
+        except Exception as exc:
+            logging.error(f"[SPOTIFY] Statusabfrage fehlgeschlagen: {exc}")
+            self._set_status_details("Status konnte nicht ermittelt werden")
+            self._set_token_info("Unbekannter Fehler")
+            return
+        redirect = status.get("redirect_uri")
+        if redirect:
+            self.root.after(0, self.redirect_var.set, f"Callback-URL: {redirect}")
+        if not status.get("configured"):
+            self._set_status_details("Konfiguration unvollständig – client_id/client_secret fehlen")
+            self._set_token_info("Kein Token gespeichert")
+            return
+        if status.get("error"):
+            self._set_status_details(status["error"])
+        else:
+            self._set_status_details("Konfiguration OK – Login möglich")
+        if status.get("has_token"):
+            expires_at = status.get("expires_at")
+            if expires_at:
+                expires = datetime.fromtimestamp(expires_at).strftime("%d.%m.%Y %H:%M")
+                token_text = f"Token gültig bis {expires}"
+            else:
+                token_text = "Token vorhanden"
+            scope = status.get("scope")
+            if scope:
+                token_text += f" | Scope: {scope}"
+            self._set_token_info(token_text)
+        else:
+            self._set_token_info("Kein Token gespeichert – bitte Login starten")
+
+    def _set_status_details(self, message: str) -> None:
+        self.root.after(0, self.status_detail_var.set, message)
+
+    def _set_token_info(self, message: str) -> None:
+        self.root.after(0, self.token_info_var.set, message)
+
+    def _logout(self):
+        spotifylogin = self._import_spotifylogin()
+        if not spotifylogin:
+            self._set_status("Spotify Modul fehlt")
+            return
+        try:
+            removed = spotifylogin.logout()
+        except Exception as exc:
+            logging.error(f"[SPOTIFY] Logout fehlgeschlagen: {exc}")
+            self._set_status("Logout fehlgeschlagen")
+            return
+        if removed:
+            self.client = None
+            self._set_status("Spotify Logout durchgeführt – Token entfernt")
+        else:
+            self._set_status("Kein gespeicherter Token gefunden")
+        self._refresh_status()
     
     def stop(self):
         """Stop the Spotify tab"""

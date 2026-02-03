@@ -177,6 +177,9 @@ class HistoricalTab:
             self._style_axes()
 
             if rows:
+                if not getattr(self, "_log_once", False):
+                    print(f"[HISTORIE] Matplotlib-Liniendiagramm aktiv (Samples={len(rows)})")
+                    self._log_once = True
                 ts, top, mid, bot, boiler, outside = zip(*rows)
                 # Moderneres Design mit besseren Farben und Liniendicken
                 self.ax.plot(ts, top, color=COLOR_PRIMARY, label="Puffer oben", linewidth=2.0, alpha=0.8)

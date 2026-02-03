@@ -78,7 +78,7 @@ def start_oauth() -> Optional["spotipy.Spotify"]:
         return None
 
     logging.info("[SPOTIFY] Authenticated via cached token.")
-    return spotipy.Spotify(auth=token_info["access_token"])
+    return spotipy.Spotify(auth_manager=auth)
 
 
 def begin_login_flow(auto_open: Optional[bool] = None) -> dict:
@@ -240,6 +240,58 @@ def _launch_browser(url: str) -> None:
             logging.warning("[SPOTIFY] Bitte Browser selbst öffnen: %s", url)
     except Exception as exc:
         logging.warning("[SPOTIFY] Browser konnte nicht geöffnet werden: %s", exc)
+
+
+def get_login_status() -> dict:
+    status = {
+        "configured": False,
+        "has_token": False,
+        "redirect_uri": None,
+        "expires_at": None,
+        "scope": None,
+        "error": None,
+    }
+    cfg = _load_config()
+    client_id = os.getenv("SPOTIPY_CLIENT_ID") or cfg.get("client_id")
+    client_secret = os.getenv("SPOTIPY_CLIENT_SECRET") or cfg.get("client_secret")
+    redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI") or cfg.get("redirect_uri") or "http://127.0.0.1:8889/callback"
+    status["redirect_uri"] = redirect_uri
+    status["configured"] = bool(client_id and client_secret)
+    if SpotifyOAuth is None:
+        status["error"] = "spotipy nicht installiert"
+        return status
+    if not status["configured"]:
+        status["error"] = "client_id/client_secret fehlen"
+        return status
+
+    auth = _build_oauth()
+    if auth is None:
+        status["error"] = "SpotifyOAuth konnte nicht initialisiert werden"
+        return status
+
+    cached = auth.cache_handler.get_cached_token()
+    if not cached:
+        return status
+    token_info = auth.validate_token(cached)
+    if not token_info:
+        return status
+    status["has_token"] = True
+    status["expires_at"] = token_info.get("expires_at")
+    status["scope"] = token_info.get("scope") or SCOPES
+    return status
+
+
+def logout() -> bool:
+    cache = _project_root() / "config" / ".spotify_cache"
+    try:
+        cache.unlink()
+        logging.info("[SPOTIFY] Cached token removed")
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception as exc:
+        logging.error("[SPOTIFY] Could not remove cache: %s", exc)
+        return False
 
 
 if __name__ == "__main__":
