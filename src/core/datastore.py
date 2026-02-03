@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import csv
+from collections import defaultdict
 import csv
 import os
 import sqlite3
