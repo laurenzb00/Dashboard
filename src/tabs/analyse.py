@@ -1,10 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
-import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
+from core.datastore import get_shared_datastore
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -25,11 +25,7 @@ class AnalyseTab:
         self.notebook = notebook
         self.alive = True
         
-        # Working directory
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        data_root = os.path.join(project_root, "data")
-        self.fronius_csv = os.path.join(data_root, "FroniusDaten.csv")
-        self.heating_csv = os.path.join(data_root, "Heizungstemperaturen.csv")
+        self.datastore = get_shared_datastore()
         
         # Tab Frame
         self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
@@ -63,18 +59,33 @@ class AnalyseTab:
     def stop(self):
         self.alive = False
 
-    def _read_csv_data(self, path: str) -> pd.DataFrame:
-        """Lese CSV Daten."""
-        if not os.path.exists(path):
+    def _load_pv_data(self, hours: int = 72) -> pd.DataFrame:
+        if not self.datastore:
             return pd.DataFrame()
-        try:
-            df = pd.read_csv(path)
-            df.columns = df.columns.str.strip()
-            df["Zeitstempel"] = pd.to_datetime(df["Zeitstempel"])
-            return df
-        except Exception as e:
-            print(f"CSV-Fehler {path}: {e}")
+        rows = self.datastore.get_recent_fronius(hours=hours)
+        if not rows:
             return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df.rename(columns={
+            'timestamp': 'Zeitstempel',
+            'pv': 'PV-Leistung (kW)',
+        }, inplace=True)
+        df['Zeitstempel'] = pd.to_datetime(df['Zeitstempel'])
+        return df[['Zeitstempel', 'PV-Leistung (kW)']]
+
+    def _load_heating_data(self, hours: int = 72) -> pd.DataFrame:
+        if not self.datastore:
+            return pd.DataFrame()
+        rows = self.datastore.get_recent_heating(hours=hours)
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df.rename(columns={
+            'timestamp': 'Zeitstempel',
+            'top': 'Pufferspeicher Oben',
+        }, inplace=True)
+        df['Zeitstempel'] = pd.to_datetime(df['Zeitstempel'])
+        return df[['Zeitstempel', 'Pufferspeicher Oben']]
 
     def _style_axes(self):
         """Styling für Achsen."""
@@ -95,8 +106,8 @@ class AnalyseTab:
         self._style_axes()
         
         # Load data
-        df_pv = self._read_csv_data(self.fronius_csv)
-        df_heating = self._read_csv_data(self.heating_csv)
+        df_pv = self._load_pv_data()
+        df_heating = self._load_heating_data()
         
         if df_pv.empty or df_heating.empty:
             self.ax1.text(0.5, 0.5, "Zu wenig Daten", color=COLOR_SUBTEXT, ha="center", va="center", 

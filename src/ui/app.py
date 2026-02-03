@@ -3,7 +3,6 @@ import os
 import platform
 import shutil
 import subprocess
-import csv
 from datetime import datetime, timedelta
 import json
 import logging
@@ -31,141 +30,17 @@ from ui.components.rounded import RoundedFrame
 from ui.views.energy_flow import EnergyFlowView
 from ui.views.buffer_storage import BufferStorageView
 
-# SQLite DataStore for fast queries
-try:
-    from core.datastore import DataStore
-    USE_DATASTORE = True
-except ImportError:
-    USE_DATASTORE = False
-    print("[DB] DataStore nicht verfügbar - nutze CSV fallback")
+from core.datastore import DataStore, get_shared_datastore
 
 _UI_DIR = os.path.dirname(os.path.abspath(__file__))
 _SRC_DIR = os.path.dirname(_UI_DIR)
 _PROJECT_ROOT = os.path.dirname(_SRC_DIR)
-_DATA_ROOT = os.path.join(_PROJECT_ROOT, "data")
-
-
-def _data_path(filename: str) -> str:
-    """Berechnet den effektiv verfügbaren Datenpfad mit Fallbacks."""
-    candidates = [
-        os.path.join(_DATA_ROOT, filename),            # Neues data/-Verzeichnis im Repo
-        os.path.join(_PROJECT_ROOT, filename),          # Direkt im Projektroot (legacy)
-    ]
-
-    if platform.system() == "Linux":
-        candidates.extend([
-            os.path.join("/home/laurenz/projekt1/Projekt1/data", filename),
-            os.path.join("/home/laurenz/projekt1/Projekt1", filename),
-        ])
-
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-
-    # Stelle sicher, dass das erste Ziel existiert, damit Writer es anlegen können
+def safe_get_datastore() -> DataStore | None:
     try:
-        os.makedirs(os.path.dirname(candidates[0]), exist_ok=True)
-    except Exception:
-        pass
-    return candidates[0]
-
-
-def _read_lines_safe(path: str) -> list[str]:
-    try:
-        with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-            return f.readlines()
-    except Exception:
-        return []
-
-
-def _read_tail_lines(path: str, max_bytes: int = 262144, max_lines: int = 2000) -> list[str]:
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - max_bytes))
-            chunk = f.read().decode("utf-8-sig", errors="replace")
-        lines = chunk.splitlines()
-    except Exception:
-        lines = _read_lines_safe(path)
-
-    if max_lines and len(lines) > max_lines:
-        return lines[-max_lines:]
-    return lines
-
-
-def _read_last_data_line(path: str, max_bytes: int = 65536) -> str | None:
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - max_bytes))
-            chunk = f.read().decode("utf-8-sig", errors="replace")
-        lines = chunk.splitlines()
-    except Exception:
-        lines = _read_lines_safe(path)
-
-    for line in reversed(lines):
-        line = line.strip()
-        if not line:
-            continue
-        if line.lower().startswith("zeit"):
-            continue
-        return line
-    return None
-
-
-def _normalize_header(name: str) -> str:
-    return (
-        name.strip()
-        .lower()
-        .replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("ß", "ss")
-        .replace(" ", "")
-        .replace("_", "")
-    )
-
-
-def _read_csv_header(path: str) -> list[str]:
-    try:
-        with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                return next(csv.reader([line]))
-    except Exception:
-        return []
-    return []
-
-
-def _read_last_row_dict(path: str) -> dict[str, str]:
-    header = _read_csv_header(path)
-    if not header:
-        return {}
-    last_line = _read_last_data_line(path)
-    if not last_line:
-        return {}
-    try:
-        row = next(csv.reader([last_line]))
-    except Exception:
-        return {}
-    if len(row) < len(header):
-        row += [""] * (len(header) - len(row))
-    return dict(zip(header, row))
-
-
-def _get_row_value(row_dict: dict[str, str], *keys: str) -> str | None:
-    if not row_dict:
+        return get_shared_datastore()
+    except Exception as exc:
+        logging.error("[DB] DataStore nicht erreichbar: %s", exc)
         return None
-    norm_map = {_normalize_header(k): k for k in row_dict.keys()}
-    for key in keys:
-        norm = _normalize_header(key)
-        if norm in norm_map:
-            return row_dict.get(norm_map[norm])
-    return None
 
 
 def _safe_float(value: str | None) -> float | None:
@@ -177,71 +52,6 @@ def _safe_float(value: str | None) -> float | None:
         return None
 
 
-def _parse_bmk_row(row: list[str]) -> dict[str, str]:
-    """Parse a BMK CSV row that contains the full PP data (Betriebsmodus as col 1)."""
-    if not row or len(row) < 10:
-        return {}
-    if _safe_float(row[1]) is not None:
-        return {}
-    values = row[1:]
-    return {
-        "Betriebsmodus": values[0] if len(values) > 0 else "",
-        "Kesseltemperatur": values[2] if len(values) > 2 else "",
-        "Außentemperatur": values[3] if len(values) > 3 else "",
-        "Pufferspeicher Oben": values[5] if len(values) > 5 else "",
-        "Pufferspeicher Mitte": values[6] if len(values) > 6 else "",
-        "Pufferspeicher Unten": values[7] if len(values) > 7 else "",
-        "Warmwasser": values[13] if len(values) > 13 else "",
-    }
-
-
-def _parse_short_bmk_row(row: list[str]) -> dict[str, str]:
-    """Parse a short 7-column BMK row (no Betriebsmodus)."""
-    if not row or len(row) < 7:
-        return {}
-    return {
-        "Kesseltemperatur": row[1],
-        "Außentemperatur": row[2],
-        "Pufferspeicher Oben": row[3],
-        "Pufferspeicher Mitte": row[4],
-        "Pufferspeicher Unten": row[5],
-        "Warmwasser": row[6],
-    }
-
-
-def _is_plausible_bmk(values: dict[str, str]) -> bool:
-    out_temp = _safe_float(values.get("Außentemperatur"))
-    p_top = _safe_float(values.get("Pufferspeicher Oben"))
-    p_mid = _safe_float(values.get("Pufferspeicher Mitte"))
-    p_bot = _safe_float(values.get("Pufferspeicher Unten"))
-    warm = _safe_float(values.get("Warmwasser"))
-
-    if out_temp is None or not (-40 <= out_temp <= 50):
-        return False
-    for v in [p_top, p_mid, p_bot, warm]:
-        if v is None or not (10 <= v <= 95):
-            return False
-    return True
-
-
-def _get_last_valid_bmk_values(path: str, max_lines: int = 200) -> dict[str, str]:
-    lines = _read_lines_safe(path)
-    if not lines:
-        return {}
-    for line in reversed(lines[-max_lines:]):
-        line = line.strip()
-        if not line or line.lower().startswith("zeit"):
-            continue
-        try:
-            row = next(csv.reader([line]))
-        except Exception:
-            continue
-        parsed = _parse_bmk_row(row)
-        if not parsed:
-            parsed = _parse_short_bmk_row(row)
-        if parsed and _is_plausible_bmk(parsed):
-            return parsed
-    return {}
 try:
     from tabs.historical import HistoricalTab
 except ImportError:
@@ -289,7 +99,7 @@ except ImportError:
 class MainApp:
     """1024x600 Dashboard mit Grid-Layout, Cards, Header und Statusbar + Tabs."""
 
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, datastore: DataStore | None = None):
         self._start_time = time.time()
         self._debug_log = os.getenv("DASH_DEBUG", "0") == "1"
         self._configure_debounce_id = None
@@ -298,10 +108,8 @@ class MainApp:
         self.root = root
         self.root.title("Smart Home Dashboard")
         
-        # Initialize DataStore with parallel import
-        self.datastore = None
-        if USE_DATASTORE:
-            self._init_datastore_async()
+        # Shared DataStore wird beim Start bereitgestellt
+        self.datastore = datastore or safe_get_datastore()
         
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
@@ -470,33 +278,31 @@ class MainApp:
         self._update_pv_status_tab()
 
     def _update_pv_status_tab(self):
-        fronius_csv = _data_path("FroniusDaten.csv")
-        if os.path.exists(fronius_csv):
-            try:
-                last_line = _read_last_data_line(fronius_csv)
-                if last_line:
-                    row = next(csv.reader([last_line]))
-                    self.pv_status_pv.set(f"{row[1]} kW" if len(row) > 1 else "-- kW")
-                    self.pv_status_batt.set(f"{row[5]} %" if len(row) > 5 else "-- %")
-                    self.pv_status_grid.set(f"{row[2]} kW" if len(row) > 2 else "-- kW")
-                    try:
-                        pv = float(row[1]) if len(row) > 1 else None
-                        batt = float(row[5]) if len(row) > 5 else None
-                        grid = float(row[2]) if len(row) > 2 else None
-                        if pv is not None and pv < 0.2:
-                            rec = "Wenig PV – Netzbezug möglich."
-                        elif batt is not None and batt < 20:
-                            rec = "Batterie fast leer."
-                        elif grid is not None and grid > 0.5:
-                            rec = "Hoher Netzbezug."
-                        else:
-                            rec = "Alles ok."
-                    except:
-                        rec = "--"
-                    self.pv_status_recommend.set(rec)
-                    self.pv_status_time.set(str(row[0]) if len(row) > 0 else "--")
-            except Exception:
-                pass
+        record = self.datastore.get_last_fronius_record() if self.datastore else None
+        if record:
+            pv = record.get('pv') or 0.0
+            batt = record.get('soc') or 0.0
+            grid = record.get('grid') or 0.0
+            timestamp = record.get('timestamp') or "--"
+            self.pv_status_pv.set(f"{pv:.2f} kW")
+            self.pv_status_batt.set(f"{batt:.0f} %")
+            self.pv_status_grid.set(f"{grid:.2f} kW")
+            if pv < 0.2:
+                rec = "Wenig PV – Netzbezug möglich."
+            elif batt < 20:
+                rec = "Batterie fast leer."
+            elif grid > 0.5:
+                rec = "Hoher Netzbezug."
+            else:
+                rec = "Alles ok."
+            self.pv_status_recommend.set(rec)
+            self.pv_status_time.set(timestamp)
+        else:
+            self.pv_status_pv.set("-- kW")
+            self.pv_status_batt.set("-- %")
+            self.pv_status_grid.set("-- kW")
+            self.pv_status_recommend.set("--")
+            self.pv_status_time.set("--")
         self.root.after(30000, self._update_pv_status_tab)  # Pi 5: Update every 30s
 
         # State
@@ -612,36 +418,6 @@ class MainApp:
                 pass
         self.root.after(100, self.root.quit)
     
-    def _init_datastore_async(self):
-        """Initialisiere DataStore und importiere CSVs parallel im Hintergrund."""
-        def worker():
-            try:
-                start = time.time()
-                self.datastore = DataStore()
-                
-                # Check if import needed
-                cursor = self.datastore.conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM fronius")
-                count = cursor.fetchone()[0]
-                
-                if count == 0:
-                    print("[DB] 📊 Importiere FroniusDaten.csv parallel...")
-                    fronius_path = _data_path("FroniusDaten.csv")
-                    if os.path.exists(fronius_path):
-                        self.datastore.import_fronius_csv(fronius_path)
-                        elapsed = time.time() - start
-                        print(f"[DB] ✅ Import abgeschlossen in {elapsed:.1f}s")
-                    else:
-                        print(f"[DB] ⚠️ {fronius_path} nicht gefunden")
-                else:
-                    print(f"[DB] ✅ DataStore bereit ({count} records)")
-            except Exception as e:
-                print(f"[DB] ❌ Initialisierung fehlgeschlagen: {e}")
-                self.datastore = None
-        
-        # Start in background thread
-        threading.Thread(target=worker, daemon=True).start()
-
     def _start_ertrag_validator(self):
         """Starte wöchentliche Ertrag-Validierung im Hintergrund."""
         def validate_loop():
@@ -1031,9 +807,9 @@ class MainApp:
 
         if self._data_fresh_seconds is not None:
             icon = "✅" if self._data_fresh_seconds <= 120 else "⚠️"
-            parts.append(f"CSV {icon} {self._format_age_compact(self._data_fresh_seconds)}")
+            parts.append(f"DB {icon} {self._format_age_compact(self._data_fresh_seconds)}")
         else:
-            parts.append("CSV ⚠️ --")
+            parts.append("DB ⚠️ --")
 
         summary = " | ".join(parts)
         if summary != self._last_status_compact:
@@ -1061,164 +837,64 @@ class MainApp:
         self._update_status_summary()
 
     def _get_last_timestamp(self) -> datetime | None:
-        def _last_csv_ts(path: str) -> datetime | None:
-            if not os.path.exists(path):
-                return None
-            lines = _read_tail_lines(path, max_bytes=131072, max_lines=800)
-            if len(lines) < 2:
-                return None
-            for line in reversed(lines):
-                line = line.strip()
-                if not line or line.lower().startswith("zeit"):
-                    continue
-                try:
-                    row = next(csv.reader([line]))
-                    ts = datetime.fromisoformat(row[0])
-                    return ts
-                except Exception:
-                    continue
+        if not self.datastore:
             return None
-
-        fronius = _last_csv_ts(_data_path("FroniusDaten.csv"))
-        heating = _last_csv_ts(_data_path("Heizungstemperaturen.csv"))
-        ts_candidates = [t for t in [fronius, heating] if t]
-        if not ts_candidates:
+        ts_str = self.datastore.get_latest_timestamp()
+        if not ts_str:
             return None
-        return max(ts_candidates)
+        try:
+            return datetime.fromisoformat(ts_str)
+        except Exception:
+            return None
 
     def _load_pv_sparkline(self, minutes: int = 60) -> list[float]:
-        path = _data_path("FroniusDaten.csv")
-        if not os.path.exists(path):
+        if not self.datastore:
             return []
         cutoff = datetime.now() - timedelta(minutes=minutes)
-        lines = _read_tail_lines(path, max_bytes=196608, max_lines=800)
-        if len(lines) < 2:
-            return []
-        # Use recent lines only for speed
-        recent_lines = lines[-400:]
-        values = []
-        for line in recent_lines:
-            line = line.strip()
-            if not line or line.lower().startswith("zeit"):
+        hours = max(1, (minutes // 60) + 1)
+        rows = self.datastore.get_recent_fronius(hours=hours, limit=1200)
+        values: list[float] = []
+        for row in rows[-400:]:
+            ts = self._parse_timestamp_value(row.get('timestamp'))
+            pv_kw = row.get('pv')
+            if ts is None or pv_kw is None:
                 continue
-            try:
-                row = next(csv.reader([line]))
-                ts = datetime.fromisoformat(row[0])
-                if ts < cutoff:
-                    continue
-                pv_kw = float(row[1])
-                values.append(pv_kw)
-            except Exception:
+            if ts < cutoff:
                 continue
+            values.append(float(pv_kw))
         return values
 
     def _fetch_real_data(self):
-        """Versucht, echte Daten aus CSV/APIs zu laden - mit SQLite Fallback."""
-        import csv
+        """Versucht, echte Daten direkt aus dem DataStore zu laden."""
+        if not self.datastore:
+            return
 
-        fronius_csv = _data_path("FroniusDaten.csv")
-        bmk_csv = _data_path("Heizungstemperaturen.csv")
+        try:
+            record = self.datastore.get_last_fronius_record()
+            if record:
+                pv_kw = float(record.get('pv') or 0.0)
+                grid_kw = float(record.get('grid') or 0.0)
+                batt_kw = float(record.get('batt') or 0.0)
+                soc = float(record.get('soc') or 0.0)
+                load_kw = pv_kw + batt_kw - grid_kw
 
-        # Hole letzte CSV-Zeile vorab, um sie bei Bedarf (oder wenn frischer als DB) zu nutzen
-        csv_row = None
-        csv_ts = None
-        if os.path.exists(fronius_csv):
-            try:
-                last_line = _read_last_data_line(fronius_csv)
-                if last_line:
-                    csv_row = next(csv.reader([last_line]))
-                    csv_ts = datetime.fromisoformat(csv_row[0]) if csv_row else None
-            except Exception:
-                csv_row = None
-                csv_ts = None
+                self._last_data["pv"] = pv_kw * 1000
+                self._last_data["grid"] = grid_kw * 1000
+                self._last_data["batt"] = -batt_kw * 1000
+                self._last_data["load"] = load_kw * 1000
+                self._last_data["soc"] = soc
+        except Exception as exc:
+            logging.debug(f"DataStore Fronius Fehler: {exc}")
 
-        # Fronius Daten - bevorzuge DataStore wenn verfügbar
-        if self.datastore:
-            try:
-                record = self.datastore.get_last_fronius_record()
-                if record:
-                    record_ts = None
-                    try:
-                        record_ts = datetime.fromisoformat(record['timestamp'])
-                    except Exception:
-                        record_ts = None
-
-                    # Wenn CSV frischer ist als DB-Record, nimm CSV statt stale DB-Wert
-                    if csv_ts and record_ts and record_ts < csv_ts:
-                        record = None  # erzwinge CSV unten
-                    else:
-                        pv_kw = record['pv']
-                        grid_kw = record['grid']
-                        batt_kw = record['batt']
-                        soc = record['soc']
-
-                        # Calculate load from balance
-                        load_kw = pv_kw + batt_kw - grid_kw
-
-                        self._last_data["pv"] = pv_kw * 1000  # kW -> W
-                        self._last_data["grid"] = grid_kw * 1000
-                        self._last_data["batt"] = -batt_kw * 1000
-                        self._last_data["load"] = load_kw * 1000
-                        self._last_data["soc"] = soc
-
-                        # Skip CSV fallback if DataStore worked
-                        bmk_csv_exists = True
-            except Exception as e:
-                logging.debug(f"DataStore Fronius Fehler: {e} - Fallback zu CSV")
-                self.datastore = None  # Deactivate on error
-        
-        # CSV Fallback (nur wenn DataStore nicht funktioniert)
-        if (not self.datastore or csv_row) and os.path.exists(fronius_csv):
-            try:
-                row = csv_row
-                if not row:
-                    last_line = _read_last_data_line(fronius_csv)
-                    row = next(csv.reader([last_line])) if last_line else None
-                if row and len(row) >= 6:
-                    pv_kw = float(row[1])
-                    grid_kw = float(row[2])
-                    batt_kw = float(row[3])
-                    load_kw = float(row[4])
-
-                    # Derive grid sign from power balance
-                    netz_calc_kw = pv_kw + batt_kw - load_kw
-                    if abs(grid_kw) > 1e-4:
-                        grid_kw = abs(grid_kw) * (1 if netz_calc_kw <= 0 else -1)
-                    else:
-                        grid_kw = netz_calc_kw
-
-                    self._last_data["pv"] = pv_kw * 1000  # kW -> W
-                    self._last_data["grid"] = grid_kw * 1000
-                    self._last_data["batt"] = -batt_kw * 1000  # Invert: negativ = laden, positiv = entladen
-                    self._last_data["load"] = load_kw * 1000
-                    self._last_data["soc"] = float(row[5])
-            except Exception as e:
-                logging.debug(f"Fronius CSV Fehler: {e}")
-
-        # BMK Daten (letzter Eintrag)
-        if os.path.exists(bmk_csv):
-            try:
-                row_dict = _read_last_row_dict(bmk_csv)
-                last_line = _read_last_data_line(bmk_csv)
-                row = next(csv.reader([last_line])) if last_line else []
-                parsed = _get_last_valid_bmk_values(bmk_csv) or _parse_bmk_row(row) or _parse_short_bmk_row(row)
-
-                out_val = _safe_float(parsed.get("Außentemperatur")) if parsed else None
-                top_val = _safe_float(parsed.get("Pufferspeicher Oben")) if parsed else None
-                mid_val = _safe_float(parsed.get("Pufferspeicher Mitte")) if parsed else None
-                bot_val = _safe_float(parsed.get("Pufferspeicher Unten")) if parsed else None
-                warm_val = _safe_float(parsed.get("Warmwasser")) if parsed else None
-
-                if out_val is None and row_dict:
-                    out_val = _safe_float(_get_row_value(row_dict, "Außentemperatur", "Aussentemperatur", "OutdoorTemp", "OutTemp"))
-                if top_val is None and row_dict:
-                    top_val = _safe_float(_get_row_value(row_dict, "Pufferspeicher Oben", "Puffer_Oben", "Puffer Oben"))
-                if mid_val is None and row_dict:
-                    mid_val = _safe_float(_get_row_value(row_dict, "Pufferspeicher Mitte", "Puffer_Mitte", "Puffer Mitte"))
-                if bot_val is None and row_dict:
-                    bot_val = _safe_float(_get_row_value(row_dict, "Pufferspeicher Unten", "Puffer_Unten", "Puffer Unten"))
-                if warm_val is None and row_dict:
-                    warm_val = _safe_float(_get_row_value(row_dict, "Warmwasser", "Warmwassertemperatur"))
+        try:
+            heating = self.datastore.get_last_heating_record()
+            if heating:
+                out_val = _safe_float(heating.get('outdoor'))
+                top_val = _safe_float(heating.get('top'))
+                mid_val = _safe_float(heating.get('mid'))
+                bot_val = _safe_float(heating.get('bot'))
+                warm_val = _safe_float(heating.get('warm'))
+                kessel_val = _safe_float(heating.get('kessel'))
 
                 if out_val is not None:
                     self._last_data["out_temp"] = out_val
@@ -1230,8 +906,10 @@ class MainApp:
                     self._last_data["puffer_bot"] = bot_val
                 if warm_val is not None:
                     self._last_data["warmwasser"] = warm_val
-            except Exception as e:
-                logging.debug(f"BMK CSV Fehler: {e}")
+                if kessel_val is not None:
+                    self._last_data["kesseltemperatur"] = kessel_val
+        except Exception as exc:
+            logging.debug(f"DataStore BMK Fehler: {exc}")
 
 
 def run():

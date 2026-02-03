@@ -1,12 +1,11 @@
-import os
 import tkinter as tk
 from tkinter import ttk
-import csv
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from core.datastore import get_shared_datastore
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -35,6 +34,7 @@ class HistoricalTab:
 
         self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
         self.notebook.add(self.tab_frame, text=emoji("📈 Heizung-Historie", "Heizung-Historie"))
+        self.datastore = get_shared_datastore()
 
         self.tab_frame.grid_columnconfigure(0, weight=1)
         self.tab_frame.grid_rowconfigure(0, weight=0)
@@ -81,12 +81,7 @@ class HistoricalTab:
 
         self._last_key = None
         self._resize_pending = False  # Prevent Configure event loop
-        # Lazy Load: Nur wenn Daten existieren, sonst warte
-        if os.path.exists(self._data_path("Heizungstemperaturen.csv")):
-            self.root.after(100, self._update_plot)
-        else:
-            print("[HISTORIE] Keine CSV gefunden - überspringe initial plot")
-            self.root.after(30000, self._update_plot)  # Retry nach 30s
+        self.root.after(100, self._update_plot)
 
     def stop(self):
         self.alive = False
@@ -103,66 +98,39 @@ class HistoricalTab:
         if self._last_temps_cache and (now - self._last_cache_time) < 120:
             return self._last_temps_cache
         
-        paths = [
-            self._data_path("Heizungstemperaturen.csv"),
-        ]
-        
-        print(f"[HISTORIE] Suche Heizungsdaten...")
-        for path in paths:
-            if not os.path.exists(path):
-                print(f"[HISTORIE] Nicht gefunden: {path}")
+        if not self.datastore:
+            return []
+
+        rows = self.datastore.get_recent_heating(hours=168, limit=2000)
+        cutoff = datetime.now() - timedelta(days=4)
+        parsed = []
+        fallback = []
+        for entry in rows:
+            ts = self._parse_ts(entry.get('timestamp'))
+            top = self._safe_float(entry.get('top'))
+            mid = self._safe_float(entry.get('mid'))
+            bot = self._safe_float(entry.get('bot'))
+            boiler = self._safe_float(entry.get('kessel'))
+            outside = self._safe_float(entry.get('outdoor'))
+            if None in (ts, top, mid, bot, boiler, outside):
                 continue
-            
-            print(f"[HISTORIE] Lade: {path}")
-            rows = []
-            all_rows = []
-            cutoff = datetime.now() - timedelta(days=4)
-            try:
-                with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        try:
-                            ts_raw = row.get("Zeit") or row.get("Zeitstempel") or ""
-                            ts = datetime.fromisoformat(ts_raw)
-                            top = self._safe_float(
-                                row.get("Pufferspeicher Oben") or row.get("Puffer_Top") or row.get("PufferTop") or row.get("puffer_top")
-                            )
-                            mid = self._safe_float(
-                                row.get("Pufferspeicher Mitte") or row.get("Puffer_Mitte") or row.get("PufferMid") or row.get("puffer_mid")
-                            )
-                            bot = self._safe_float(
-                                row.get("Pufferspeicher Unten") or row.get("Puffer_Bottom") or row.get("PufferBot") or row.get("puffer_bot")
-                            )
-                            boiler = self._safe_float(
-                                row.get("Kesseltemperatur") or row.get("Boiler") or row.get("Kessel")
-                            )
-                            outside = self._safe_float(
-                                row.get("Außentemperatur") or row.get("Aussentemperatur") or row.get("Außentemp") or row.get("Aussentemp") or row.get("Aussen") or row.get("Außen") or row.get("out_temp")
-                            )
-                            if None in (top, mid, bot, boiler, outside):
-                                continue
-                            all_rows.append((ts, top, mid, bot, boiler, outside))
-                            if ts >= cutoff:
-                                rows.append((ts, top, mid, bot, boiler, outside))
-                        except Exception:
-                            continue
-            except Exception as e:
-                print(f"[HISTORIE] Fehler beim Laden: {e}")
-                continue
-            
-            rows.sort(key=lambda r: r[0])
-            if rows:
-                self._last_temps_cache = rows
-                self._last_cache_time = now
-                return rows
-            
-            all_rows.sort(key=lambda r: r[0])
-            if all_rows:
-                result = all_rows[-500:]
-                self._last_temps_cache = result
-                self._last_cache_time = now
-                return result
-        
+            fallback.append((ts, top, mid, bot, boiler, outside))
+            if ts >= cutoff:
+                parsed.append((ts, top, mid, bot, boiler, outside))
+
+        parsed.sort(key=lambda r: r[0])
+        if parsed:
+            self._last_temps_cache = parsed
+            self._last_cache_time = now
+            return parsed
+
+        fallback.sort(key=lambda r: r[0])
+        if fallback:
+            result = fallback[-500:]
+            self._last_temps_cache = result
+            self._last_cache_time = now
+            return result
+
         self._last_temps_cache = []
         self._last_cache_time = now
         return []
@@ -285,25 +253,10 @@ class HistoricalTab:
             self._resize_pending = False
 
     @staticmethod
-    def _data_path(filename: str) -> str:
-        import platform
-        # Calculate root directory: src/tabs/ -> root/
-        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
-        # Try multiple common paths
-        candidates = [
-            os.path.join(root_dir, "data", filename),  # data/ directory in root
-            os.path.join(root_dir, filename),  # Root directory
-        ]
-        # Add platform-specific paths
-        if platform.system() == "Linux":
-            candidates.extend([
-                os.path.join("/home/laurenz/projekt1/Projekt1/data", filename),  # Raspberry Pi path
-                os.path.join("/home/laurenz/projekt1/Projekt1", filename),  # Raspberry Pi root
-            ])
-        
-        for candidate in candidates:
-            if os.path.exists(candidate):
-                return candidate
-        # Default fallback (data directory)
-        return candidates[0]
+    def _parse_ts(value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value))
+        except Exception:
+            return None

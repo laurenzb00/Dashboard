@@ -1,7 +1,5 @@
 import tkinter as tk
 import os
-import csv
-import time
 from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,6 +9,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.patches import FancyBboxPatch, Ellipse, Rectangle
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from ui.styles import (
+from core.datastore import get_shared_datastore
     COLOR_CARD,
     COLOR_BORDER,
     COLOR_TEXT,
@@ -26,19 +25,6 @@ from ui.styles import (
 
 DEBUG_LOG = os.getenv("DASH_DEBUG", "0") == "1"
 
-
-def _normalize_header(name: str) -> str:
-    return (
-        name.strip()
-        .lower()
-        .replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("ß", "ss")
-        .replace(" ", "")
-        .replace("_", "")
-    )
-
 class BufferStorageView(tk.Frame):
     """Zylindrischer Pufferspeicher mit geclippter Heatmap + Sparkline."""
 
@@ -46,6 +32,7 @@ class BufferStorageView(tk.Frame):
         super().__init__(parent, bg=COLOR_CARD)
         self._start_time = time.time()
         self.height = height
+        self.datastore = get_shared_datastore()
         self.configure(height=self.height)
         self.pack_propagate(False)
         self.data = np.array([[60.0], [50.0], [40.0]])
@@ -64,150 +51,75 @@ class BufferStorageView(tk.Frame):
 
         self.val_texts = []
 
-        self.spark_frame = tk.Frame(self.layout, bg=COLOR_CARD)
-        self.spark_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-        tk.Label(self.spark_frame, text="PV & Außentemp. (24h)", fg=COLOR_TITLE, bg=COLOR_CARD, font=("Segoe UI", 10)).pack(anchor="w")
-
-        fig_width = 3.2
-        fig_height = max(1.8, self.height / 100)
-        self._create_figure(fig_width, fig_height)
-        self._setup_plot()
-        self._create_sparkline()
-
-    def resize(self, height: int):
-        """FIXED: Don't recreate figure on resize - just update container height."""
-        elapsed = time.time() - self._start_time
-        if DEBUG_LOG:
-            print(f"[BUFFER] resize() called at {elapsed:.3f}s with height={height}")
-        
-        old_height = self.height
-        self.height = max(160, int(height))
-        
-        # Only reconfigure container height, don't recreate matplotlib figure
-        self.configure(height=self.height)
-        # Log but DON'T recreate the entire plot
-        if DEBUG_LOG:
-            print(f"[BUFFER] Height changed from {old_height} to {self.height}, NOT recreating figure")
-        
-        # If you MUST resize the figure (e.g., very large change), do it sparingly:
-        # if abs(self.height - old_height) > 50:
-        #     print(f"[BUFFER] Large height change, recreating figure")
-        #     fig_width = 2.6
-        #     fig_height = max(1.6, self.height / 100)
-        #     self._create_figure(fig_width, fig_height)
-        #     self._setup_plot()
+        if not self.datastore:
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        rows = self.datastore.get_recent_fronius(hours=hours + 4, limit=2000)
+        samples = []
+        for entry in rows[-1000:]:
+            ts = self._parse_ts(entry.get('timestamp'))
+            pv_kw = entry.get('pv')
+            if ts is None or pv_kw is None or ts < cutoff:
+                continue
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
+            samples.append((ts_bin, float(pv_kw)))
+        if not samples:
+            return []
+        agg = {}
+        for ts, val in samples:
+            s, c = agg.get(ts, (0.0, 0))
+            agg[ts] = (s + val, c + 1)
+        out = [(ts, s / c) for ts, (s, c) in sorted(agg.items())]
+        return self._smooth_series(out, window=5)
         #     self.canvas.draw_idle()
 
     def _create_figure(self, fig_width: float, fig_height: float):
-        """Create matplotlib figure and canvas - only called once at init."""
-        elapsed = time.time() - self._start_time
-        if DEBUG_LOG:
-            print(f"[BUFFER] _create_figure() at {elapsed:.3f}s: {fig_width}x{fig_height}")
-        
-        if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
-            if DEBUG_LOG:
-                print(f"[BUFFER] WARNING: Destroying existing canvas at {elapsed:.3f}s")
-            self.canvas_widget.destroy()
-        self.fig = Figure(figsize=(fig_width, fig_height), dpi=100)  # Pi 5: Stable DPI
-        self.fig.patch.set_alpha(0)
-        self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor("none")
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
-        self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.configure(width=int(fig_width * 100), height=int(fig_height * 100))
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
-
-    def _setup_plot(self):
-        """Setup plot elements - only called once at init or after explicit recreate."""
-        elapsed = time.time() - self._start_time
-        if DEBUG_LOG:
-            print(f"[BUFFER] _setup_plot() at {elapsed:.3f}s")
-        
-        self.fig.clear()
-        self.ax = self.fig.add_subplot(111)
-        self.ax.set_axis_off()
-        self.ax.set_facecolor("none")
-
-        self.norm = Normalize(vmin=45, vmax=75)
-        
-        # Pufferspeicher heatmap (left cylinder)
-        self.im = self.ax.imshow(
-            self.data,
-            aspect="auto",
-            interpolation="gaussian",
-            cmap=self._build_cmap(),
-            norm=self.norm,
-            origin="lower",
-            extent=[0.05, 0.35, 0.08, 0.92],
-        )
-
-        # Pufferspeicher cylinder shape
-        puffer_cyl = FancyBboxPatch(
-            (0.08, 0.08), 0.24, 0.84,
-            boxstyle="round,pad=0.02,rounding_size=0.10",
-            transform=self.ax.transAxes,
-            linewidth=1.3,
-            edgecolor="#2A3446",
-            facecolor="none",
-            alpha=0.75,
-        )
-        self.im.set_clip_path(puffer_cyl)
-        self.ax.add_patch(puffer_cyl)
-
+        if not self.datastore:
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
+        samples = []
+        for entry in rows[-800:]:
+            ts = self._parse_ts(entry.get('timestamp'))
+            val = self._safe_float(entry.get('outdoor'))
+            if ts is None or val is None or ts < cutoff:
+                continue
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
+            samples.append((ts_bin, val))
+        if not samples:
+            return []
+        agg = {}
+        for ts, val in samples:
+            s, c = agg.get(ts, (0.0, 0))
+            agg[ts] = (s + val, c + 1)
+        out = [(ts, s / c) for ts, (s, c) in sorted(agg.items())]
+        return self._smooth_series(out, window=5)
         puffer_top = Ellipse((0.20, 0.92), 0.24, 0.08, transform=self.ax.transAxes,
                   edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7)
-        puffer_bottom = Ellipse((0.20, 0.08), 0.24, 0.08, transform=self.ax.transAxes,
-                     edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7)
-        self.ax.add_patch(puffer_top)
-        self.ax.add_patch(puffer_bottom)
-
-        # Highlight on Pufferspeicher
-        hl = Rectangle((0.10, 0.10), 0.03, 0.80, transform=self.ax.transAxes,
-                   facecolor="#ffffff", alpha=0.07, linewidth=0)
-        self.ax.add_patch(hl)
-
-        # Labels for Pufferspeicher zones
-        self.ax.text(0.20, 0.98, "Pufferspeicher", transform=self.ax.transAxes, color=COLOR_TITLE, fontsize=12, va="top", ha="center", weight="bold")
-
-        # Boiler cylinder (right, single color with better styling) - much smaller height (about half Pufferspeicher), on same baseline
-        self.boiler_rect = FancyBboxPatch(
-            (0.58, 0.08), 0.22, 0.45,
-            boxstyle="round,pad=0.02,rounding_size=0.10",
-            transform=self.ax.transAxes,
-            linewidth=1.1,
-            edgecolor="#2A3446",
-            facecolor=self._temp_color(60),
-            alpha=0.95,
-        )
-        self.ax.add_patch(self.boiler_rect)
-        
-        # Boiler caps
-        self.boiler_top = Ellipse((0.69, 0.53), 0.22, 0.08, transform=self.ax.transAxes,
-                                  edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7)
-        self.boiler_bottom = Ellipse((0.69, 0.08), 0.22, 0.08, transform=self.ax.transAxes,
-                                     edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7)
-        self.ax.add_patch(self.boiler_top)
-        self.ax.add_patch(self.boiler_bottom)
-        
-        # Highlight on Boiler
-        boiler_hl = Rectangle((0.60, 0.10), 0.03, 0.41, transform=self.ax.transAxes,
-                   facecolor="#ffffff", alpha=0.06, linewidth=0)
-        self.ax.add_patch(boiler_hl)
-        
-        self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes, color=COLOR_TITLE, fontsize=12, va="top", ha="center", weight="bold")
-        
-        # Add colorbar on the right
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
-        divider = make_axes_locatable(self.ax)
-        cax = divider.append_axes("right", size="4%", pad=0.15)
-        cbar = self.fig.colorbar(self.im, cax=cax, orientation='vertical')
-        cbar.set_label('°C', rotation=0, labelpad=10, color=COLOR_TEXT, fontsize=9)
-        cbar.ax.tick_params(labelsize=8, colors=COLOR_TEXT)
-        cbar.outline.set_edgecolor(COLOR_BORDER)
-        cbar.outline.set_linewidth(0.8)
-
-    def _build_cmap(self):
-        colors = [COLOR_INFO, COLOR_WARNING, COLOR_DANGER]
+        if not self.datastore:
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
+        samples = []
+        for entry in rows[-800:]:
+            ts = self._parse_ts(entry.get('timestamp'))
+            mid = self._safe_float(entry.get('mid'))
+            if ts is None or mid is None or ts < cutoff:
+                continue
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
+            samples.append((ts_bin, mid))
+        if not samples:
+            return []
+        agg = {}
+        for ts, val in samples:
+            s, c = agg.get(ts, (0.0, 0))
+            agg[ts] = (s + val, c + 1)
+        out = [(ts, s / c) for ts, (s, c) in sorted(agg.items())]
+        smoothed = []
+        for i in range(len(out)):
+            w = out[max(0, i-1):min(len(out), i+2)]
+            smoothed.append((out[i][0], sum(v for _, v in w) / len(w)))
+        return smoothed
         return LinearSegmentedColormap.from_list("buffer", colors, N=256)
     
     def _temp_color(self, temp: float) -> str:
@@ -384,95 +296,48 @@ class BufferStorageView(tk.Frame):
 
     def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         """Load PV production with smoothing."""
-        path = self._data_path("FroniusDaten.csv")
-        if not os.path.exists(path):
+        if not self.datastore:
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
-        lines = self._read_lines_safe(path)
-        if len(lines) < 2:
-            return []
-        rows = []
-        for line in lines[-1000:]:
-            line = line.strip()
-            if not line or line.lower().startswith("zeit"):
+        rows = self.datastore.get_recent_fronius(hours=hours + 4, limit=2000)
+        samples = []
+        for entry in rows[-1000:]:
+            ts = self._parse_ts(entry.get('timestamp'))
+            pv_kw = entry.get('pv')
+            if ts is None or pv_kw is None or ts < cutoff:
                 continue
-            try:
-                row = next(csv.reader([line]))
-                ts = datetime.fromisoformat(row[0])
-                if ts < cutoff:
-                    continue
-                pv_kw = float(row[1])  # PV production in kW
-                ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
-                rows.append((ts_bin, pv_kw))
-            except Exception:
-                continue
-        if not rows:
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
+            samples.append((ts_bin, float(pv_kw)))
+        if not samples:
             return []
-        # Aggregate by time bin
         agg = {}
-        for ts, val in rows:
+        for ts, val in samples:
             s, c = agg.get(ts, (0.0, 0))
             agg[ts] = (s + val, c + 1)
         out = [(ts, s / c) for ts, (s, c) in sorted(agg.items())]
-        # Strong smoothing with moving average (window of 5)
         return self._smooth_series(out, window=5)
     
     def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         """Load outdoor temperature with smoothing."""
-        path = self._data_path("Heizungstemperaturen.csv")
-        if not os.path.exists(path):
+        if not self.datastore:
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
-        lines = self._read_lines_safe(path)
-        if len(lines) < 2:
+        rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
+        samples = []
+        for entry in rows[-800:]:
+            ts = self._parse_ts(entry.get('timestamp'))
+            val = self._safe_float(entry.get('outdoor'))
+            if ts is None or val is None or ts < cutoff:
+                continue
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
+            samples.append((ts_bin, val))
+        if not samples:
             return []
-        header = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if line.lower().startswith("zeit"):
-                header = next(csv.reader([line]))
-                break
-        idx_map = self._header_indices(header) if header else {}
-        rows = []
-        for line in lines[-800:]:
-            line = line.strip()
-            if not line or line.lower().startswith("zeit"):
-                continue
-            try:
-                row = next(csv.reader([line]))
-                ts = datetime.fromisoformat(row[0])
-                if ts < cutoff:
-                    continue
-                val = self._row_value_by_keys(
-                    row,
-                    idx_map,
-                    "Außentemperatur",
-                    "Aussentemperatur",
-                    "Außentemp",
-                    "Aussentemp",
-                    "Aussen",
-                    "Außen",
-                    "OutdoorTemp",
-                    "OutTemp",
-                )
-                if val is None:
-                    continue
-                outdoor_temp = float(val)
-                ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
-                rows.append((ts_bin, outdoor_temp))
-            except Exception:
-                continue
-        if not rows:
-            return []
-        # Aggregate by time bin
         agg = {}
-        for ts, val in rows:
+        for ts, val in samples:
             s, c = agg.get(ts, (0.0, 0))
             agg[ts] = (s + val, c + 1)
         out = [(ts, s / c) for ts, (s, c) in sorted(agg.items())]
-        # Strong smoothing with moving average (window of 5)
         return self._smooth_series(out, window=5)
     
     def _smooth_series(self, series: list[tuple[datetime, float]], window: int = 5) -> list[tuple[datetime, float]]:
@@ -489,107 +354,37 @@ class BufferStorageView(tk.Frame):
             smoothed.append((series[i][0], smoothed_val))
         return smoothed
 
-    @staticmethod
-    def _header_indices(header: list[str]) -> dict[str, int]:
-        return {_normalize_header(name): idx for idx, name in enumerate(header)}
-
-    @staticmethod
-    def _row_value_by_keys(row: list[str], idx_map: dict[str, int], *keys: str) -> str | None:
-        for key in keys:
-            norm = _normalize_header(key)
-            if norm in idx_map:
-                idx = idx_map[norm]
-                if 0 <= idx < len(row):
-                    return row[idx]
-        return None
-
     def _load_puffer_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
-        path = self._data_path("Heizungstemperaturen.csv")
-        if not os.path.exists(path):
+        if not self.datastore:
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
-        lines = self._read_lines_safe(path)
-        if len(lines) < 2:
-            return []
-        header = []
-        for line in lines:
-            line = line.strip()
-            if not line:
+        rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
+        samples = []
+        for entry in rows[-800:]:
+            ts = self._parse_ts(entry.get('timestamp'))
+            mid = self._safe_float(entry.get('mid'))
+            if ts is None or mid is None or ts < cutoff:
                 continue
-            if line.lower().startswith("zeit"):
-                header = next(csv.reader([line]))
-                break
-        idx_map = self._header_indices(header) if header else {}
-        rows = []
-        for line in lines[-800:]:
-            line = line.strip()
-            if not line or line.lower().startswith("zeit"):
-                continue
-            try:
-                row = next(csv.reader([line]))
-                ts = datetime.fromisoformat(row[0])
-                if ts < cutoff:
-                    continue
-                val = self._row_value_by_keys(
-                    row,
-                    idx_map,
-                    "Pufferspeicher Mitte",
-                    "Puffer_Mitte",
-                    "Puffer Mitte",
-                )
-                if val is None:
-                    continue
-                mid = float(val)
-                ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
-                rows.append((ts_bin, mid))
-            except Exception:
-                continue
-        if not rows:
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes, seconds=ts.second, microseconds=ts.microsecond)
+            samples.append((ts_bin, mid))
+        if not samples:
             return []
         agg = {}
-        for ts, val in rows:
+        for ts, val in samples:
             s, c = agg.get(ts, (0.0, 0))
             agg[ts] = (s + val, c + 1)
         out = [(ts, s / c) for ts, (s, c) in sorted(agg.items())]
         smoothed = []
         for i in range(len(out)):
-            w = out[max(0, i-1):min(len(out), i+2)]
-            smoothed.append((out[i][0], sum(v for _, v in w) / len(w)))
+            window_vals = out[max(0, i - 1):min(len(out), i + 2)]
+            smoothed.append((out[i][0], sum(v for _, v in window_vals) / len(window_vals)))
         return smoothed
 
     @staticmethod
-    def _data_path(filename: str) -> str:
-        # Calculate root directory: src/ui/views -> root/
-        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        # Try multiple common paths
-        candidates = [
-            os.path.join(root_dir, "data", filename),  # data/ directory in root
-            os.path.join(root_dir, filename),  # Root directory
-            os.path.join("/home/laurenz/projekt1/Projekt1/data", filename),  # Raspberry Pi data path
-            os.path.join("/home/laurenz/projekt1/Projekt1", filename),  # Raspberry Pi root
-        ]
-        for candidate in candidates:
-            if os.path.exists(candidate):
-                return candidate
-        # Default fallback
-        return candidates[0]
-
-    @staticmethod
-    def _read_lines_safe(path: str, max_bytes: int = 262144, max_lines: int = 2000) -> list[str]:
+    def _parse_ts(value):
+        if not value:
+            return None
         try:
-            with open(path, "rb") as f:
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                f.seek(max(0, size - max_bytes))
-                chunk = f.read().decode("utf-8-sig", errors="replace")
-            lines = chunk.splitlines()
+            return datetime.fromisoformat(str(value))
         except Exception:
-            try:
-                with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-                    lines = f.readlines()
-            except Exception:
-                return []
-
-        if max_lines and len(lines) > max_lines:
-            return lines[-max_lines:]
-        return lines
+            return None

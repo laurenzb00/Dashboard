@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-02-03T15:19:25.564919",
+  "fronius_entries": 59000,
+  "fronius_range": {
+    "count": 59000,
+    "start": "2025-04-09 13:18:39",
+    "end": "2025-11-28 12:03:44"
+  },
+  "current_entries": 0,
+  "current_total_kwh": 0.0,
+  "reconstructed_entries": 0,
+  "reconstructed_total_kwh": 0.0,
+  "difference_percent": 0.0,
+  "backup_created": null
+}

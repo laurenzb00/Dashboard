@@ -1,8 +1,8 @@
 import requests
-import csv
 from datetime import datetime
 import time
-import os
+
+from core.datastore import get_shared_datastore
 
 def abrufen_und_speichern():
     try:
@@ -12,10 +12,10 @@ def abrufen_und_speichern():
         if response.status_code == 200:
             data = response.json()
             zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            pv_leistung = abs(data["Body"]["Data"]["Site"]["P_PV"] / 1000)
-            netz_leistung = abs(data["Body"]["Data"]["Site"]["P_Grid"] / 1000)
-            batterie_leistung = abs(data["Body"]["Data"]["Site"]["P_Akku"] / 1000)
-            hausverbrauch = abs(data["Body"]["Data"]["Site"]["P_Load"] / 1000)
+            pv_leistung = data["Body"]["Data"]["Site"]["P_PV"] / 1000
+            netz_leistung = data["Body"]["Data"]["Site"]["P_Grid"] / 1000
+            batterie_leistung = data["Body"]["Data"]["Site"]["P_Akku"] / 1000
+            hausverbrauch = data["Body"]["Data"]["Site"]["P_Load"] / 1000
             batterieladestand = data["Body"]["Data"]["Inverters"]["1"]["SOC"]
 
             daten = {
@@ -27,16 +27,11 @@ def abrufen_und_speichern():
                 "Batterieladestand (%)": batterieladestand
             }
 
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            csv_datei = os.path.join(base_dir, "data", "FroniusDaten.csv")
-            datei_existiert = os.path.exists(csv_datei)
-
-            os.makedirs(os.path.dirname(csv_datei), exist_ok=True)
-            with open(csv_datei, "a", newline="", encoding="utf-8") as file:
-                writer = csv.writer(file)
-                if not datei_existiert or os.stat(csv_datei).st_size == 0:
-                    writer.writerow(daten.keys())
-                writer.writerow(daten.values())
+            try:
+                store = get_shared_datastore()
+                store.insert_fronius_record(daten)
+            except Exception:
+                pass
             return daten
         return None
     except Exception:

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import platform
 import os
+from core.datastore import DataStore, set_shared_datastore, close_shared_datastore
 import importlib
 
 # Füge src-Verzeichnis zu Python-Pfad hinzu
@@ -131,6 +132,13 @@ def main():
     start_time = time.time()
     root = tk.Tk()
 
+    datastore = DataStore()
+    set_shared_datastore(datastore)
+    try:
+        datastore.seed_from_csv()
+    except Exception as exc:
+        logging.warning("[DB] Initial import skipped: %s", exc)
+
     env_scale = os.getenv("UI_SCALING")
 
     # Optional: Spotify-Login nur starten, wenn ausdrücklich gewünscht
@@ -162,6 +170,10 @@ def main():
     def on_close():
         logging.info("Programm wird beendet…")
         shutdown_event.set()
+        try:
+            close_shared_datastore()
+        except Exception:
+            pass
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)

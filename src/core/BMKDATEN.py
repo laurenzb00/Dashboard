@@ -1,10 +1,9 @@
-import csv
 import logging
-import os
 from datetime import datetime
 from typing import Dict, Optional
 
 import requests
+from core.datastore import get_shared_datastore
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -126,11 +125,11 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
 
         if daten_heizung:
             daten_heizung.update(daten_kurz)
-            _speichere_heizungsdaten(daten_heizung)
             result = daten_heizung
         else:
-            _speichere_heizungsdaten(daten_kurz)
             result = daten_kurz
+
+        _persist_to_datastore(result)
 
         # Optional: weiterverwenden, nicht mehr speichern um alte Abhängigkeiten zu vermeiden
         _extrahiere_pufferdaten(values, zeitstempel)
@@ -208,50 +207,12 @@ def _safe_float(value):
         return None
 
 
-def _speichere_heizungsdaten(daten):
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    csv_datei = os.path.join(base_dir, "data", "Heizungstemperaturen.csv")
-    datei_existiert = os.path.exists(csv_datei)
-    _ensure_parent_dir(csv_datei)
-
-    def _get(*keys):
-        for key in keys:
-            if key in daten:
-                return daten.get(key)
-        return ""
-
+def _persist_to_datastore(payload: Dict[str, float]) -> None:
     try:
-        with open(csv_datei, "a", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            if not datei_existiert:
-                writer.writerow([
-                    "Zeitstempel",
-                    "Kesseltemperatur",
-                    "Außentemperatur",
-                    "Pufferspeicher Oben",
-                    "Pufferspeicher Mitte",
-                    "Pufferspeicher Unten",
-                    "Warmwasser",
-                ])
-            writer.writerow([
-                _get("Zeitstempel"),
-                _get("Kesseltemperatur"),
-                _get("Außentemperatur", "Aussentemperatur"),
-                _get("Puffer_Oben", "Pufferspeicher Oben", "Puffer Oben"),
-                _get("Pufferspeicher_Mitte", "Puffer_Mitte", "Pufferspeicher Mitte", "Puffer Mitte"),
-                _get("Puffer_Unten", "Pufferspeicher Unten", "Puffer Unten"),
-                _get("Warmwassertemperatur", "Warmwasser"),
-            ])
-        logger.debug(f"Heizungsdaten gespeichert: {daten.get('Zeitstempel')}")
+        store = get_shared_datastore()
+        store.insert_heating_record(payload)
     except Exception as exc:
-        logger.error(f"Fehler beim Speichern von Heizungsdaten: {exc}")
-
-
-def _ensure_parent_dir(path: str):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-    except Exception as exc:
-        logger.error(f"Kann Zielverzeichnis nicht anlegen: {exc}")
+        logger.error(f"[DB] Heizungseintrag fehlgeschlagen: {exc}")
 
 
 if __name__ == "__main__":

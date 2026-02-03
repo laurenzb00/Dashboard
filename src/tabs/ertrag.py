@@ -1,12 +1,10 @@
-import os
-import csv
 from datetime import datetime, timedelta
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from matplotlib.ticker import MaxNLocator
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from core.datastore import get_shared_datastore
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -54,6 +52,7 @@ class ErtragTab:
         ttk.Label(stats_frame, textvariable=self.var_last).pack(side=tk.LEFT, padx=6)
 
         self._last_key = None
+        self.store = get_shared_datastore()
         self.root.after(100, self._update_plot)
 
     def stop(self):
@@ -65,63 +64,31 @@ class ErtragTab:
                 pass
 
     def _load_pv_daily(self, days: int = 365):
-        path = self._data_path("ErtragHistory.csv")
-        if not os.path.exists(path):
-            return []
         cutoff = datetime.now() - timedelta(days=days)
-        daily = {}
-        try:
-            with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        ts = datetime.fromisoformat(row.get("Zeitstempel", ""))
-                        val = float(row.get("Ertrag_kWh", 0))
-                        if ts < cutoff:
-                            continue
-                        day = ts.date()
-                        daily[day] = daily.get(day, 0.0) + val
-                    except Exception:
-                        continue
-        except Exception:
-            return []
-
-        out = [(datetime.combine(day, datetime.min.time()), total) for day, total in daily.items()]
-        out.sort(key=lambda r: r[0])
-        return out
+        series = []
+        for row in self.store.get_daily_totals(days=days):
+            try:
+                ts = datetime.fromisoformat(row['day'])
+            except (ValueError, TypeError):
+                continue
+            if ts < cutoff:
+                continue
+            series.append((ts, float(row.get('pv_kwh') or 0.0)))
+        return series
 
     def _load_pv_monthly(self, months: int = 12):
         """Lade und aggregiere PV-Ertrag nach Monaten."""
-        path = self._data_path("ErtragHistory.csv")
-        if not os.path.exists(path):
-            return []
-        
-        cutoff = datetime.now() - timedelta(days=months * 30)
-        monthly = {}
-        
-        try:
-            with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        ts = datetime.fromisoformat(row.get("Zeitstempel", ""))
-                        val = float(row.get("Ertrag_kWh", 0))
-                        
-                        if ts < cutoff:
-                            continue
-                        
-                        # Aggregiere nach Monat (1. des Monats)
-                        month_key = ts.replace(day=1)
-                        month_str = month_key.strftime("%Y-%m")
-                        monthly[month_str] = monthly.get(month_str, 0.0) + val
-                    except Exception:
-                        continue
-        except Exception:
-            return []
-
-        # Sortiere nach Monat und konvertiere zu Datetime
-        out = [(datetime.strptime(month_str, "%Y-%m"), total) for month_str, total in sorted(monthly.items())]
-        return out
+        series = []
+        cutoff = datetime.now() - timedelta(days=months * 31)
+        for row in self.store.get_monthly_totals(months=months):
+            try:
+                ts = datetime.fromisoformat(row['month'])
+            except (ValueError, TypeError):
+                continue
+            if ts < cutoff:
+                continue
+            series.append((ts, float(row.get('pv_kwh') or 0.0)))
+        return series
 
     def _style_axes(self):
         self.ax.set_facecolor(COLOR_CARD)
@@ -226,26 +193,4 @@ class ErtragTab:
         finally:
             self._resize_pending = False
 
-    @staticmethod
-    def _data_path(filename: str) -> str:
-        import platform
-        # Calculate root directory: src/tabs/ -> root/
-        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
-        # Try multiple common paths
-        candidates = [
-            os.path.join(root_dir, "data", filename),  # data/ directory in root
-            os.path.join(root_dir, filename),  # Root directory
-        ]
-        # Add platform-specific paths
-        if platform.system() == "Linux":
-            candidates.extend([
-                os.path.join("/home/laurenz/projekt1/Projekt1/data", filename),  # Raspberry Pi data path
-                os.path.join("/home/laurenz/projekt1/Projekt1", filename),  # Raspberry Pi root
-            ])
-        
-        for candidate in candidates:
-            if os.path.exists(candidate):
-                return candidate
-        # Default fallback (data directory)
-        return candidates[0]
+
