@@ -248,16 +248,3 @@ def _speichere_heizungsdaten(daten):
 
 if __name__ == "__main__":
     abrufen_und_speichern()
-            puffer_unten = _get("Puffer_Unten", "Pufferspeicher Unten", "Puffer Unten")
-            warmwasser = _get("Warmwassertemperatur", "Warmwasser")
-            writer.writerow([
-                daten.get("Zeitstempel", ""),
-                _get("Kesseltemperatur"),
-                aussen,
-                puffer_oben,
-                puffer_mitte,
-                puffer_unten,
-                warmwasser,
-            ])
-    except Exception as exc:
-        logger.error(f"Fehler beim Schreiben der Heizungsdaten: {exc}")
