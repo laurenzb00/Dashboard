@@ -3,6 +3,7 @@ import os
 import time
 import tkinter as tk
 from tkinter import ttk
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -24,6 +25,8 @@ TADO_TOKEN_FILE = os.getenv(
     "TADO_TOKEN_FILE",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tado_refresh_token"),
 )
+TADO_CLIENT_ID = os.getenv("TADO_CLIENT_ID", "tado-web-app")
+TADO_SCOPE = os.getenv("TADO_SCOPE", "home.user")
 
 class TadoTab:
     """Klima-Steuerung mit modernem Card-Layout."""
@@ -181,6 +184,25 @@ class TadoTab:
         except Exception:
             return {}
 
+    def _normalize_device_url(self, url: str | None) -> str | None:
+        if not url:
+            return url
+        try:
+            parsed = urlparse(url)
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            changed = False
+            if TADO_CLIENT_ID and "client_id" not in query:
+                query["client_id"] = [TADO_CLIENT_ID]
+                changed = True
+            if TADO_SCOPE and "scope" not in query:
+                query["scope"] = [TADO_SCOPE]
+                changed = True
+            if not changed:
+                return url
+            return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+        except Exception:
+            return url
+
     def _change_temp(self, delta: int):
         """Ändere Zieltemperatur um delta Grad."""
         try:
@@ -223,7 +245,7 @@ class TadoTab:
             status = self.api.device_activation_status()
             print(f"[TADO] device_activation_status: {status}")
             if status != "COMPLETED":
-                url = self.api.device_verification_url()
+                url = self._normalize_device_url(self.api.device_verification_url())
                 if url:
                     print(f"[TADO] Device activation URL: {url}")
                     self._ui_set(self.var_status, "Tado: Bitte Gerät im Browser aktivieren")
