@@ -157,8 +157,12 @@ def validate_and_repair_ertrag(store: DataStore | None = None) -> bool:
         print("=" * 60 + "\n")
         return True
     finally:
-        if owns_store:
-            store.close()
+        # Only close if we created a new store (never close shared connection)
+        if owns_store and store is not None:
+            try:
+                store.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
