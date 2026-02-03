@@ -7,6 +7,7 @@ import subprocess
 import sys
 import platform
 import os
+import importlib
 
 # Füge src-Verzeichnis zu Python-Pfad hinzu
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,14 +18,21 @@ from core import BMKDATEN
 from core import Wechselrichter
 from ui.app import MainApp
 
-# Force Spotify redirect URI to loopback IP (avoid localhost which Spotify nicht erlaubt)
-os.environ["SPOTIPY_REDIRECT_URI"] = "http://127.0.0.1:8889/callback"
+# Force Spotify redirect URI but allow override via env
+redirect_host = os.getenv("SPOTIFY_REDIRECT_HOST")
+if redirect_host:
+    os.environ["SPOTIPY_REDIRECT_URI"] = f"http://{redirect_host}:8889/callback"
+elif "SPOTIPY_REDIRECT_URI" not in os.environ:
+    os.environ["SPOTIPY_REDIRECT_URI"] = "http://127.0.0.1:8889/callback"
 
 # --- Clear Matplotlib Font Cache ---
-def clear_matplotlib_cache():
+def clear_matplotlib_cache() -> None:
     """Clear matplotlib fontlist cache to prevent corruption"""
     try:
-        import matplotlib
+        spec = importlib.util.find_spec("matplotlib")
+        if spec is None:
+            return
+        matplotlib = importlib.import_module("matplotlib")
         cache_dir = matplotlib.get_configdir()
         fontlist_file = os.path.join(cache_dir, "fontlist-v390.json")
         if os.path.exists(fontlist_file):

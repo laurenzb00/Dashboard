@@ -513,6 +513,12 @@ class MainApp:
             "puffer_bot": 0,
         }
         self._last_fresh_update = 0
+        self._data_fresh_seconds = None
+        self._source_health = {
+            "pv": {"label": "PV", "ts": None, "count": 0},
+            "heating": {"label": "Heizung", "ts": None, "count": 0},
+        }
+        self._last_status_compact = ""
         self._loop()
 
     def _add_other_tabs(self):
@@ -874,6 +880,7 @@ class MainApp:
     # --- Update Loop mit echten Daten (OPTIMIZED for Pi performance) ---
     def _loop(self):
         self._tick += 1
+        self._update_status_summary()
 
         # Versuche echte Daten zu laden
         try:
@@ -889,7 +896,6 @@ class MainApp:
             time_text = now.strftime("%H:%M")
             out_temp = f"{self._last_data['out_temp']:.1f} °C"
             self.header.update_header(date_text, weekday, time_text, out_temp)
-            self.status.update_status(f"Updated {time_text}")
             soc = self._last_data["soc"]
             self.status.update_center(f"SOC {soc:.0f}%")
 
@@ -922,6 +928,118 @@ class MainApp:
         # Pi 5: 2s main loop (balanced performance)
         self.root.after(2000, self._loop)
 
+    def handle_wechselrichter_data(self, data: dict):
+        """Echtzeit-PV-Daten aus dem Worker-Thread übernehmen."""
+        ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
+        source = self._source_health.get("pv")
+        if source:
+            source["ts"] = ts
+            source["count"] += 1
+
+        pv_kw = _safe_float(data.get("PV-Leistung (kW)"))
+        grid_kw = _safe_float(data.get("Netz-Leistung (kW)"))
+        batt_kw = _safe_float(data.get("Batterie-Leistung (kW)"))
+        load_kw = _safe_float(data.get("Hausverbrauch (kW)"))
+        soc = _safe_float(data.get("Batterieladestand (%)"))
+
+        if pv_kw is not None:
+            self._last_data["pv"] = pv_kw * 1000
+        if load_kw is not None:
+            self._last_data["load"] = load_kw * 1000
+        if batt_kw is not None:
+            self._last_data["batt"] = -batt_kw * 1000
+
+        if pv_kw is not None or grid_kw is not None or load_kw is not None:
+            netz_calc = (pv_kw or 0.0) + (batt_kw or 0.0) - (load_kw or 0.0)
+            if grid_kw is None or abs(grid_kw) < 1e-4:
+                signed_grid_kw = netz_calc
+            else:
+                signed_grid_kw = abs(grid_kw) * (1 if netz_calc <= 0 else -1)
+            self._last_data["grid"] = signed_grid_kw * 1000
+
+        if soc is not None:
+            self._last_data["soc"] = soc
+
+        self._update_status_summary()
+
+    def handle_bmkdaten_data(self, data: dict):
+        """Heizungs-/Pufferdaten aus dem Worker-Thread übernehmen."""
+        ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
+        source = self._source_health.get("heating")
+        if source:
+            source["ts"] = ts
+            source["count"] += 1
+
+        out_temp = _safe_float(data.get("Außentemperatur") or data.get("Aussentemperatur"))
+        top = _safe_float(data.get("Pufferspeicher Oben") or data.get("Puffer_Oben"))
+        mid = _safe_float(data.get("Pufferspeicher Mitte") or data.get("Puffer_Mitte"))
+        bot = _safe_float(data.get("Pufferspeicher Unten") or data.get("Puffer_Unten"))
+        warm = _safe_float(data.get("Warmwasser") or data.get("Warmwassertemperatur"))
+        kessel = _safe_float(data.get("Kesseltemperatur"))
+
+        if out_temp is not None:
+            self._last_data["out_temp"] = out_temp
+        if top is not None:
+            self._last_data["puffer_top"] = top
+        if mid is not None:
+            self._last_data["puffer_mid"] = mid
+        if bot is not None:
+            self._last_data["puffer_bot"] = bot
+        if warm is not None:
+            self._last_data["warmwasser"] = warm
+        if kessel is not None:
+            self._last_data["kesseltemperatur"] = kessel
+
+        self._update_status_summary()
+
+    @staticmethod
+    def _parse_timestamp_value(value):
+        if isinstance(value, datetime):
+            return value
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _format_age_compact(seconds: float | int) -> str:
+        seconds = int(max(0, seconds))
+        if seconds < 60:
+            return f"{seconds}s"
+        if seconds < 3600:
+            return f"{seconds // 60}m"
+        return f"{seconds // 3600}h"
+
+    def _update_status_summary(self):
+        if not hasattr(self, "status"):
+            return
+        parts = []
+        now = datetime.now()
+        for key in ("pv", "heating"):
+            info = self._source_health.get(key)
+            if not info:
+                continue
+            ts = info.get("ts")
+            if not ts:
+                parts.append(f"{info['label']} ⚠️ --")
+                continue
+            age = (now - ts).total_seconds()
+            icon = "✅" if age <= 90 else "⚠️"
+            parts.append(f"{info['label']} {icon} {self._format_age_compact(age)}")
+
+        if self._data_fresh_seconds is not None:
+            icon = "✅" if self._data_fresh_seconds <= 120 else "⚠️"
+            parts.append(f"CSV {icon} {self._format_age_compact(self._data_fresh_seconds)}")
+        else:
+            parts.append("CSV ⚠️ --")
+
+        summary = " | ".join(parts)
+        if summary != self._last_status_compact:
+            self.status.update_status(summary)
+            self._last_status_compact = summary
+
     def _update_freshness_and_sparkline(self):
         last_ts = self._get_last_timestamp()
         if last_ts:
@@ -934,10 +1052,13 @@ class MainApp:
             else:
                 text = f"Daten: {seconds//3600} h"
             self.status.update_data_freshness(text, alert=seconds > 60)
+            self._data_fresh_seconds = seconds
         else:
             self.status.update_data_freshness("Daten: --", alert=True)
+            self._data_fresh_seconds = None
 
         # Sparkline moved into right card; keep footer minimal
+        self._update_status_summary()
 
     def _get_last_timestamp(self) -> datetime | None:
         def _last_csv_ts(path: str) -> datetime | None:
