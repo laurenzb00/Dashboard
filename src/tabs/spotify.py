@@ -212,6 +212,16 @@ class SpotifyTab:
             lambda e: self.playlist_canvas.configure(scrollregion=self.playlist_canvas.bbox("all")),
         )
 
+        # Touch scroll optimization
+        def _on_touch_scroll(event):
+            if hasattr(event, 'num') and (event.num == 4 or event.delta > 0):
+                self.playlist_canvas.yview_scroll(-1, "units")
+            elif hasattr(event, 'num') and (event.num == 5 or event.delta < 0):
+                self.playlist_canvas.yview_scroll(1, "units")
+        self.playlist_canvas.bind_all("<MouseWheel>", _on_touch_scroll)
+        self.playlist_canvas.bind_all("<Button-4>", _on_touch_scroll)
+        self.playlist_canvas.bind_all("<Button-5>", _on_touch_scroll)
+
         self.playlist_empty = ttk.Label(self.playlist_inner, text="Noch keine Playlists geladen", padding=16)
         self.playlist_empty.pack()
 
@@ -453,14 +463,15 @@ class SpotifyTab:
         self.content_notebook = ttk.Notebook(wrapper, bootstyle="dark")
         self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
 
-        self.status_frame = ttk.Frame(self.content_notebook, padding=16)
         self.now_playing_frame = ttk.Frame(self.content_notebook, padding=12)
         self.library_frame = ttk.Frame(self.content_notebook, padding=12)
         self.devices_frame = ttk.Frame(self.content_notebook, padding=12)
-        self.content_notebook.add(self.status_frame, text="Status")
+        self.status_frame = ttk.Frame(self.content_notebook, padding=16)
+        # Add tabs in desired order: Status last
         self.content_notebook.add(self.now_playing_frame, text="Now Playing")
         self.content_notebook.add(self.library_frame, text="Playlists")
         self.content_notebook.add(self.devices_frame, text="Geräte")
+        self.content_notebook.add(self.status_frame, text="Status")
 
         self._build_status_tab()
         self._build_now_playing_tab()
