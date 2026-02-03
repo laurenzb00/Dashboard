@@ -72,25 +72,10 @@ class SpotifyTab:
         ttk.Button(control_frame, text="Logout", command=self._logout,
                    bootstyle="danger-outline").pack(side=LEFT, padx=4)
 
-        link_frame = ttk.Frame(self.tab_frame)
-        link_frame.pack(fill=tk.X, padx=20, pady=(6, 10))
-        ttk.Label(link_frame, text="Login-Link", font=("Arial", 10, "bold")).pack(anchor=W)
-        self.link_var = tk.StringVar(value="Noch kein Login-Link erzeugt")
-        self.link_entry = ttk.Entry(link_frame, textvariable=self.link_var, state="readonly")
-        self.link_entry.pack(fill=tk.X, expand=True, pady=(2, 4))
-        link_buttons = ttk.Frame(link_frame)
-        link_buttons.pack(anchor=W)
-        ttk.Button(link_buttons, text="Link kopieren", command=self._copy_login_url,
-                   bootstyle="secondary-outline").pack(side=LEFT, padx=(0, 6))
-        ttk.Button(link_buttons, text="Link im Browser öffnen", command=self._open_latest_in_browser,
-                   bootstyle="info-outline").pack(side=LEFT)
-
+        # Login link UI removed for local-only use
         callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
         self.redirect_var = tk.StringVar(value=f"Callback-URL: {callback_uri}")
-        ttk.Label(link_frame, textvariable=self.redirect_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W, pady=(6, 0))
-        ttk.Label(link_frame,
-                  text="Öffne den Link auf einem Gerät im selben Netzwerk – der Dashboard-Port 8889 nimmt den Rückruf automatisch an.",
-                  font=("Arial", 9), wraplength=540).pack(anchor=W, pady=(2, 0))
+        ttk.Label(self.tab_frame, textvariable=self.redirect_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W, pady=(6, 0))
 
         info_frame = ttk.Frame(self.tab_frame)
         info_frame.pack(fill=tk.X, padx=20, pady=(0, 8))
@@ -233,9 +218,11 @@ class SpotifyTab:
             client = None
         if client:
             self.client = client
-            self._set_status("Spotify Token gefunden – verbunden")
+            self._set_status("Login erfolgreich – Spotify verbunden")
+            self.status_var.set("Login erfolgreich – Spotify verbunden")
         else:
             self._set_status("Spotify Login erforderlich")
+            self.status_var.set("Spotify Login erforderlich")
         self._refresh_status()
 
     def _start_playback_poll(self):
