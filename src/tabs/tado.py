@@ -400,7 +400,6 @@ class TadoTab:
                 x = np.arange(len(temps))
                 
                 self.history_ax.plot(x, temps, color=COLOR_PRIMARY, linewidth=2, label="Temperatur")
-                self.history_ax.fill_between(x, temps, alpha=0.2, color=COLOR_PRIMARY)
                 self.history_ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=9)
                 self.history_ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=8)
                 self.history_ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=7)

@@ -24,7 +24,10 @@ if [ ! -f "config/spotify.json" ]; then
     echo "WARNING: config/spotify.json not found."
 fi
 
-# Run the application
-echo "Starting Application..."
-python src/main.py
+# Run the application with extended diagnostics for segfault tracing
+export PYTHONMALLOC=${PYTHONMALLOC:-debug}
+export MPLBACKEND=${MPLBACKEND:-TkAgg}
+PYTHON_BIN=${PYTHON_BIN:-python}
+echo "Starting Application with faulthandler/tracemalloc..."
+$PYTHON_BIN -X faulthandler -X tracemalloc=25 src/main.py
 

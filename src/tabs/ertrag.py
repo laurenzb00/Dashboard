@@ -136,7 +136,6 @@ class ErtragTab:
                 self._log_once = True
             ts, vals = zip(*data)
             self.ax.plot(ts, vals, color=COLOR_PRIMARY, linewidth=2.0, alpha=0.9, marker="o", markersize=3)
-            self.ax.fill_between(ts, vals, color=COLOR_PRIMARY, alpha=0.15)
 
             self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=10, fontweight='bold')
             self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)

@@ -131,9 +131,7 @@ class AnalyseTab:
         # Plot 1: PV Leistung (Linke Achse)
         self.ax1.set_ylabel("PV Leistung (kW)", color=COLOR_PRIMARY, fontsize=10)
         self.ax1.plot(df_pv["Zeitstempel"], df_pv["PV-Leistung (kW)"], color=COLOR_PRIMARY, 
-                     label="PV-Leistung", linewidth=1.8)
-        self.ax1.fill_between(df_pv["Zeitstempel"], df_pv["PV-Leistung (kW)"], 
-                             color=COLOR_PRIMARY, alpha=0.1)
+                 label="PV-Leistung", linewidth=1.8)
         self.ax1.tick_params(axis='y', labelcolor=COLOR_PRIMARY, labelsize=9)
         
         # Plot 2: Puffer Oben (Rechte Achse) 

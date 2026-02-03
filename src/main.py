@@ -9,6 +9,7 @@ import platform
 import os
 import socket
 import faulthandler
+import signal
 import traceback
 import atexit
 from pathlib import Path
@@ -149,10 +150,23 @@ def _install_crash_logger(log_path: Path | str | None = None) -> None:
             traceback.print_exception(exc_type, exc_value, exc_traceback, file=_CRASH_LOG_FILE)
             _CRASH_LOG_FILE.flush()
 
+    log_target = _CRASH_LOG_FILE or sys.stderr
     try:
-        faulthandler.enable(_CRASH_LOG_FILE)
+        faulthandler.enable(log_target, all_threads=True)
+    except RuntimeError:
+        try:
+            faulthandler.disable()
+            faulthandler.enable(log_target, all_threads=True)
+        except Exception:
+            pass
     except Exception:
         pass
+
+    if hasattr(signal, "SIGUSR1"):
+        try:
+            faulthandler.register(signal.SIGUSR1, file=log_target, all_threads=True)
+        except Exception:
+            pass
     sys.excepthook = _handle_exception
     atexit.register(lambda: _CRASH_LOG_FILE and _CRASH_LOG_FILE.close())
 
