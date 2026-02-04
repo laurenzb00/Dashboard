@@ -475,35 +475,18 @@ class MainApp:
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     def toggle_fullscreen(self):
-        # Statt Fullscreen: Sicher minimieren (ohne overrideredirect)
-        import time
+        # Fenster ausblenden statt minimieren (verhindert Hänger)
         try:
-            print("[MINIMIZE] Removing fullscreen and overrideredirect...")
-            try:
-                self.root.attributes("-fullscreen", False)
-            except Exception:
-                pass
+            print("[HIDE] Withdraw window (statt minimize)...")
             self.root.overrideredirect(False)
             self.root.update_idletasks()
-            time.sleep(0.1)  # Give window manager time to process
-            print("[MINIMIZE] Calling iconify...")
-            self.root.iconify()
-            self.root.update_idletasks()
-            # Check if window is minimized, retry if needed
-            for attempt in range(3):
-                state = self.root.state()
-                print(f"[MINIMIZE] Window state after iconify: {state}")
-                if state == "iconic":
-                    break
-                time.sleep(0.2)
-                self.root.iconify()
-                self.root.update_idletasks()
-            self.status.update_status("Minimiert")
+            self.root.withdraw()
+            self.status.update_status("Ausgeblendet (Alt+Tab oder Taskleiste)")
         except Exception as e:
-            print(f"[MINIMIZE] Fehler: {e}")
+            print(f"[HIDE] Fehler: {e}")
 
     def _on_root_map(self, event):
-        """Restore fullscreen after window is brought back from taskbar."""
+        """Restore fullscreen after window is brought back from taskbar or after deiconify/withdraw."""
         if event.widget != self.root:
             return
         sw = max(1, self.root.winfo_screenwidth())
@@ -511,7 +494,7 @@ class MainApp:
         target_w = min(sw, 1024)
         target_h = min(sh, 600)
         self.is_fullscreen = True
-        # Erst overrideredirect aktivieren, dann Fullscreen
+        # Nach dem Wiedereinblenden wieder Fullscreen aktivieren
         self.root.overrideredirect(True)
         self.root.update_idletasks()
         try:
