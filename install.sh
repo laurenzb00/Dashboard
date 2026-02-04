@@ -36,8 +36,9 @@ fi
 mkdir -p ~/.local/bin
 cat <<EOF > ~/.local/bin/dbpull
 #!/bin/bash
-# Beispiel: Datenbank-Backup oder Pull
-cd "$(dirname $(readlink -f "$0"))/../../"  # ins Projektverzeichnis
+# Datenbank-Backup oder Pull
+SCRIPT_DIR="$(cd "$(dirname \"$(readlink -f \"$0\")\")/../../" && pwd)"
+cd "$SCRIPT_DIR"
 python3 src/core/datastore.py --pull
 EOF
 chmod +x ~/.local/bin/dbpull
@@ -45,7 +46,8 @@ chmod +x ~/.local/bin/dbpull
 cat <<EOF > ~/.local/bin/dbstart
 #!/bin/bash
 # Dashboard starten
-cd "$(dirname $(readlink -f "$0"))/../../"  # ins Projektverzeichnis
+SCRIPT_DIR="$(cd "$(dirname \"$(readlink -f \"$0\")\")/../../" && pwd)"
+cd "$SCRIPT_DIR"
 python3 src/main.py
 EOF
 chmod +x ~/.local/bin/dbstart
