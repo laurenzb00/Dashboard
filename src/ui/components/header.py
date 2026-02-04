@@ -11,6 +11,9 @@ from ui.styles import (
 )
 from ui.components.rounded import RoundedFrame
 
+# Import für moderne Buttons
+from ui.components.rounded_button import RoundedButton
+
 
 class HeaderBar(tk.Frame):
     """Schlanker Header mit Datum, Uhrzeit, Toggles und Exit."""
