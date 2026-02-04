@@ -6,7 +6,7 @@ from ttkbootstrap import Style
 COLOR_ROOT = "#0B1320"       # Hintergrund/root
 COLOR_HEADER = "#0B1320"     # Header/Notebook
 COLOR_BG = COLOR_HEADER       # alias für bestehende Verwendungen
-COLOR_CARD = "#121C2B"
+COLOR_CARD = "#232F41"  # Helleres, freundlicheres Grau für Diagramm-Hintergrund
 COLOR_BORDER = "#1F2A3A"
 COLOR_PRIMARY = "#3B82F6"
 COLOR_SUCCESS = "#10B981"
