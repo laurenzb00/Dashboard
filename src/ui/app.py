@@ -463,19 +463,18 @@ class MainApp:
         try:
             self.root.attributes("-fullscreen", True)
             self.is_fullscreen = True
-            # Optional: Fensterposition auf (0,0) setzen, falls nötig
+            self.root.resizable(False, False)
             self.root.geometry("1024x600+0+0")
         except Exception:
             pass
 
     def _apply_windowed(self):
-        """Setzt Fenstermodus maximal robust: entfernt alle Vollbild-Flags, setzt sichere Größe, bringt Fenster in den Vordergrund."""
+        """Setzt Fenstermodus maximal robust: entfernt alle Vollbild-Flags, setzt sichere Größe, bringt Fenster in den Vordergrund und erlaubt Verschieben/Größenänderung."""
         try:
-            # Deaktiviere alle Vollbild- und override-Attribute
             self.root.attributes("-fullscreen", False)
             self.root.overrideredirect(False)
             self.is_fullscreen = False
-            # Setze eine sichere, sichtbare Größe und Position
+            self.root.resizable(True, True)
             sw = self.root.winfo_screenwidth()
             sh = self.root.winfo_screenheight()
             w, h = 1024, 600
@@ -483,7 +482,6 @@ class MainApp:
             y = max(0, (sh - h) // 2)
             self.root.geometry(f"{w}x{h}+{x}+{y}")
             self.root.update_idletasks()
-            # Bringe das Fenster in den Vordergrund und erzwinge Sichtbarkeit
             self.root.deiconify()
             self.root.lift()
             self.root.focus_force()
