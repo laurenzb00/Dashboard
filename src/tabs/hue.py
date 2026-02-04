@@ -87,48 +87,51 @@ class HueTab:
                 font=("Segoe UI", 9)
             ).pack(side="left")
             
-            # Master Brightness
-            tk.Label(global_frame, text="Master Helligkeit:", font=("Segoe UI", 9), fg=COLOR_TEXT, bg=COLOR_ROOT).grid(row=2, column=0, sticky="e", padx=(0, 10), pady=(10, 0))
-            
-            bright_frame = tk.Frame(global_frame, bg=COLOR_ROOT)
-            bright_frame.grid(row=2, column=1, sticky="w", pady=(10, 0))
-            
+            # Master Brightness VERTIKAL links
+            main_content = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+            main_content.pack(fill="both", expand=True, padx=10, pady=10)
+
+            # Linke Spalte: Vertikaler Slider
+            slider_frame = tk.Frame(main_content, bg=COLOR_ROOT)
+            slider_frame.grid(row=0, column=0, sticky="nsw", padx=(0, 18))
+            tk.Label(slider_frame, text="Master Helligkeit", font=("Segoe UI", 9), fg=COLOR_TEXT, bg=COLOR_ROOT).pack(pady=(0, 8))
             self.bright_slider = tk.Scale(
-                bright_frame, from_=0, to=100, orient="horizontal",
+                slider_frame, from_=100, to=0, orient="vertical",
                 variable=self.master_bright_var,
                 command=self._on_master_brightness_changed,
-                bg=COLOR_CARD, fg=COLOR_PRIMARY, length=200,
+                bg=COLOR_CARD, fg=COLOR_PRIMARY, length=320,
                 highlightthickness=0
             )
-            self.bright_slider.pack(side="left")
-            
+            self.bright_slider.pack(fill="y", expand=True)
             self.bright_label = tk.Label(
-                bright_frame, textvariable=tk.StringVar(value="100%"),
+                slider_frame, textvariable=tk.StringVar(value="100%"),
                 font=("Segoe UI", 9), fg=COLOR_SUBTEXT, bg=COLOR_ROOT, width=4
             )
-            self.bright_label.pack(side="left", padx=(10, 0))
-            
-            # Scroll Area für Szenen/Lichter
-            canvas_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-            canvas_frame.pack(fill="both", expand=True, padx=10, pady=10)
-            
+            self.bright_label.pack(pady=(8, 0))
+
+            # Rechte Spalte: Szenen/Lichter
+            canvas_frame = tk.Frame(main_content, bg=COLOR_ROOT)
+            canvas_frame.grid(row=0, column=1, sticky="nsew")
+            main_content.grid_columnconfigure(1, weight=1)
+            main_content.grid_rowconfigure(0, weight=1)
+
             self.scroll_canvas = tk.Canvas(
                 canvas_frame, bg=COLOR_ROOT,
-                highlightthickness=0, height=300
+                highlightthickness=0
             )
             scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.scroll_canvas.yview)
-            
+
             self.scroll_window = tk.Frame(self.scroll_canvas, bg=COLOR_ROOT)
             self.scroll_canvas.create_window((0, 0), window=self.scroll_window, anchor="nw")
             self.scroll_canvas.configure(yscrollcommand=scrollbar.set)
-            
+
             self.scroll_canvas.pack(side="left", fill="both", expand=True)
             scrollbar.pack(side="right", fill="y")
-            
+
             def _on_mousewheel(event):
                 self.scroll_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
             self.scroll_canvas.bind_all("<MouseWheel>", _on_mousewheel)
-            
+
             # Initial placeholder
             self.scroll_frame = self.scroll_window
             self._show_loading()
