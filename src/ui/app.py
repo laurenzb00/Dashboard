@@ -458,11 +458,21 @@ class MainApp:
         validator_thread = threading.Thread(target=validate_loop, daemon=True)
         validator_thread.start()
 
-    def _apply_fullscreen(self, target_w: int, target_h: int, offset_y: int):
-        self.root.overrideredirect(True)
-        self.root.geometry(f"{target_w}x{target_h}+0+{offset_y}")
+    def _apply_fullscreen(self):
+        """Setzt echtes Vollbild (ohne overrideredirect)."""
         try:
             self.root.attributes("-fullscreen", True)
+            self.is_fullscreen = True
+        except Exception:
+            pass
+
+    def _apply_windowed(self):
+        """Setzt Fenstermodus (kein Fullscreen, kein overrideredirect)."""
+        try:
+            self.root.attributes("-fullscreen", False)
+            self.root.overrideredirect(False)
+            self.is_fullscreen = False
+            self.root.geometry("1024x600+50+50")
         except Exception:
             pass
 
@@ -475,11 +485,20 @@ class MainApp:
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     def toggle_fullscreen(self):
-        # Fenster normal minimieren (iconify), ohne overrideredirect
+        """Wechselt zwischen Vollbild und Fenstermodus."""
+        if getattr(self, 'is_fullscreen', False):
+            print("[WINDOW] Wechsel zu Fenstermodus")
+            self._apply_windowed()
+            self.status.update_status("Fenstermodus")
+        else:
+            print("[FULLSCREEN] Wechsel zu Vollbild")
+            self._apply_fullscreen()
+            self.status.update_status("Vollbild")
+
+    def minimize_window(self):
+        """Minimiert das Fenster zuverlässig."""
         try:
             print("[MINIMIZE] Iconify window (normales Minimieren)...")
-            self.root.overrideredirect(False)
-            self.root.update_idletasks()
             self.root.iconify()
             self.status.update_status("Minimiert (Taskleiste/Alt+Tab)")
         except Exception as e:
