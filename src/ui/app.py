@@ -459,20 +459,28 @@ class MainApp:
         validator_thread.start()
 
     def _apply_fullscreen(self):
-        """Setzt echtes Vollbild (ohne overrideredirect)."""
+        """Setzt echtes Vollbild (ohne overrideredirect) und zentriert das Fenster."""
         try:
             self.root.attributes("-fullscreen", True)
             self.is_fullscreen = True
+            # Optional: Fensterposition auf (0,0) setzen, falls nötig
+            self.root.geometry("1024x600+0+0")
         except Exception:
             pass
 
     def _apply_windowed(self):
-        """Setzt Fenstermodus (kein Fullscreen, kein overrideredirect)."""
+        """Setzt Fenstermodus (kein Fullscreen, kein overrideredirect) und zentriert das Fenster auf dem Bildschirm."""
         try:
             self.root.attributes("-fullscreen", False)
             self.root.overrideredirect(False)
             self.is_fullscreen = False
-            self.root.geometry("1024x600+50+50")
+            # Bildschirmgröße ermitteln
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            w, h = 1024, 600
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2)
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
         except Exception:
             pass
 
