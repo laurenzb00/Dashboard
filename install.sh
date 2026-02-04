@@ -37,8 +37,7 @@ mkdir -p ~/.local/bin
 cat <<EOF > ~/.local/bin/dbpull
 #!/bin/bash
 # Beispiel: Datenbank-Backup oder Pull
-cd "$(dirname "$0")/../../"  # ins Projektverzeichnis
-# Hier eigenen dbpull-Befehl eintragen
+cd "$(dirname $(readlink -f "$0"))/../../"  # ins Projektverzeichnis
 python3 src/core/datastore.py --pull
 EOF
 chmod +x ~/.local/bin/dbpull
@@ -46,7 +45,7 @@ chmod +x ~/.local/bin/dbpull
 cat <<EOF > ~/.local/bin/dbstart
 #!/bin/bash
 # Dashboard starten
-cd "$(dirname \"$0\")/../../"  # ins Projektverzeichnis
+cd "$(dirname $(readlink -f "$0"))/../../"  # ins Projektverzeichnis
 python3 src/main.py
 EOF
 chmod +x ~/.local/bin/dbstart

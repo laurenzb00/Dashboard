@@ -475,15 +475,15 @@ class MainApp:
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     def toggle_fullscreen(self):
-        # Fenster ausblenden statt minimieren (verhindert Hänger)
+        # Fenster normal minimieren (iconify), ohne overrideredirect
         try:
-            print("[HIDE] Withdraw window (statt minimize)...")
+            print("[MINIMIZE] Iconify window (normales Minimieren)...")
             self.root.overrideredirect(False)
             self.root.update_idletasks()
-            self.root.withdraw()
-            self.status.update_status("Ausgeblendet (Alt+Tab oder Taskleiste)")
+            self.root.iconify()
+            self.status.update_status("Minimiert (Taskleiste/Alt+Tab)")
         except Exception as e:
-            print(f"[HIDE] Fehler: {e}")
+            print(f"[MINIMIZE] Fehler: {e}")
 
     def _on_root_map(self, event):
         """Restore fullscreen after window is brought back from taskbar or after deiconify/withdraw."""
