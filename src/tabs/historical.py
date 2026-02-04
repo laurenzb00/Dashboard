@@ -62,7 +62,7 @@ class HistoricalTab:
             ("Puffer oben", self.var_top, COLOR_PRIMARY),
             ("Puffer mitte", self.var_mid, COLOR_INFO),
             ("Puffer unten", self.var_bot, COLOR_SUBTEXT),
-            ("Boiler", self.var_boiler, COLOR_WARNING),
+            ("Boiler/Kessel", self.var_boiler, COLOR_WARNING),
             ("Außen", self.var_out, COLOR_TEXT),
         ]
         
@@ -117,7 +117,10 @@ class HistoricalTab:
             top = self._safe_float(entry.get('top'))
             mid = self._safe_float(entry.get('mid'))
             bot = self._safe_float(entry.get('bot'))
-            boiler = self._safe_float(entry.get('warmwasser'))  # Use warmwasser for Boiler
+            # Fallback: erst warmwasser, dann kessel
+            boiler = self._safe_float(entry.get('warmwasser'))
+            if boiler is None:
+                boiler = self._safe_float(entry.get('kessel'))
             outside = self._safe_float(entry.get('outdoor'))
             if None in (ts, top, mid, bot, boiler, outside):
                 continue
@@ -186,7 +189,7 @@ class HistoricalTab:
                 self.ax.plot(ts, top, color=COLOR_PRIMARY, label="Puffer oben", linewidth=2.0, alpha=0.8)
                 self.ax.plot(ts, mid, color=COLOR_INFO, label="Puffer mitte", linewidth=1.5, alpha=0.7)
                 self.ax.plot(ts, bot, color=COLOR_SUBTEXT, label="Puffer unten", linewidth=1.5, alpha=0.6)
-                self.ax.plot(ts, boiler, color=COLOR_WARNING, label="Boiler", linewidth=2.0, alpha=0.8)
+                self.ax.plot(ts, boiler, color=COLOR_WARNING, label="Boiler/Kessel", linewidth=2.0, alpha=0.8)
                 self.ax.plot(ts, outside, color=COLOR_DANGER, label="Außen", linewidth=1.8, alpha=0.8, linestyle='--')
                 self.ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=10, fontweight='bold')
                 self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)
