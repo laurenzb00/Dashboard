@@ -469,23 +469,24 @@ class MainApp:
             pass
 
     def _apply_windowed(self):
-        """Setzt Fenstermodus robust: erst kleine Größe, dann Zielgröße, dann in den Vordergrund."""
+        """Setzt Fenstermodus maximal robust: entfernt alle Vollbild-Flags, setzt sichere Größe, bringt Fenster in den Vordergrund."""
         try:
+            # Deaktiviere alle Vollbild- und override-Attribute
             self.root.attributes("-fullscreen", False)
             self.root.overrideredirect(False)
             self.is_fullscreen = False
+            # Setze eine sichere, sichtbare Größe und Position
             sw = self.root.winfo_screenwidth()
             sh = self.root.winfo_screenheight()
             w, h = 1024, 600
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2)
-            # Erst kleine Größe setzen
-            self.root.geometry("200x200+0+0")
-            def set_geometry():
-                self.root.geometry(f"{w}x{h}+{x}+{y}")
-                self.root.lift()
-                self.root.focus_force()
-            self.root.after(180, set_geometry)
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+            self.root.update_idletasks()
+            # Bringe das Fenster in den Vordergrund und erzwinge Sichtbarkeit
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
         except Exception:
             pass
 
