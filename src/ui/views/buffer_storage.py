@@ -193,7 +193,8 @@ class BufferStorageView(tk.Frame):
             return
 
         self._last_temps = temps
-        self.norm = Normalize(vmin=min(temps) - 3, vmax=max(temps) + 3)
+        # Feste Skalierung: 45°C (blau) bis 75°C (rot)
+        self.norm = Normalize(vmin=45, vmax=75)
         self.data = self._build_stratified_data(top, mid, bottom)
         self.im.set_data(self.data)
         self.im.set_norm(self.norm)
