@@ -174,9 +174,16 @@ class ErtragTab:
             label.set_horizontalalignment("right")
         legend = self.ax.get_legend()
         if legend:
-            legend.set_fontsize(11)
-            legend.set_bbox_to_anchor((1, 1))
-            legend.set_loc('upper left')
+            # set_fontsize is not always available, use set_prop if needed
+            try:
+                legend.set_fontsize(11)
+            except AttributeError:
+                legend.prop = {'size': 11}
+            try:
+                legend.set_bbox_to_anchor((1, 1))
+                legend.set_loc('upper left')
+            except Exception:
+                pass
         
         try:
             if self.canvas.get_tk_widget().winfo_exists():
