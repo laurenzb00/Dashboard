@@ -162,7 +162,6 @@ class MainApp:
             on_toggle_a=self.on_toggle_a,
             on_toggle_b=self.on_toggle_b,
             on_exit=self.on_exit,
-            on_toggle_fullscreen=self.toggle_fullscreen
         )
         self.header.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 2))
 

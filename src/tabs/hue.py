@@ -95,19 +95,22 @@ class HueTab:
             slider_frame = tk.Frame(main_content, bg=COLOR_ROOT)
             slider_frame.grid(row=0, column=0, sticky="nsw", padx=(0, 18))
             tk.Label(slider_frame, text="Master Helligkeit", font=("Segoe UI", 9), fg=COLOR_TEXT, bg=COLOR_ROOT).pack(pady=(0, 8))
+            self.bright_label_var = tk.StringVar(value="100%")
+            self.bright_label = tk.Label(
+                slider_frame, textvariable=self.bright_label_var,
+                font=("Segoe UI", 10, "bold"), fg=COLOR_PRIMARY, bg=COLOR_ROOT, width=5
+            )
+            self.bright_label.pack(pady=(0, 8))
             self.bright_slider = tk.Scale(
                 slider_frame, from_=100, to=0, orient="vertical",
                 variable=self.master_bright_var,
                 command=self._on_master_brightness_changed,
-                bg=COLOR_CARD, fg=COLOR_PRIMARY, length=320,
+                bg=COLOR_CARD, fg=COLOR_PRIMARY, length=320, width=40,
                 highlightthickness=0
             )
             self.bright_slider.pack(fill="y", expand=True)
-            self.bright_label = tk.Label(
-                slider_frame, textvariable=tk.StringVar(value="100%"),
-                font=("Segoe UI", 9), fg=COLOR_SUBTEXT, bg=COLOR_ROOT, width=4
-            )
-            self.bright_label.pack(pady=(8, 0))
+            # 0%-Label unten
+            tk.Label(slider_frame, text="0%", font=("Segoe UI", 9), fg=COLOR_SUBTEXT, bg=COLOR_ROOT, width=5).pack(pady=(8, 0))
 
             # Rechte Spalte: Szenen/Lichter
             canvas_frame = tk.Frame(main_content, bg=COLOR_ROOT)
@@ -151,7 +154,7 @@ class HueTab:
         """Master brightness slider bewegt."""
         try:
             val = int(value)
-            self.bright_label.config(text=f"{val}%")
+            self.bright_label_var.set(f"{val}%")
             self._set_master_brightness(val)
         except Exception as e:
             print(f"[HUE] Brightness change error: {e}")
@@ -239,10 +242,10 @@ class HueTab:
                 self._show_error("Keine Szenen")
                 return
             
-            # Szenen Grid (3 Spalten)
+            # Szenen Grid (5 Spalten für bessere Platzausnutzung)
             for idx, (name, scene_id) in enumerate(scene_list):
-                row = idx // 3
-                col = idx % 3
+                row = idx // 5
+                col = idx % 5
                 self._create_scene_card(name, scene_id, row, col)
                 
         except Exception as e:
@@ -301,8 +304,11 @@ class HueTab:
             # Lichter als Liste
             light_list = sorted([(light_id, light_data.get("name", f"Light {light_id}")) for light_id, light_data in lights.items()])
             
+            # Lichter Grid (5 Spalten für bessere Platzausnutzung)
             for idx, (light_id, name) in enumerate(light_list):
-                self._create_light_card(name, light_id, idx)
+                row = idx // 5
+                col = idx % 5
+                self._create_light_card(name, light_id, row, col)
                 
         except Exception as e:
             print(f"[HUE] Lights refresh error: {e}")

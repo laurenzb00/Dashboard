@@ -101,6 +101,7 @@ class BufferStorageView(tk.Frame):
         self.ax.set_axis_off()
         self.ax.set_facecolor("none")
 
+        # Feste Norm für Heatmap und Colorbar
         self.norm = Normalize(vmin=45, vmax=75)
         self.im = self.ax.imshow(
             self.data,
@@ -194,10 +195,9 @@ class BufferStorageView(tk.Frame):
 
         self._last_temps = temps
         # Feste Skalierung: 45°C (blau) bis 75°C (rot)
-        self.norm = Normalize(vmin=45, vmax=75)
+        # Nur Daten aktualisieren, Norm bleibt fest!
         self.data = self._build_stratified_data(top, mid, bottom)
         self.im.set_data(self.data)
-        self.im.set_norm(self.norm)
 
         c_top = self._temp_color(top)
         c_mid = self._temp_color(mid)
