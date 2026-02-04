@@ -58,8 +58,7 @@ class HeaderBar(tk.Frame):
             padding=(8, 4),
             font_size=16,
             width=36,
-            height=36,
-            tooltip="Vollbild umschalten"
+            height=36
         )
         self.fullscreen_btn.grid(row=0, column=1, sticky="n", padx=(8, 0), pady=0)
 
