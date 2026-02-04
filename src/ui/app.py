@@ -469,17 +469,21 @@ class MainApp:
             pass
 
     def _apply_windowed(self):
-        """Skaliert das Fenster einfach auf eine kleinere, sichtbare Größe und macht es verschiebbar."""
+        """Erzwinge Fenstermodus mit withdraw/update/deiconify, damit der Window-Manager das Fenster wirklich neu behandelt."""
         try:
+            self.root.attributes("-fullscreen", False)
+            self.root.overrideredirect(False)
             self.root.resizable(True, True)
             w, h = 900, 540
             sw = self.root.winfo_screenwidth()
             sh = self.root.winfo_screenheight()
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2)
+            self.root.withdraw()
+            self.root.update()
             self.root.geometry(f"{w}x{h}+{x}+{y}")
-            self.root.update_idletasks()
             self.root.deiconify()
+            self.root.update_idletasks()
             self.root.lift()
             self.root.focus_force()
             self.is_fullscreen = False
