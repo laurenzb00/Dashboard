@@ -131,16 +131,6 @@ class SpotifyTab:
         ttk.Label(info_box, textvariable=self.artist_var, font=("Arial", 14), foreground="#99c1ff").pack(anchor=W, pady=(2, 0))
         ttk.Label(info_box, textvariable=self.album_var, font=("Arial", 12), foreground="#9ca3af").pack(anchor=W)
 
-        self.progress_var = tk.StringVar(value="0:00 / 0:00")
-        ttk.Label(left, textvariable=self.progress_var, font=("Arial", 11), foreground="#94a3b8").pack(anchor=W, pady=(0, 6))
-
-        controls = ttk.Frame(left)
-        controls.pack(pady=(4, 0))
-        ttk.Button(controls, text="⏮", width=5, command=self._prev_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
-        self.play_button = ttk.Button(controls, text="Play", width=8, command=self._toggle_playback, bootstyle="success")
-        self.play_button.pack(side=LEFT, padx=4)
-        ttk.Button(controls, text="⏭", width=5, command=self._next_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
-
         right = ttk.Frame(container)
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
@@ -168,6 +158,17 @@ class SpotifyTab:
         self.like_button = ttk.Button(quick_box, text="❤ Like", command=self._toggle_like,
                                       bootstyle="outline-success")
         self.like_button.pack(side=LEFT, padx=8)
+
+        # Progress bar and controls now below quick actions
+        self.progress_var = tk.StringVar(value="0:00 / 0:00")
+        ttk.Label(right, textvariable=self.progress_var, font=("Arial", 11), foreground="#94a3b8").grid(row=2, column=0, sticky="ew", pady=(16, 4))
+
+        controls = ttk.Frame(right)
+        controls.grid(row=3, column=0, pady=(0, 0))
+        ttk.Button(controls, text="⏮", width=5, command=self._prev_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
+        self.play_button = ttk.Button(controls, text="Play", width=8, command=self._toggle_playback, bootstyle="success")
+        self.play_button.pack(side=LEFT, padx=4)
+        ttk.Button(controls, text="⏭", width=5, command=self._next_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
 
     def _build_devices_tab(self) -> None:
         header = ttk.Frame(self.devices_frame)
