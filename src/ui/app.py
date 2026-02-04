@@ -469,18 +469,21 @@ class MainApp:
             pass
 
     def _apply_windowed(self):
-        """Setzt Fenstermodus (kein Fullscreen, kein overrideredirect) und zentriert das Fenster auf dem Bildschirm."""
+        """Setzt Fenstermodus (kein Fullscreen, kein overrideredirect) und zentriert das Fenster auf dem Bildschirm mit Delay."""
         try:
             self.root.attributes("-fullscreen", False)
             self.root.overrideredirect(False)
             self.is_fullscreen = False
-            # Bildschirmgröße ermitteln
             sw = self.root.winfo_screenwidth()
             sh = self.root.winfo_screenheight()
             w, h = 1024, 600
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2)
-            self.root.geometry(f"{w}x{h}+{x}+{y}")
+            def set_geometry():
+                self.root.geometry(f"{w}x{h}+{x}+{y}")
+                self.root.lift()
+                self.root.focus_force()
+            self.root.after(120, set_geometry)
         except Exception:
             pass
 
