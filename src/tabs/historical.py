@@ -117,7 +117,7 @@ class HistoricalTab:
             top = self._safe_float(entry.get('top'))
             mid = self._safe_float(entry.get('mid'))
             bot = self._safe_float(entry.get('bot'))
-            boiler = self._safe_float(entry.get('kessel'))
+            boiler = self._safe_float(entry.get('warmwasser'))  # Use warmwasser for Boiler
             outside = self._safe_float(entry.get('outdoor'))
             if None in (ts, top, mid, bot, boiler, outside):
                 continue

@@ -181,7 +181,7 @@ class BufferStorageView(tk.Frame):
         top: float,
         mid: float,
         bottom: float,
-        kessel_c: float | None = None,
+        boiler_c: float | None = None,
     ) -> None:
         if not self.winfo_exists() or not hasattr(self, "canvas_widget"):
             return
@@ -213,14 +213,14 @@ class BufferStorageView(tk.Frame):
                          fontsize=9, va="center", ha="right", weight="bold"),
         ]
 
-        if kessel_c is not None:
-            self.boiler_rect.set_facecolor(self._temp_color(kessel_c))
+        if boiler_c is not None:
+            self.boiler_rect.set_facecolor(self._temp_color(boiler_c))
             if hasattr(self, "boiler_temp_text"):
                 self.boiler_temp_text.remove()
             self.boiler_temp_text = self.ax.text(
                 0.69,
                 0.30,
-                f"{kessel_c:.1f}°C",
+                f"{boiler_c:.1f}°C",
                 transform=self.ax.transAxes,
                 color="#FFFFFF",
                 fontsize=8,
