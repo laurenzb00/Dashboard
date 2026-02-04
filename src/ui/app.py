@@ -469,15 +469,12 @@ class MainApp:
             pass
 
     def _apply_windowed(self):
-        """Setzt Fenstermodus maximal robust: entfernt alle Vollbild-Flags, setzt sichere Größe, bringt Fenster in den Vordergrund und erlaubt Verschieben/Größenänderung."""
+        """Skaliert das Fenster einfach auf eine kleinere, sichtbare Größe und macht es verschiebbar."""
         try:
-            self.root.attributes("-fullscreen", False)
-            self.root.overrideredirect(False)
-            self.is_fullscreen = False
             self.root.resizable(True, True)
+            w, h = 900, 540
             sw = self.root.winfo_screenwidth()
             sh = self.root.winfo_screenheight()
-            w, h = 1024, 600
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2)
             self.root.geometry(f"{w}x{h}+{x}+{y}")
@@ -485,6 +482,7 @@ class MainApp:
             self.root.deiconify()
             self.root.lift()
             self.root.focus_force()
+            self.is_fullscreen = False
         except Exception:
             pass
 
