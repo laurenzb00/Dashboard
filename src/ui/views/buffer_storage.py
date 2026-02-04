@@ -66,8 +66,9 @@ class BufferStorageView(tk.Frame):
             font=("Segoe UI", 10),
         ).pack(anchor="w")
 
-        fig_width = 3.2
-        fig_height = max(1.8, self.height / 100)
+        # Fester Platz für das Diagramm, da Bildschirmgröße bekannt ist
+        fig_width = 9.0  # optimal für ca. 1200px Breite
+        fig_height = 4.5 # optimal für ca. 600px Höhe
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
         self._create_sparkline()
@@ -130,14 +131,10 @@ class BufferStorageView(tk.Frame):
                                   edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
         self.ax.add_patch(Rectangle((0.10, 0.10), 0.03, 0.80, transform=self.ax.transAxes,
                                     facecolor="#ffffff", alpha=0.07, linewidth=0))
-        # Responsive font size and margins for title and axes
-        w = self.canvas_widget.winfo_width() if hasattr(self, "canvas_widget") else 320
-        h = self.canvas_widget.winfo_height() if hasattr(self, "canvas_widget") else 180
-        font_size = 12 if min(w, h) > 700 else (9 if min(w, h) > 400 else 8)
-        bottom_margin = 0.28 if h < 400 else 0.22
-        self.fig.subplots_adjust(left=0.13, right=0.98, top=0.93, bottom=bottom_margin)
+        # Feste Schriftgröße und feste Ränder für optimalen Sitz
+        self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
         self.ax.text(0.20, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
-                 color=COLOR_TITLE, fontsize=font_size, va="top", ha="center", weight="bold")
+                 color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
 
         self.boiler_rect = FancyBboxPatch(
             (0.58, 0.08),
@@ -158,16 +155,8 @@ class BufferStorageView(tk.Frame):
         self.ax.add_patch(Rectangle((0.60, 0.10), 0.03, 0.41, transform=self.ax.transAxes,
                                     facecolor="#ffffff", alpha=0.06, linewidth=0))
         self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes,
-                     color=COLOR_TITLE, fontsize=font_size, va="top", ha="center", weight="bold")
-        # Always rotate x-labels and fit them if present
-        for label in self.ax.get_xticklabels():
-            label.set_rotation(35)
-            label.set_horizontalalignment("right")
-        # Ensure tight layout for all elements
-        try:
-            self.fig.tight_layout(rect=[0, 0, 1, 1])
-        except Exception:
-            pass
+                     color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
+        # Keine dynamische Rotation oder tight_layout nötig bei festen Größen
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)

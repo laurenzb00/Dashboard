@@ -40,15 +40,14 @@ class ErtragTab:
         self.chart_frame = tk.Frame(body, bg=COLOR_CARD)
         self.chart_frame.grid(row=0, column=0, sticky="nsew")
 
-        self.fig = Figure(figsize=(7.6, 3.2), dpi=100)
+        # Feste Größe und Layout für das Diagramm, da Bildschirm bekannt
+        self.fig = Figure(figsize=(9.0, 4.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self._last_canvas_size = None
-        self._resize_pending = False
-        self.canvas.get_tk_widget().bind("<Configure>", self._on_canvas_resize)
+        # Keine dynamische Resize-Events nötig
 
         stats_frame = ttk.Frame(body)
         stats_frame.grid(row=1, column=0, sticky="ew", pady=(4, 0))
@@ -165,28 +164,19 @@ class ErtragTab:
             self.var_avg.set("Ø Tag: -- kWh")
             self.var_last.set("Max: -- kWh")
 
-        # Responsive margins for better scaling and more space for x-labels
-        w, h = self.canvas.get_tk_widget().winfo_width(), self.canvas.get_tk_widget().winfo_height()
-        font_size = 11 if min(w, h) > 700 else (9 if min(w, h) > 400 else 8)
-        bottom_margin = 0.28 if h < 400 else 0.22
-        self.fig.subplots_adjust(left=0.13, right=0.98, top=0.93, bottom=bottom_margin)
-        self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=font_size, fontweight='bold')
-        self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=font_size)
-        self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=max(font_size-1, 7))
-        # Always rotate x-labels and fit them
+        # Feste Ränder und Schriftgrößen für optimalen Sitz
+        self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
+        self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=13, fontweight='bold')
+        self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=12)
+        self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=11)
         for label in self.ax.get_xticklabels():
             label.set_rotation(35)
             label.set_horizontalalignment("right")
         legend = self.ax.get_legend()
         if legend:
-            legend.set_fontsize(max(font_size-2, 7))
+            legend.set_fontsize(11)
             legend.set_bbox_to_anchor((1, 1))
             legend.set_loc('upper left')
-        # Ensure tight layout for all elements
-        try:
-            self.fig.tight_layout(rect=[0, 0, 1, 1])
-        except Exception:
-            pass
         
         try:
             if self.canvas.get_tk_widget().winfo_exists():
@@ -197,37 +187,6 @@ class ErtragTab:
         # Nächster Update in 5 Minuten
         self.root.after(5 * 60 * 1000, self._update_plot)
 
-    def _on_canvas_resize(self, event):
-        if self._resize_pending:
-            return
-        w = max(1, event.width)
-        h = max(1, event.height)
-        if self._last_canvas_size:
-            last_w, last_h = self._last_canvas_size
-            if abs(w - last_w) < 10 and abs(h - last_h) < 10:
-                return
-        self._last_canvas_size = (w, h)
-        self._resize_pending = True
-        try:
-            self._resize_figure(w, h)
-            # Use after() to defer the draw and prevent event loop
-            self.root.after(100, lambda: self._do_canvas_draw())
-        except Exception:
-            self._resize_pending = False
-
-    def _do_canvas_draw(self):
-        try:
-            if self.canvas.get_tk_widget().winfo_exists():
-                self.canvas.draw_idle()
-        except Exception:
-            pass
-        finally:
-            self._resize_pending = False
-
-    def _resize_figure(self, width_px: int, height_px: int) -> None:
-        dpi = self.fig.dpi or 100
-        width_in = max(5.5, width_px / dpi)
-        height_in = max(3.2, height_px / dpi)
-        self.fig.set_size_inches(width_in, height_in, forward=True)
+    # Keine dynamische Größenanpassung nötig
 
 

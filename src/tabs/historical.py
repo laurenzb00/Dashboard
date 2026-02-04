@@ -74,7 +74,8 @@ class HistoricalTab:
             ttk.Label(stat_card, textvariable=var, font=("Arial", 14, "bold")).pack(anchor="w", padx=6, pady=(0, 4))
 
         # Plot
-        self.fig = Figure(figsize=(7.2, 3.6), dpi=100)
+        # Feste Größe und Layout für das Diagramm, da Bildschirm bekannt
+        self.fig = Figure(figsize=(9.0, 4.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
@@ -212,28 +213,19 @@ class HistoricalTab:
                 self.var_boiler.set("-- °C")
                 self.var_out.set("-- °C")
 
-            # Responsive margins for better scaling and more space for x-labels
-            w, h = self.canvas.get_tk_widget().winfo_width(), self.canvas.get_tk_widget().winfo_height()
-            font_size = 11 if min(w, h) > 700 else (9 if min(w, h) > 400 else 8)
-            bottom_margin = 0.28 if h < 400 else 0.22
-            self.fig.subplots_adjust(left=0.13, right=0.98, top=0.93, bottom=bottom_margin)
-            self.ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=font_size, fontweight='bold')
-            self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=font_size)
-            self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=max(font_size-1, 7))
-            # Always rotate x-labels and fit them
+            # Feste Ränder und Schriftgrößen für optimalen Sitz
+            self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
+            self.ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=13, fontweight='bold')
+            self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=12)
+            self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=11)
             for label in self.ax.get_xticklabels():
                 label.set_rotation(35)
                 label.set_horizontalalignment("right")
             legend = self.ax.get_legend()
             if legend:
-                legend.set_fontsize(max(font_size-2, 7))
+                legend.set_fontsize(11)
                 legend.set_bbox_to_anchor((1, 1))
                 legend.set_loc('upper left')
-            # Ensure tight layout for all elements
-            try:
-                self.fig.tight_layout(rect=[0, 0, 1, 1])
-            except Exception:
-                pass
             try:
                 if self.canvas.get_tk_widget().winfo_exists():
                     self.canvas.draw_idle()
@@ -266,8 +258,7 @@ class HistoricalTab:
         
         try:
             self._resize_figure(w, h)
-            # This is now handled in _update_plot for responsive margins
-            pass
+            # Keine dynamische Größenanpassung nötig
             # Use after() to defer the draw and prevent event loop
             self.root.after(100, lambda: self._do_canvas_draw())
         except Exception:
