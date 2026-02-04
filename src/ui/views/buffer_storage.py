@@ -159,7 +159,7 @@ class BufferStorageView(tk.Frame):
         # Keine dynamische Rotation oder tight_layout nötig bei festen Größen
 
         divider = make_axes_locatable(self.ax)
-        cax = divider.append_axes("right", size="4%", pad=0.15)
+        cax = divider.append_axes("right", size="4%", pad=0.05)
         cbar = self.fig.colorbar(self.im, cax=cax, orientation="vertical")
         cbar.set_label("°C", rotation=0, labelpad=10, color=COLOR_TEXT, fontsize=9)
         cbar.ax.tick_params(labelsize=8, colors=COLOR_TEXT)
