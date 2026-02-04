@@ -34,20 +34,18 @@ EOF
 fi
 
 mkdir -p ~/.local/bin
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 cat <<EOF > ~/.local/bin/dbpull
 #!/bin/bash
-# Datenbank-Backup oder Pull
-SCRIPT_DIR="$(cd "$(dirname \"$(readlink -f \"$0\")\")/../../" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$PROJECT_DIR"
 python3 src/core/datastore.py --pull
 EOF
 chmod +x ~/.local/bin/dbpull
 
 cat <<EOF > ~/.local/bin/dbstart
 #!/bin/bash
-# Dashboard starten
-SCRIPT_DIR="$(cd "$(dirname \"$(readlink -f \"$0\")\")/../../" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$PROJECT_DIR"
 python3 src/main.py
 EOF
 chmod +x ~/.local/bin/dbstart

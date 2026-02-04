@@ -486,24 +486,8 @@ class MainApp:
             print(f"[MINIMIZE] Fehler: {e}")
 
     def _on_root_map(self, event):
-        """Restore fullscreen after window is brought back from taskbar or after deiconify/withdraw."""
-        if event.widget != self.root:
-            return
-        sw = max(1, self.root.winfo_screenwidth())
-        sh = max(1, self.root.winfo_screenheight())
-        target_w = min(sw, 1024)
-        target_h = min(sh, 600)
-        self.is_fullscreen = True
-        # Nach dem Wiedereinblenden wieder Fullscreen aktivieren
-        self.root.overrideredirect(True)
-        self.root.update_idletasks()
-        try:
-            self.root.attributes("-fullscreen", True)
-        except Exception:
-            pass
-        self._apply_fullscreen(target_w, target_h, 0)
-        self._resize_enabled = True
-        self.root.after(200, lambda: self._handle_resize(self.root.winfo_width(), self.root.winfo_height()))
+        """Kein automatischer Fullscreen nach Minimieren/Alt+Tab, normales Fensterverhalten."""
+        pass
 
     def _mark_layout_stable(self):
         """Mark layout as stable after initial settling period."""
