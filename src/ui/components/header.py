@@ -15,7 +15,7 @@ from ui.components.rounded import RoundedFrame
 class HeaderBar(tk.Frame):
     """Schlanker Header mit Datum, Uhrzeit, Toggles und Exit."""
 
-    def __init__(self, parent: tk.Widget, on_toggle_a=None, on_toggle_b=None, on_exit=None):
+    def __init__(self, parent: tk.Widget, on_toggle_a=None, on_toggle_b=None, on_exit=None, on_toggle_fullscreen=None):
         super().__init__(parent, height=36, bg=COLOR_HEADER)
         self.pack_propagate(False)
 
@@ -41,9 +41,27 @@ class HeaderBar(tk.Frame):
         center.grid(row=0, column=1, sticky="nsew")
         center.grid_columnconfigure(0, weight=1)
         center.grid_columnconfigure(1, weight=0)
+        center.grid_columnconfigure(2, weight=0)
 
         self.clock_label = tk.Label(center, text="--:--", font=("Segoe UI", 36, "bold"), fg=COLOR_PRIMARY, bg=COLOR_CARD)
         self.clock_label.grid(row=0, column=0, sticky="nsew")
+
+        from ui.components.rounded_button import RoundedButton
+        # Fullscreen toggle button (between clock and other buttons)
+        self.fullscreen_btn = RoundedButton(
+            center,
+            text="⛶",  # Unicode for fullscreen/expand
+            command=on_toggle_fullscreen,
+            bg=COLOR_PRIMARY,
+            fg="#fff",
+            radius=12,
+            padding=(8, 4),
+            font_size=16,
+            width=36,
+            height=36,
+            tooltip="Vollbild umschalten"
+        )
+        self.fullscreen_btn.grid(row=0, column=1, sticky="n", padx=(8, 0), pady=0)
 
         # Rechts: Außentemp
         right = tk.Frame(inner, bg=COLOR_CARD)
@@ -54,9 +72,8 @@ class HeaderBar(tk.Frame):
         tk.Label(right, text="Außen", font=("Segoe UI", 9), fg=COLOR_SUBTEXT, bg=COLOR_CARD).pack(anchor="ne", pady=(0, 4))
 
         btn_row = tk.Frame(center, bg=COLOR_CARD, height=36)
-        btn_row.grid(row=0, column=1, sticky="n", padx=(8, 8), pady=0)
+        btn_row.grid(row=0, column=2, sticky="n", padx=(8, 8), pady=0)
         btn_row.grid_propagate(False)
-        from ui.components.rounded_button import RoundedButton
         # Buttons exakt auf Zeilenhöhe, modern, zentriert
         self.btn_a = RoundedButton(
             btn_row, text="An", command=on_toggle_a,
