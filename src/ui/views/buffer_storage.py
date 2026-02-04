@@ -130,9 +130,12 @@ class BufferStorageView(tk.Frame):
                                   edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
         self.ax.add_patch(Rectangle((0.10, 0.10), 0.03, 0.80, transform=self.ax.transAxes,
                                     facecolor="#ffffff", alpha=0.07, linewidth=0))
-        # Responsive font size for title
+        # Responsive font size and margins for title and axes
         w = self.canvas_widget.winfo_width() if hasattr(self, "canvas_widget") else 320
-        font_size = 12 if w > 500 else 9
+        h = self.canvas_widget.winfo_height() if hasattr(self, "canvas_widget") else 180
+        font_size = 12 if min(w, h) > 700 else (9 if min(w, h) > 400 else 8)
+        bottom_margin = 0.28 if h < 400 else 0.22
+        self.fig.subplots_adjust(left=0.13, right=0.98, top=0.93, bottom=bottom_margin)
         self.ax.text(0.20, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
                  color=COLOR_TITLE, fontsize=font_size, va="top", ha="center", weight="bold")
 
@@ -155,7 +158,16 @@ class BufferStorageView(tk.Frame):
         self.ax.add_patch(Rectangle((0.60, 0.10), 0.03, 0.41, transform=self.ax.transAxes,
                                     facecolor="#ffffff", alpha=0.06, linewidth=0))
         self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes,
-                 color=COLOR_TITLE, fontsize=font_size, va="top", ha="center", weight="bold")
+                     color=COLOR_TITLE, fontsize=font_size, va="top", ha="center", weight="bold")
+        # Always rotate x-labels and fit them if present
+        for label in self.ax.get_xticklabels():
+            label.set_rotation(35)
+            label.set_horizontalalignment("right")
+        # Ensure tight layout for all elements
+        try:
+            self.fig.tight_layout(rect=[0, 0, 1, 1])
+        except Exception:
+            pass
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)

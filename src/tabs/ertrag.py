@@ -165,14 +165,28 @@ class ErtragTab:
             self.var_avg.set("Ø Tag: -- kWh")
             self.var_last.set("Max: -- kWh")
 
-        # Responsive margins for better scaling
-        self.fig.subplots_adjust(left=0.12, right=0.98, top=0.92, bottom=0.24)
-        # Responsive font size for small windows
+        # Responsive margins for better scaling and more space for x-labels
         w, h = self.canvas.get_tk_widget().winfo_width(), self.canvas.get_tk_widget().winfo_height()
-        font_size = 10 if min(w, h) > 500 else 8
+        font_size = 11 if min(w, h) > 700 else (9 if min(w, h) > 400 else 8)
+        bottom_margin = 0.28 if h < 400 else 0.22
+        self.fig.subplots_adjust(left=0.13, right=0.98, top=0.93, bottom=bottom_margin)
         self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=font_size, fontweight='bold')
         self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=font_size)
-        self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=font_size-1)
+        self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=max(font_size-1, 7))
+        # Always rotate x-labels and fit them
+        for label in self.ax.get_xticklabels():
+            label.set_rotation(35)
+            label.set_horizontalalignment("right")
+        legend = self.ax.get_legend()
+        if legend:
+            legend.set_fontsize(max(font_size-2, 7))
+            legend.set_bbox_to_anchor((1, 1))
+            legend.set_loc('upper left')
+        # Ensure tight layout for all elements
+        try:
+            self.fig.tight_layout(rect=[0, 0, 1, 1])
+        except Exception:
+            pass
         
         try:
             if self.canvas.get_tk_widget().winfo_exists():
@@ -186,24 +200,21 @@ class ErtragTab:
     def _on_canvas_resize(self, event):
         if self._resize_pending:
             return
-        
         w = max(1, event.width)
         h = max(1, event.height)
         if self._last_canvas_size:
             last_w, last_h = self._last_canvas_size
             if abs(w - last_w) < 10 and abs(h - last_h) < 10:
                 return
-        
         self._last_canvas_size = (w, h)
         self._resize_pending = True
-        
         try:
             self._resize_figure(w, h)
-            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.2)
+            # Use after() to defer the draw and prevent event loop
             self.root.after(100, lambda: self._do_canvas_draw())
         except Exception:
             self._resize_pending = False
-    
+
     def _do_canvas_draw(self):
         try:
             if self.canvas.get_tk_widget().winfo_exists():
@@ -215,8 +226,8 @@ class ErtragTab:
 
     def _resize_figure(self, width_px: int, height_px: int) -> None:
         dpi = self.fig.dpi or 100
-        width_in = max(4.5, width_px / dpi)
-        height_in = max(2.6, height_px / dpi)
+        width_in = max(5.5, width_px / dpi)
+        height_in = max(3.2, height_px / dpi)
         self.fig.set_size_inches(width_in, height_in, forward=True)
 
 
