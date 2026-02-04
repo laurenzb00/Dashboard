@@ -49,7 +49,7 @@ class TadoTab:
 
         # Tab Frame
         self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
-        notebook.add(self.tab_frame, text=emoji("🌡️ Klima", "Klima"))
+        notebook.add(self.tab_frame, text=emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
         
         self.tab_frame.grid_columnconfigure(0, weight=1)
         self.tab_frame.grid_rowconfigure(2, weight=1)

@@ -246,13 +246,13 @@ class MainApp:
 
         # Status Tab entfernt
 
-        # Add PV Status Tab
+        # Add other tabs first
+        self._add_other_tabs()
+
+        # Add PV Status Tab ganz nach rechts
         self.pv_status_tab = tk.Frame(self.notebook, bg=COLOR_ROOT)
         self.notebook.add(self.pv_status_tab, text=emoji("🔆 PV Status", "PV Status"))
         self._init_pv_status_tab()
-
-        # Add other tabs
-        self._add_other_tabs()
 
     def _init_pv_status_tab(self):
         frame = self.pv_status_tab

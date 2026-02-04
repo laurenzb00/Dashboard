@@ -44,7 +44,7 @@ class HueTab:
         
         # Erstelle Tab Frame
         self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
-        notebook.add(self.tab_frame, text=emoji("💡 Hue", "Hue"))
+        notebook.add(self.tab_frame, text=emoji("💡 Licht", "Licht"))
         
         # Initialisiere UI
         self._build_ui()
