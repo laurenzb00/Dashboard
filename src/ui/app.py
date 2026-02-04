@@ -130,7 +130,7 @@ class MainApp:
         offset_y = 0
         usable_h = max(200, target_h - offset_y)
         self.is_fullscreen = True
-        self._apply_fullscreen(target_w, usable_h, offset_y)
+        self._apply_fullscreen()
         self.root.resizable(False, False)
         try:
             self.root.attributes("-fullscreen", True)
