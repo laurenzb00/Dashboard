@@ -5,10 +5,17 @@
 sudo apt-get update
 sudo apt-get install -y python3 python3-pip python3-tk git
 
+
+# Python venv erstellen und aktivieren
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+fi
+source venv/bin/activate
+
 # Python-Libraries installieren (aus requirements.txt, falls vorhanden)
 if [ -f requirements.txt ]; then
-    pip3 install --upgrade pip
-    pip3 install -r requirements.txt
+    pip install --upgrade pip
+    pip install -r requirements.txt
 else
     echo "requirements.txt nicht gefunden!"
 fi
