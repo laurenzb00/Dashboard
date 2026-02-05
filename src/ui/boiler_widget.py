@@ -78,7 +78,7 @@ class ModernBoilerWidget:
         # Initial leere Heatmap
         self._update_heatmap(0, 0, 0)
     
-    def _update_heatmap(self, temp_top, temp_mid, temp_bot, temp_kessel=None):
+    def _update_heatmap(self, temp_top, temp_mid, temp_bot, temp_warmwasser=None):
         """Aktualisiert die Heatmap mit modernen Chip-Style Labels"""
         self.ax.clear()
         
@@ -219,7 +219,7 @@ class ModernBoilerWidget:
         add_temp_chip(mid_layer, temp_mid, "Mitte")
         add_temp_chip(1.5, temp_bot, "Unten")
         # Rechts: Warmwasser-Badge
-        if temp_kessel is not None:
+        if temp_warmwasser is not None:
             from matplotlib.patches import FancyBboxPatch
             box = FancyBboxPatch(
                 (8.2, layers // 2 - 1), 2.2, 2.2,
@@ -231,7 +231,7 @@ class ModernBoilerWidget:
             self.ax.add_patch(box)
             self.ax.text(
                 9.3, layers // 2,
-                f"💧 Warmwasser\n{temp_kessel:.0f}°",
+                f"💧 Warmwasser\n{temp_warmwasser:.0f}°",
                 ha='center', va='center',
                 fontsize=10, fontweight='bold',
                 color='white'
@@ -332,19 +332,19 @@ class ModernBoilerWidget:
             )
     
     # ========== PUBLIC UPDATE METHODE ==========
-    def update_temperatures(self, temp_top, temp_mid, temp_bot, temp_kessel=None):
+    def update_temperatures(self, temp_top, temp_mid, temp_bot, temp_warmwasser=None):
         """Aktualisiert die Visualisierung mit neuen Temperaturen"""
         try:
             t_top = float(temp_top)
             t_mid = float(temp_mid)
             t_bot = float(temp_bot)
-            t_kessel = float(temp_kessel) if temp_kessel is not None else None
+            t_warmwasser = float(temp_warmwasser) if temp_warmwasser is not None else None
         except (ValueError, TypeError):
             t_top, t_mid, t_bot = 0, 0, 0
-            t_kessel = None
+            t_warmwasser = None
         
         if self.style == "heatmap":
-            self._update_heatmap(t_top, t_mid, t_bot, t_kessel)
+            self._update_heatmap(t_top, t_mid, t_bot, t_warmwasser)
         elif self.style == "gradient":
             self._update_gradient(t_top, t_mid, t_bot)
         else:
