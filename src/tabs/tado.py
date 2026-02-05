@@ -121,35 +121,29 @@ class TadoTab:
         ttk.Button(btn_frame, text="Aus", command=self._set_off).pack(side=tk.LEFT, padx=3, fill=tk.X, expand=True)
 
         # Temperatur-Historie (matplotlib)
-        try:
-            history_card = Card(self.tab_frame)
-            history_card.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
-            history_card.add_title("Temperatur-Verlauf (24h)", icon="📈")
-            
-            import matplotlib.pyplot as plt
-            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-            
-            fig, ax = plt.subplots(figsize=(10, 2.5), dpi=80)
-            fig.patch.set_facecolor(COLOR_CARD)
-            ax.set_facecolor(COLOR_CARD)
-            for spine in ["top", "right"]:
-                ax.spines[spine].set_visible(False)
-            for spine in ["left", "bottom"]:
-                ax.spines[spine].set_color(COLOR_BORDER)
-            
-            self.history_fig = fig
-            self.history_ax = ax
-            self.history_canvas = FigureCanvasTkAgg(fig, master=history_card.content())
-            widget = self.history_canvas.get_tk_widget()
-            widget.pack(fill=tk.BOTH, expand=True)
-            self._history_resize_pending = False
-            self._history_last_size = None
-            widget.bind("<Configure>", self._on_history_resize)
-            self.history_temps = []  # Liste für Temperatur-Historie
-            self.history_times = []  # Liste für Zeitstempel
-        except Exception as e:
-            logging.debug("[TADO] History chart unavailable: %s", e)
-            self.history_canvas = None
+        # Temperatur-Historie (matplotlib) - nur einmal erstellen, keine Duplikate!
+        history_card = Card(self.tab_frame)
+        history_card.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        history_card.add_title("Temperatur-Verlauf (24h)", icon="📈")
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        fig, ax = plt.subplots(figsize=(10, 2.5), dpi=80)
+        fig.patch.set_facecolor(COLOR_CARD)
+        ax.set_facecolor(COLOR_CARD)
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+        for spine in ["left", "bottom"]:
+            ax.spines[spine].set_color(COLOR_BORDER)
+        self.history_fig = fig
+        self.history_ax = ax
+        self.history_canvas = FigureCanvasTkAgg(fig, master=history_card.content())
+        widget = self.history_canvas.get_tk_widget()
+        widget.pack(fill=tk.BOTH, expand=True)
+        self._history_resize_pending = False
+        self._history_last_size = None
+        widget.bind("<Configure>", self._on_history_resize)
+        self.history_temps = []  # Liste für Temperatur-Historie
+        self.history_times = []  # Liste für Zeitstempel
 
         # Start Update Loop
         self.root.after(0, lambda: threading.Thread(target=self._loop, daemon=True).start())
