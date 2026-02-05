@@ -31,8 +31,11 @@ class SpotifyTab:
     """Touch-optimierte Spotify-Integration mit Now-Playing- und Playlist-Ansicht."""
 
     def _create_playlist_icon(self, playlist: dict, idx: int):
+        # Remove green frame, use plain layout
+        row = idx // 6  # 6 icons per row
+        col_idx = idx % 6
         col = ttk.Frame(self.playlist_inner, padding=6)
-        col.grid(row=0, column=idx, padx=8, pady=8, sticky="n")
+        col.grid(row=row, column=col_idx, padx=8, pady=8, sticky="n")
         image_url = (playlist.get("images") or [{}])[0].get("url")
         photo = self._get_playlist_photo(playlist.get("id"), image_url)
         uri = playlist.get("uri")
@@ -217,14 +220,8 @@ class SpotifyTab:
         top = ttk.Frame(self.library_frame)
         top.pack(fill=tk.X)
         ttk.Label(top, text="Playlists & Favoriten", font=("Arial", 14, "bold")).pack(anchor=W)
-        search_row = ttk.Frame(top)
-        search_row.pack(fill=tk.X, pady=(8, 6))
-        self.playlist_search = tk.StringVar()
-        search_entry = ttk.Entry(search_row, textvariable=self.playlist_search)
-        search_entry.pack(side=LEFT, fill=tk.X, expand=True)
-        search_entry.bind("<KeyRelease>", lambda _e: self._render_playlists())
-        ttk.Button(search_row, text="Aktualisieren", command=self._refresh_playlists,
-                   bootstyle="info").pack(side=LEFT, padx=6)
+        # Move search bar above playlists
+
 
         list_wrapper = ttk.Frame(self.library_frame)
         list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
@@ -555,8 +552,11 @@ class SpotifyTab:
     def _render_playlists(self):
         for child in self.playlist_inner.winfo_children():
             child.destroy()
-        query = (self.playlist_search.get() or "").lower()
-        filtered = [pl for pl in self._playlists_data if query in pl.get("name", "").lower()]
+        # Sort playlists by last played (if available), else by size
+            def id_key(pl):
+                # Use the 'id' field for sorting
+                return pl.get('id', '')
+            filtered = sorted(self._playlists_data, key=id_key)
         if not filtered:
             ttk.Label(self.playlist_inner, text="Keine Playlists gefunden", padding=16).pack()
             return

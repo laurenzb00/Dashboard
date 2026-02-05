@@ -30,7 +30,7 @@ class ErtragTab:
         self.notebook.add(self.tab_frame, text=emoji("🔆 Ertrag", "Ertrag"))
 
         self.card = Card(self.tab_frame)
-        self.card.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        self.card.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
         self.card.add_title("PV-Ertrag (täglich)", icon="📈")
 
         body = self.card.content()
@@ -42,9 +42,9 @@ class ErtragTab:
 
         # Feste Größe und Layout für das Diagramm, da Bildschirm bekannt
         self.fig = Figure(figsize=(9.0, 4.5), dpi=100)
+        self.fig.patch.set_alpha(0)
         self.ax = self.fig.add_subplot(111)
-        self.fig.patch.set_facecolor(COLOR_CARD)
-        self.ax.set_facecolor(COLOR_CARD)
+        self.ax.set_facecolor("none")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         # Keine dynamische Resize-Events nötig
@@ -106,7 +106,7 @@ class ErtragTab:
         return series
 
     def _style_axes(self):
-        self.ax.set_facecolor(COLOR_CARD)
+        self.ax.set_facecolor("none")
         for spine in ["top", "right"]:
             self.ax.spines[spine].set_visible(False)
         for spine in ["left", "bottom"]:
@@ -133,8 +133,8 @@ class ErtragTab:
 
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
-        self.fig.patch.set_facecolor(COLOR_CARD)
-        self.ax.set_facecolor(COLOR_CARD)
+        self.fig.patch.set_alpha(0)
+        self.ax.set_facecolor("none")
         self._style_axes()
 
         if data:

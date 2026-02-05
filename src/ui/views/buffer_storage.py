@@ -265,17 +265,21 @@ class BufferStorageView(tk.Frame):
             return
         self._last_spark_update = datetime.now().timestamp()
 
-        pv_series = self._load_pv_series(hours=24, bin_minutes=15)
-        temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
-
-        # Always set x-axis to last 24h
+        # Feste 24h-Raster erzeugen (alle 15 Minuten)
         now = datetime.now()
         x_min = now - timedelta(hours=24)
         x_max = now
-        self.spark_ax.set_xlim(x_min, x_max)
-        self.spark_ax.figure.autofmt_xdate()
-        self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
+        time_bins = [x_min + timedelta(minutes=15 * i) for i in range(0, 97)]  # 24h * 4 bins/h + 1
+
+        def fill_series(series):
+            # Map vorhandene Werte auf Raster, fehlende mit 0 auffüllen
+            value_map = {dt: val for dt, val in series}
+            return [value_map.get(bin, 0.0) for bin in time_bins]
+
+        pv_series = self._load_pv_series(hours=24, bin_minutes=15)
+        temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+        pv_values = fill_series(pv_series)
+        temp_values = fill_series(temp_series)
 
         self.spark_ax.clear()
         if hasattr(self, "spark_ax2"):
@@ -286,16 +290,17 @@ class BufferStorageView(tk.Frame):
         self.spark_ax2 = self.spark_ax.twinx()
         ax2 = self.spark_ax2
 
-        if pv_series:
-            xs_pv, ys_pv = zip(*pv_series)
-            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
-            self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
-            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+        self.spark_ax.set_xlim(x_min, x_max)
+        self.spark_ax.figure.autofmt_xdate()
+        self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
 
-        if temp_series:
-            xs_temp, ys_temp = zip(*temp_series)
-            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
-            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
+        self.spark_ax.plot(time_bins, pv_values, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
+        self.spark_ax.fill_between(time_bins, pv_values, color=COLOR_SUCCESS, alpha=0.15)
+        self.spark_ax.scatter([time_bins[-1]], [pv_values[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+
+        ax2.plot(time_bins, temp_values, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
+        ax2.scatter([time_bins[-1]], [temp_values[-1]], color=COLOR_INFO, s=12, zorder=10)
 
         self.spark_ax.spines['top'].set_visible(False)
         self.spark_ax.spines['right'].set_visible(False)
