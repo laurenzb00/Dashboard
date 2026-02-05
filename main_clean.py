@@ -5,6 +5,10 @@ Startet das Dashboard neu mit gesäuberten Modulen
 """
 import os
 import sys
+# Add src and src/core to sys.path for module imports
+base_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(base_dir, 'src'))
+sys.path.insert(0, os.path.join(base_dir, 'src', 'core'))
 
 # Step 1: Kill old processes
 print("[STARTUP] Removing old cache files...")

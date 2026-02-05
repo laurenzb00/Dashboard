@@ -8,9 +8,18 @@ from io import BytesIO
 from typing import Optional
 
 import requests
-import ttkbootstrap as ttk
-from PIL import Image, ImageTk
-from ttkbootstrap.constants import BOTH, LEFT, RIGHT, W
+try:
+    import ttkbootstrap as ttk
+    from ttkbootstrap.constants import BOTH, LEFT, RIGHT, W
+except ImportError:
+    import tkinter.ttk as ttk
+    from tkinter.constants import BOTH, LEFT, RIGHT
+    W = "w"
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    Image = None
+    ImageTk = None
 
 
 POLL_INTERVAL_MS = 5000
@@ -20,6 +29,25 @@ PLAYLIST_IMAGE_SIZE = (96, 96)
 
 class SpotifyTab:
     """Touch-optimierte Spotify-Integration mit Now-Playing- und Playlist-Ansicht."""
+
+    def _create_playlist_icon(self, playlist: dict, idx: int):
+        col = ttk.Frame(self.playlist_inner, padding=6)
+        col.grid(row=0, column=idx, padx=8, pady=8, sticky="n")
+        image_url = (playlist.get("images") or [{}])[0].get("url")
+        photo = self._get_playlist_photo(playlist.get("id"), image_url)
+        uri = playlist.get("uri")
+        # Cover as touchable button
+        btn = ttk.Button(col, image=photo if photo else None, text="" if photo else "Cover",
+                        command=lambda u=uri: self._play_playlist(u), bootstyle="success", width=PLAYLIST_IMAGE_SIZE[0])
+        btn.pack()
+        # Playlist name
+        name = playlist.get("name", "Unbenannte Playlist")
+        ttk.Label(col, text=name, font=("Arial", 12, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10).pack(pady=(4,0))
+        # Tracks
+        tracks_total = playlist.get("tracks", {}).get("total", 0)
+        ttk.Label(col, text=f"{tracks_total} Titel", font=("Arial", 10), foreground="#9ca3af").pack()
+        # Queue button
+        ttk.Button(col, text="In Queue", command=lambda p=playlist: self._queue_playlist(p), bootstyle="secondary").pack(pady=(2,0))
 
     def __init__(self, root, notebook):
         self.root = root
@@ -52,18 +80,18 @@ class SpotifyTab:
 
         # Runtime state holders
         self.client = None
-        self._latest_login_url: Optional[str] = None
-        self._cover_photo: Optional[ImageTk.PhotoImage] = None
-        self._playlist_images: dict[str, ImageTk.PhotoImage] = {}
-        self._devices: list[dict] = []
-        self._last_track_id: Optional[str] = None
-        self._last_playback: Optional[dict] = None
+        self._latest_login_url = None
+        self._cover_photo = None
+        self._playlist_images = {}
+        self._devices = []
+        self._last_track_id = None
+        self._last_playback = None
         self._liked_track = False
-        self._poll_job: Optional[str] = None
-        self._volume_after_id: Optional[str] = None
-        self._pending_volume: Optional[int] = None
+        self._poll_job = None
+        self._volume_after_id = None
+        self._pending_volume = None
         self._ignore_volume_event = False
-        self._playlists_data: list[dict] = []
+        self._playlists_data = []
 
         self._ensure_cached_session()
         self._start_playback_poll()
@@ -200,11 +228,11 @@ class SpotifyTab:
 
         list_wrapper = ttk.Frame(self.library_frame)
         list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
-        self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=self.playlist_canvas.yview)
-        self.playlist_canvas.configure(yscrollcommand=scrollbar.set)
-        self.playlist_canvas.pack(side=LEFT, fill=BOTH, expand=True)
-        scrollbar.pack(side=RIGHT, fill=tk.Y)
+        self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0, height=PLAYLIST_IMAGE_SIZE[1]+80)
+        h_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.HORIZONTAL, command=self.playlist_canvas.xview)
+        self.playlist_canvas.configure(xscrollcommand=h_scrollbar.set)
+        self.playlist_canvas.pack(side=tk.TOP, fill=tk.X, expand=False)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.playlist_inner = ttk.Frame(self.playlist_canvas)
         self.playlist_canvas.create_window((0, 0), window=self.playlist_inner, anchor="nw")
@@ -212,16 +240,6 @@ class SpotifyTab:
             "<Configure>",
             lambda e: self.playlist_canvas.configure(scrollregion=self.playlist_canvas.bbox("all")),
         )
-
-        # Touch scroll optimization
-        def _on_touch_scroll(event):
-            if hasattr(event, 'num') and (event.num == 4 or event.delta > 0):
-                self.playlist_canvas.yview_scroll(-1, "units")
-            elif hasattr(event, 'num') and (event.num == 5 or event.delta < 0):
-                self.playlist_canvas.yview_scroll(1, "units")
-        self.playlist_canvas.bind_all("<MouseWheel>", _on_touch_scroll)
-        self.playlist_canvas.bind_all("<Button-4>", _on_touch_scroll)
-        self.playlist_canvas.bind_all("<Button-5>", _on_touch_scroll)
 
         self.playlist_empty = ttk.Label(self.playlist_inner, text="Noch keine Playlists geladen", padding=16)
         self.playlist_empty.pack()
@@ -542,29 +560,10 @@ class SpotifyTab:
         if not filtered:
             ttk.Label(self.playlist_inner, text="Keine Playlists gefunden", padding=16).pack()
             return
-        for playlist in filtered:
-            self._create_playlist_card(playlist)
+        # Horizontal layout: each playlist is a column
+        for idx, playlist in enumerate(filtered):
+            self._create_playlist_icon(playlist, idx)
 
-    def _create_playlist_card(self, playlist: dict):
-        card = ttk.Frame(self.playlist_inner, padding=10, relief="ridge")
-        card.pack(fill=tk.X, pady=6)
-        card.columnconfigure(1, weight=1)
-
-        image_url = (playlist.get("images") or [{}])[0].get("url")
-        photo = self._get_playlist_photo(playlist.get("id"), image_url)
-        ttk.Label(card, image=photo if photo else None, text="" if photo else "Cover",
-                  width=12).grid(row=0, column=0, rowspan=2, sticky="nsw", padx=(0, 10))
-
-        name = playlist.get("name", "Unbenannte Playlist")
-        tracks_total = playlist.get("tracks", {}).get("total", 0)
-        ttk.Label(card, text=name, font=("Arial", 14, "bold")).grid(row=0, column=1, sticky=W)
-        ttk.Label(card, text=f"{tracks_total} Titel", font=("Arial", 10), foreground="#9ca3af").grid(row=1, column=1, sticky=W)
-
-        btns = ttk.Frame(card)
-        btns.grid(row=0, column=2, rowspan=2, padx=(10, 0))
-        uri = playlist.get("uri")
-        ttk.Button(btns, text="Jetzt abspielen", command=lambda u=uri: self._play_playlist(u), bootstyle="success").pack(fill=tk.X, pady=2)
-        ttk.Button(btns, text="In Queue", command=lambda p=playlist: self._queue_playlist(p), bootstyle="secondary").pack(fill=tk.X, pady=2)
 
     def _get_playlist_photo(self, playlist_id: Optional[str], url: Optional[str]) -> Optional[ImageTk.PhotoImage]:
         if not playlist_id or not url:

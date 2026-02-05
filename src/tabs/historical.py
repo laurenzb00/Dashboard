@@ -62,7 +62,7 @@ class HistoricalTab:
             ("Puffer oben", self.var_top, COLOR_PRIMARY),
             ("Puffer mitte", self.var_mid, COLOR_INFO),
             ("Puffer unten", self.var_bot, COLOR_SUBTEXT),
-            ("Boiler/Kessel", self.var_boiler, COLOR_WARNING),
+            ("Kessel", self.var_boiler, COLOR_WARNING),
             ("Außen", self.var_out, COLOR_TEXT),
         ]
         
@@ -203,7 +203,7 @@ class HistoricalTab:
                 self.ax.plot(ts, top, color=COLOR_PRIMARY, label="Puffer oben", linewidth=2.0, alpha=0.8)
                 self.ax.plot(ts, mid, color=COLOR_INFO, label="Puffer mitte", linewidth=1.5, alpha=0.7)
                 self.ax.plot(ts, bot, color=COLOR_SUBTEXT, label="Puffer unten", linewidth=1.5, alpha=0.6)
-                self.ax.plot(ts, boiler, color=COLOR_WARNING, label="Boiler/Kessel", linewidth=2.0, alpha=0.8)
+                self.ax.plot(ts, boiler, color=COLOR_WARNING, label="Kessel", linewidth=2.0, alpha=0.8)
                 self.ax.plot(ts, outside, color=COLOR_DANGER, label="Außen", linewidth=1.8, alpha=0.8, linestyle='--')
                 self.ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=10, fontweight='bold')
                 self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)

@@ -155,8 +155,8 @@ class BufferStorageView(tk.Frame):
                                   edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
         self.ax.add_patch(Rectangle((0.60, 0.10), 0.03, 0.41, transform=self.ax.transAxes,
                                     facecolor="#ffffff", alpha=0.06, linewidth=0))
-        self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes,
-                     color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
+        self.ax.text(0.69, 0.60, "Kessel", transform=self.ax.transAxes,
+                 color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
         # Keine dynamische Rotation oder tight_layout nötig bei festen Größen
 
         divider = make_axes_locatable(self.ax)
@@ -407,8 +407,17 @@ class BufferStorageView(tk.Frame):
     def _parse_ts(value):
         if not value:
             return None
+        s = str(value).strip().replace('T', ' ', 1)
+        # Remove milliseconds if present
+        if '.' in s:
+            s = s.split('.')[0]
+        # Remove timezone if present
+        if '+' in s:
+            s = s.split('+')[0]
+        if 'Z' in s:
+            s = s.replace('Z', '')
         try:
-            return datetime.fromisoformat(str(value))
+            return datetime.fromisoformat(s)
         except Exception:
             return None
 

@@ -164,3 +164,34 @@ python src/main.py
 **Status: PRODUKTIONSREIF** ✓
 
 Das Projekt ist jetzt sauber organisiert und ready for use!
+
+# CLEANUP REPORT
+
+## Zusammenfassung der Codebereinigung (Februar 2026)
+
+### 1. Raumtemperatur-Tab (tado.py)
+- Doppeltes Diagramm entfernt: Historien-Chart wird nur einmal erstellt.
+- Keine Altvariablen wie 'cleaned' oder ungenutzte Objekte mehr vorhanden.
+- Speicherbereinigung für Matplotlib-Figuren implementiert.
+
+### 2. Ertrag-Tab (ertrag.py)
+- Sinnvolles Liniendiagramm für PV-Ertrag pro Tag (letzte 90 Tage).
+- Achsen, Labels und Statistiken (Summe, Durchschnitt, letzter Tag) optimiert.
+- Keine Altlasten oder redundante Variablen.
+
+### 3. Analyse-Tab (analyse.py)
+- Moderne Twin-Axis-Darstellung (PV-Leistung vs. Pufferspeicher).
+- Keine Altlasten, keine doppelten Diagramm-Objekte.
+
+### 4. Weitere Tabs (system.py, calendar.py, hue.py, spotify.py)
+- Keine Altlasten, keine doppelten oder unnötigen Diagramm-Objekte.
+- UI und Logik konsistent und robust.
+
+### 5. Allgemeine Empfehlungen
+- Regelmäßig auf redundante Variablen und Altlasten prüfen.
+- Diagramm-Objekte immer sauber schließen (plt.close, .destroy).
+- Nur eine Instanz pro Chart/Widget erzeugen.
+- Fehler- und Speicherbereinigung in jedem Tab sicherstellen.
+
+---
+Letzter Stand: Alle Tabs sind bereinigt und optimiert. Keine doppelten Diagramme oder Altlasten mehr vorhanden.
