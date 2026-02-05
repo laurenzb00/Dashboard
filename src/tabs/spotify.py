@@ -40,18 +40,16 @@ class SpotifyTab:
         self.content_notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
     def _create_playlist_icon(self, playlist: dict, idx: int):
-        # Remove green frame, use plain layout
-        row = idx // 6  # 6 icons per row
-        col_idx = idx % 6
-        col = ttk.Frame(self.playlist_inner, padding=6)
-        col.grid(row=row, column=col_idx, padx=8, pady=8, sticky="n")
+        # 4 Playlists pro Zeile, Cover als Label (kein Button, kein Rahmen)
+        row = idx // 4
+        col_idx = idx % 4
+        col = ttk.Frame(self.playlist_inner, padding=2)
+        col.grid(row=row, column=col_idx, padx=12, pady=12, sticky="n")
         image_url = (playlist.get("images") or [{}])[0].get("url")
         photo = self._get_playlist_photo(playlist.get("id"), image_url)
-        uri = playlist.get("uri")
-        # Cover as touchable button
-        btn = ttk.Button(col, image=photo if photo else None, text="" if photo else "Cover",
-                        command=lambda u=uri: self._play_playlist(u), bootstyle="success", width=PLAYLIST_IMAGE_SIZE[0])
-        btn.pack()
+        # Cover als Label (kein Button, kein Rahmen)
+        cover_label = ttk.Label(col, image=photo if photo else None, text="" if photo else "Cover", style="TLabel")
+        cover_label.pack()
         # Playlist name
         name = playlist.get("name", "Unbenannte Playlist")
         ttk.Label(col, text=name, font=("Arial", 12, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10).pack(pady=(4,0))

@@ -74,13 +74,13 @@ class HistoricalTab:
             ttk.Label(stat_card, textvariable=var, font=("Arial", 14, "bold")).pack(anchor="w", padx=6, pady=(0, 4))
 
         # Plot
-        # Feste Größe und Layout für das Diagramm, da Bildschirm bekannt
-        self.fig = Figure(figsize=(9.0, 4.5), dpi=100)
+        plot_frame = tk.Frame(body, bg=COLOR_CARD)
+        plot_frame.grid(row=1, column=0, sticky="nsew")
+        # Initiale Figure mit kleiner Größe, wird dynamisch angepasst
+        self.fig = Figure(figsize=(4.5, 2.8), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
-        plot_frame = tk.Frame(body, bg=COLOR_CARD)
-        plot_frame.grid(row=1, column=0, sticky="nsew")
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._last_canvas_size = None
@@ -262,13 +262,13 @@ class HistoricalTab:
             except Exception:
                 pass
 
-        # Nächster Update in 5 Minuten - cancel previous task first
+        # Nächster Update in 30 Sekunden - cancel previous task first
         if self._update_task_id:
             try:
                 self.root.after_cancel(self._update_task_id)
             except Exception:
                 pass
-        self._update_task_id = self.root.after(5 * 60 * 1000, self._update_plot)
+        self._update_task_id = self.root.after(30 * 1000, self._update_plot)
 
     def _on_canvas_resize(self, event):
         # Prevent Configure event loop - debounce rapid resize events
@@ -306,6 +306,8 @@ class HistoricalTab:
 
     def _resize_figure(self, width_px: int, height_px: int) -> None:
         dpi = self.fig.dpi or 100
+        # Maximalbreite auf 900px begrenzen (z.B. Card-Breite)
+        width_px = min(width_px, 900)
         width_in = max(4.5, width_px / dpi)
         height_in = max(2.8, height_px / dpi)
         self.fig.set_size_inches(width_in, height_in, forward=True)
