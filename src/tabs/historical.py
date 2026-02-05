@@ -75,17 +75,21 @@ class HistoricalTab:
 
         # Plot
         plot_frame = tk.Frame(body, bg=COLOR_CARD)
-        plot_frame.grid(row=1, column=0, sticky="nsew", padx=(48, 0))
-        plot_frame.grid_propagate(True)
-        self.fig = Figure(figsize=(4, 2.5), dpi=100)
+        plot_frame.pack(fill=tk.BOTH, expand=True, padx=32, pady=0)
+        self.fig = Figure(figsize=(8, 3.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._last_canvas_size = None
-        # Binde das Configure-Event des plot_frame für echtes dynamisches Resizing
-        plot_frame.bind("<Configure>", self._on_plot_frame_resize)
+        # Dynamische Größenanpassung: Passe Figure-Größe an Frame an
+        def on_resize(event):
+            w = max(4, event.width / 100)
+            h = max(2, event.height / 100)
+            self.fig.set_size_inches(w, h)
+            self.canvas.draw_idle()
+        plot_frame.bind("<Configure>", on_resize)
 
         self._last_key = None
         self._resize_pending = False  # Prevent Configure event loop
