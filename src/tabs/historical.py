@@ -68,14 +68,14 @@ class HistoricalTab:
         
         for idx, (label, var, color) in enumerate(stats_grid):
             stat_card = tk.Frame(stats_frame, bg=COLOR_CARD)
-            stat_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4)
-            
-            ttk.Label(stat_card, text=label, font=("Arial", 9), foreground=color).pack(anchor="w", padx=6, pady=(4, 2))
-            ttk.Label(stat_card, textvariable=var, font=("Arial", 14, "bold")).pack(anchor="w", padx=6, pady=(0, 4))
+            stat_card.grid(row=0, column=idx, sticky="nsew", padx=8, pady=2)
+            stats_frame.grid_columnconfigure(idx, weight=1)
+            ttk.Label(stat_card, text=label, font=("Arial", 9), foreground=color).grid(row=0, column=0, sticky="w", padx=6, pady=(4, 2))
+            ttk.Label(stat_card, textvariable=var, font=("Arial", 14, "bold")).grid(row=1, column=0, sticky="w", padx=6, pady=(0, 4))
 
         # Plot
         plot_frame = tk.Frame(body, bg=COLOR_CARD)
-        plot_frame.grid(row=1, column=0, sticky="nsew", padx=(0,0), pady=(0,0))
+        plot_frame.grid(row=1, column=0, sticky="nsew", padx=(16,16), pady=(8,12))
         body.grid_rowconfigure(1, weight=1)
         self.fig = Figure(figsize=(8, 3.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
