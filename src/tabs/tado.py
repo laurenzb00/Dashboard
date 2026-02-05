@@ -409,6 +409,8 @@ class TadoTab:
             if not hasattr(self, 'history_canvas') or not self.history_canvas:
                 return
             self.history_ax.clear()
+            self.history_fig.patch.set_alpha(0)
+            self.history_ax.set_facecolor("none")
             if len(self.history_temps) > 1 and len(self.history_times) == len(self.history_temps):
                 import numpy as np
                 import matplotlib.dates as mdates

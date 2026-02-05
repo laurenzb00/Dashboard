@@ -236,7 +236,9 @@ class HistoricalTab:
                 self.var_out.set("-- °C")
 
             # Feste Ränder und Schriftgrößen für optimalen Sitz
-            self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
+            self.fig.subplots_adjust(left=0.10, right=0.995, top=0.92, bottom=0.18)
+            self.fig.patch.set_alpha(0)
+            self.ax.set_facecolor("none")
             self.ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=13, fontweight='bold')
             self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=12)
             self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=11)
