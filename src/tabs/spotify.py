@@ -97,7 +97,11 @@ class SpotifyTab:
                 lightcolor="",
                 darkcolor="",
                 bordercolor="",
-                padding=0
+                padding=0,
+                focusthickness=0,
+                focustcolor="",
+                selectcolor="",
+                indicatorcolor=""
             )
         if not style.lookup("Playlist.Highlight.TButton", "background"):
             style.configure(
@@ -212,14 +216,67 @@ class SpotifyTab:
 
         self.now_playing_frame = ttk.Frame(self.content_notebook, padding=12)
         self.library_frame = ttk.Frame(self.content_notebook, padding=12)
+        self.recent_frame = ttk.Frame(self.content_notebook, padding=12)
         self.devices_frame = ttk.Frame(self.content_notebook, padding=12)
         self.content_notebook.add(self.now_playing_frame, text="Now Playing")
         self.content_notebook.add(self.library_frame, text="Playlists")
+        self.content_notebook.add(self.recent_frame, text="Zuletzt gespielt")
         self.content_notebook.add(self.devices_frame, text="Geräte")
 
         self._build_now_playing_tab()
         self._build_library_tab()
+        self._build_recent_tab()
         self._build_devices_tab()
+
+    def _build_recent_tab(self) -> None:
+        top = ttk.Frame(self.recent_frame)
+        top.pack(fill=tk.X)
+        ttk.Label(top, text="Zuletzt gespielt", font=("Arial", 14, "bold")).pack(anchor=W)
+
+        list_wrapper = ttk.Frame(self.recent_frame)
+        list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
+        self.recent_canvas = tk.Canvas(list_wrapper, highlightthickness=0)
+        v_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=self.recent_canvas.yview)
+        self.recent_canvas.configure(yscrollcommand=v_scrollbar.set)
+        self.recent_canvas.pack(side=tk.LEFT, fill=BOTH, expand=True)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.recent_inner = ttk.Frame(self.recent_canvas)
+        self.recent_canvas.create_window((0, 0), window=self.recent_inner, anchor="nw")
+        self.recent_inner.bind(
+            "<Configure>",
+            lambda e: self.recent_canvas.configure(scrollregion=self.recent_canvas.bbox("all")),
+        )
+        self.recent_empty = ttk.Label(self.recent_inner, text="Noch keine Daten geladen", padding=16)
+        self.recent_empty.pack()
+        # Automatisch laden, wenn Tab aktiviert wird
+        self.content_notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed_recent)
+
+    def _on_tab_changed_recent(self, event):
+        nb = event.widget
+        if nb.tab(nb.select(), "text") == "Zuletzt gespielt":
+            self._refresh_recent()
+
+    def _refresh_recent(self):
+        if not self.client:
+            return
+        response = self._safe_spotify_call(self.client.current_user_recently_played, limit=30)
+        items = (response or {}).get("items", [])
+        self._render_recent(items)
+
+    def _render_recent(self, items):
+        for child in self.recent_inner.winfo_children():
+            child.destroy()
+        if not items:
+            ttk.Label(self.recent_inner, text="Keine zuletzt gespielten Titel gefunden", padding=16).pack()
+            return
+        for idx, entry in enumerate(items):
+            track = entry.get("track", {})
+            name = track.get("name", "Unbekannter Titel")
+            artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
+            album = track.get("album", {}).get("name", "")
+            played_at = entry.get("played_at", "")
+            label = ttk.Label(self.recent_inner, text=f"{name} – {artists}\n{album}", anchor="w", justify="left", font=("Arial", 11))
+            label.pack(fill=tk.X, padx=8, pady=4)
 
     def _build_now_playing_tab(self) -> None:
         container = ttk.Frame(self.now_playing_frame)
