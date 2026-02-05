@@ -155,6 +155,14 @@ class TadoTab:
 
     def stop(self):
         self.alive = False
+        # Figure-Objekt explizit schließen, um Speicher zu sparen
+        try:
+            import matplotlib.pyplot as plt
+            if hasattr(self, 'history_fig') and self.history_fig:
+                plt.close(self.history_fig)
+                self.history_fig = None
+        except Exception:
+            pass
 
     def _ui_set(self, var: tk.StringVar, value: str):
         try:

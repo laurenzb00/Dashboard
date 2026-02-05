@@ -97,6 +97,14 @@ class HistoricalTab:
                 self.root.after_cancel(self._update_task_id)
             except Exception:
                 pass
+        # Figure-Objekt explizit schließen, um Speicher zu sparen
+        try:
+            import matplotlib.pyplot as plt
+            if hasattr(self, 'fig') and self.fig:
+                plt.close(self.fig)
+                self.fig = None
+        except Exception:
+            pass
 
     def _load_temps(self):
         import time

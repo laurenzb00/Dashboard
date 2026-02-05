@@ -8,6 +8,10 @@ from core.datastore import get_shared_datastore
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Fehler-Log Throttle: Nur alle 10 Minuten einen Timeout-Fehler loggen
+_last_bmk_timeout_log = 0
+_bmk_timeout_log_interval = 600  # Sekunden (10 Minuten)
+
 PP_INDEX_MAPPING = {
     0: "Betriebsmodus",
     1: "Kesseltemperatur",
@@ -89,11 +93,20 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
     """Ruft Daten von der Heizungs-API ab und legt sie in der CSV ab."""
     url = "http://192.168.1.201/daqdata.cgi"
 
+    import time
+    global _last_bmk_timeout_log
     try:
         response = requests.get(url, timeout=5)
         response.raise_for_status()
     except requests.RequestException as exc:
-        logger.error(f"Fehler bei BMK HTTP-Request: {exc}")
+        # Nur alle 10 Minuten loggen, wenn Timeout
+        if isinstance(exc, requests.exceptions.ConnectTimeout):
+            now = time.time()
+            if now - _last_bmk_timeout_log > _bmk_timeout_log_interval:
+                logger.error(f"Fehler bei BMK HTTP-Request: {exc}")
+                _last_bmk_timeout_log = now
+        else:
+            logger.error(f"Fehler bei BMK HTTP-Request: {exc}")
         return None
 
     try:

@@ -17,7 +17,7 @@ except ImportError as exc:  # pragma: no cover
     SpotifyOAuth = None
 
 
-SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing"
+SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read"
 _LOGIN_EVENT = threading.Event()
 _LOGIN_ERROR: Optional[str] = None
 _ACTIVE_AUTH: Optional["SpotifyOAuth"] = None
