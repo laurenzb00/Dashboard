@@ -207,7 +207,7 @@ class HistoricalTab:
                 self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)
                 self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=8)
                 # Dynamic y-axis scaling
-                all_temps = top + mid + bot + boiler + outside
+                    self.fig.subplots_adjust(left=0.10, right=0.995, top=0.92, bottom=0.18)
                 if len(all_temps) > 1:
                     min_temp = min(all_temps)
                     max_temp = max(all_temps)
