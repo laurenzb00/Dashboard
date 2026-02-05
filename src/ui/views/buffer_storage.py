@@ -182,7 +182,7 @@ class BufferStorageView(tk.Frame):
         top: float,
         mid: float,
         bottom: float,
-        boiler_c: float | None = None,
+        warmwasser_c: float | None = None,
     ) -> None:
         if not self.winfo_exists() or not hasattr(self, "canvas_widget"):
             return
@@ -214,14 +214,14 @@ class BufferStorageView(tk.Frame):
                          fontsize=9, va="center", ha="right", weight="bold"),
         ]
 
-        if boiler_c is not None:
-            self.boiler_rect.set_facecolor(self._temp_color(boiler_c))
+        if warmwasser_c is not None:
+            self.boiler_rect.set_facecolor(self._temp_color(warmwasser_c))
             if hasattr(self, "boiler_temp_text"):
                 self.boiler_temp_text.remove()
             self.boiler_temp_text = self.ax.text(
                 0.69,
                 0.30,
-                f"{boiler_c:.1f}°C",
+                f"{warmwasser_c:.1f}°C",
                 transform=self.ax.transAxes,
                 color="#FFFFFF",
                 fontsize=8,
@@ -267,6 +267,15 @@ class BufferStorageView(tk.Frame):
 
         pv_series = self._load_pv_series(hours=24, bin_minutes=15)
         temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+
+        # Always set x-axis to last 24h
+        now = datetime.now()
+        x_min = now - timedelta(hours=24)
+        x_max = now
+        self.spark_ax.set_xlim(x_min, x_max)
+        self.spark_ax.figure.autofmt_xdate()
+        self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
 
         self.spark_ax.clear()
         if hasattr(self, "spark_ax2"):
