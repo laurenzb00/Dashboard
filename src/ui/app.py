@@ -708,14 +708,14 @@ class MainApp:
 
         # Buffer every 9s (was 6s) - matplotlib rendering is expensive
         if self._tick % 3 == 0:
-            # Show Warmwasser (Boiler) as the main value in the mini diagram
-            boiler = self._last_data.get("warmwasser")
-            self.buffer_view.update_temperatures(
-                self._last_data["puffer_top"],
-                self._last_data["puffer_mid"],
-                self._last_data["puffer_bot"],
-                boiler,
-            )
+                # Show Kesseltemperatur as the main value in the mini diagram
+                kessel = self._last_data.get("kesseltemperatur")
+                self.buffer_view.update_temperatures(
+                    self._last_data["puffer_top"],
+                    self._last_data["puffer_mid"],
+                    self._last_data["puffer_bot"],
+                    kessel,
+                )
 
         # Data freshness every 15s
         if self._tick % 5 == 0:

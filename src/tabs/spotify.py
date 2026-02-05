@@ -28,6 +28,14 @@ PLAYLIST_IMAGE_SIZE = (96, 96)
 
 
 class SpotifyTab:
+        def _bind_tab_refresh(self):
+            # Automatisches Aktualisieren der Playlists beim Tab-Wechsel
+            def on_tab_changed(event):
+                nb = event.widget
+                # Prüfe, ob Playlists-Tab aktiv ist
+                if nb.tab(nb.select(), "text") == "Playlists":
+                    self._refresh_playlists()
+            self.content_notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
     """Touch-optimierte Spotify-Integration mit Now-Playing- und Playlist-Ansicht."""
 
     def _create_playlist_icon(self, playlist: dict, idx: int):
@@ -493,6 +501,7 @@ class SpotifyTab:
         self._build_now_playing_tab()
         self._build_library_tab()
         self._build_devices_tab()
+        self._bind_tab_refresh()
 
     def _build_status_tab(self) -> None:
         frame = self.status_frame

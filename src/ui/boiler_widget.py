@@ -160,104 +160,90 @@ class ModernBoilerWidget:
         # Temperature Chips hinzufügen
         add_temp_chip(layers - 1.5, temp_top, "Oben")
         add_temp_chip(mid_layer, temp_mid, "Mitte")
-        add_temp_chip(1.5, temp_bot, "Unten")
-        
-        # Kesseltemperatur (wenn vorhanden) - als Badge unten
-        if temp_kessel is not None:
+        self.ax.clear()
+        layers = 24
+        # Titel links: Heizung
+        self.ax.text(2.5, layers + 2, "Heizung", ha='center', va='bottom', fontsize=12, fontweight='bold', color=COLOR_TEXT)
+        temps = np.linspace(temp_bot, temp_top, layers)
+        heatmap_data = np.tile(temps[:, np.newaxis], (1, 5))
+        from matplotlib.colors import TwoSlopeNorm
+        norm = TwoSlopeNorm(vmin=35, vcenter=57, vmax=75)
+        self.ax.imshow(
+            heatmap_data,
+            aspect='auto',
+            cmap='RdYlBu_r',
+            norm=norm,
+            interpolation='gaussian',
+            origin='lower'
+        )
+        mid_layer = layers // 2
+        def add_temp_chip(y_pos, temp, label):
             from matplotlib.patches import FancyBboxPatch
+            if temp >= 65:
+                chip_color = COLOR_SUCCESS
+                text_color = 'white'
+            elif temp >= 55:
+                chip_color = COLOR_WARNING
+                text_color = 'white'
+            else:
+                chip_color = COLOR_BORDER
+                text_color = COLOR_SUBTEXT
+            chip_x = 5.5
+            chip_width = 1.8
+            chip_height = 1.6
             box = FancyBboxPatch(
-                (1, -3.5), 3, 1.3,
+                (chip_x, y_pos - chip_height/2),
+                chip_width,
+                chip_height,
                 boxstyle="round,pad=0.05",
-                facecolor=COLOR_PRIMARY,
+                facecolor=chip_color,
                 edgecolor='none',
-                alpha=0.85
+                alpha=0.9
             )
             self.ax.add_patch(box)
             self.ax.text(
-                2.5, -2.9,
-                f"🔥 Kessel {temp_kessel:.0f}°",
+                chip_x + chip_width/2, y_pos,
+                f"{temp:.0f}°",
                 ha='center', va='center',
-                fontsize=8, fontweight='bold',
+                fontsize=9, fontweight='bold',
+                color=text_color
+            )
+            self.ax.text(
+                -0.5, y_pos,
+                label,
+                ha='right', va='center',
+                fontsize=8,
+                color=COLOR_SUBTEXT
+            )
+        add_temp_chip(layers - 1.5, temp_top, "Oben")
+        add_temp_chip(mid_layer, temp_mid, "Mitte")
+        add_temp_chip(1.5, temp_bot, "Unten")
+        # Rechts: Warmwasser-Badge
+        if temp_kessel is not None:
+            from matplotlib.patches import FancyBboxPatch
+            box = FancyBboxPatch(
+                (8.2, layers // 2 - 1), 2.2, 2.2,
+                boxstyle="round,pad=0.08",
+                facecolor=COLOR_PRIMARY,
+                edgecolor='none',
+                alpha=0.92
+            )
+            self.ax.add_patch(box)
+            self.ax.text(
+                9.3, layers // 2,
+                f"💧 Warmwasser\n{temp_kessel:.0f}°",
+                ha='center', va='center',
+                fontsize=10, fontweight='bold',
                 color='white'
             )
-        
-        # Saubere Achsen (keine Labels)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
-        
-        # Alle Spines unsichtbar
         for spine in self.ax.spines.values():
             spine.set_visible(False)
-        
-        # Leichtes Padding
-        self.ax.set_xlim(-1.5, 7.5)
-        self.ax.set_ylim(-4, layers)
-        
+        self.ax.set_xlim(-1.5, 11)
+        self.ax.set_ylim(-4, layers + 4)
         self.fig.tight_layout(pad=0.1)
         self.canvas.draw()
-    
-    # ========== PIL GRADIENT VERSION ==========
-    def _create_pil_gradient(self):
-        """Erstellt smooth gradient mit PIL"""
-        
-        self.gradient_label = tk.Label(
-            self.frame,
-            bg=COLOR_CARD_BG,
-            relief=tk.FLAT
-        )
-        self.gradient_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        self._update_gradient(0, 0, 0)
-    
-    def _update_gradient(self, temp_top, temp_mid, temp_bot):
-        """Erstellt gradient image mit Temperaturen"""
-        
-        # Größe
-        w, h = 180, 200
-        
-        # Bild erstellen
-        img = Image.new('RGB', (w, h))
-        draw = ImageDraw.Draw(img)
-        
-        # Temperatur zu Farbe
-        def temp_to_color(temp):
-            if temp < 20:
-                return (59, 130, 246)  # Blau
-            elif temp < 35:
-                return (16, 185, 129)  # Grün
-            elif temp < 50:
-                return (245, 158, 11)  # Orange
-            elif temp < 65:
-                return (239, 68, 68)   # Rot
-            else:
-                return (220, 38, 38)   # Dunkelrot
-        
-        # 3 Zonen-Gradient
-        zones = [
-            (temp_bot, 0, h // 3),
-            (temp_mid, h // 3, 2 * h // 3),
-            (temp_top, 2 * h // 3, h)
-        ]
-        
-        for temp, y_start, y_end in zones:
-            color = temp_to_color(temp)
-            
-            for y in range(y_start, y_end):
-                # Leichter Gradient innerhalb der Zone
-                factor = (y - y_start) / (y_end - y_start) if y_end > y_start else 1
-                r = int(color[0] * (0.7 + 0.3 * factor))
-                g = int(color[1] * (0.7 + 0.3 * factor))
-                b = int(color[2] * (0.7 + 0.3 * factor))
-                draw.rectangle([(0, y), (w, y + 1)], fill=(r, g, b))
-        
-        # Border
-        draw.rectangle([(0, 0), (w - 1, h - 1)], outline=(36, 51, 84), width=3)
-        
-        # Text-Overlay
-        draw.text((w // 2, h // 6), f"{temp_top:.0f}°C",
-                  fill='white', anchor='mm', font=None)
-        draw.text((w // 2, h // 2), f"{temp_mid:.0f}°C",
-                  fill='white', anchor='mm', font=None)
         draw.text((w // 2, 5 * h // 6), f"{temp_bot:.0f}°C",
                   fill='white', anchor='mm', font=None)
         
