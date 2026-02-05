@@ -251,22 +251,6 @@ class SpotifyTab:
         )
         self.playlist_empty = ttk.Label(self.playlist_inner, text="Noch keine Playlists geladen", padding=16)
         self.playlist_empty.pack()
-        list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
-        self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0, height=PLAYLIST_IMAGE_SIZE[1]+80)
-        h_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.HORIZONTAL, command=self.playlist_canvas.xview)
-        self.playlist_canvas.configure(xscrollcommand=h_scrollbar.set)
-        self.playlist_canvas.pack(side=tk.TOP, fill=tk.X, expand=False)
-        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.playlist_inner = ttk.Frame(self.playlist_canvas)
-        self.playlist_canvas.create_window((0, 0), window=self.playlist_inner, anchor="nw")
-        self.playlist_inner.bind(
-            "<Configure>",
-            lambda e: self.playlist_canvas.configure(scrollregion=self.playlist_canvas.bbox("all")),
-        )
-
-        self.playlist_empty = ttk.Label(self.playlist_inner, text="Noch keine Playlists geladen", padding=16)
-        self.playlist_empty.pack()
 
     # ------------------------------------------------------------------
     # Spotify API Helpers
