@@ -195,8 +195,8 @@ class MainApp:
         # Buffer Card (30%) - reduced size and padding
         self.buffer_card = Card(self.body, padding=6)
         self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=0)
-        # Update title to 'Heizung' with appropriate icon
-        self.buffer_card.add_title("Heizung", icon="🔥")
+        # Update title to 'Warmwasser' with appropriate icon
+        self.buffer_card.add_title("Warmwasser", icon="🔥")
         # LAYOUT FIX: Start with minimal height, will resize after layout settles
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180)
         self.buffer_view.pack(fill=tk.BOTH, expand=True)
