@@ -75,11 +75,21 @@ class SpotifyTab:
         cell.grid(row=row, column=col_idx, padx=8, pady=8, sticky="n")
         image_url = (playlist.get("images") or [{}])[0].get("url")
         photo = self._get_playlist_photo(playlist.get("id"), image_url)
-        # Unsichtbarer Button über dem Cover, reagiert auf Klick
+        # Unsichtbarer Button über dem Cover, reagiert auf Klick und leuchtet kurz auf
         def on_select():
+            btn.configure(style="Playlist.Highlight.TButton")
+            self.root.after(120, lambda: btn.configure(style="Playlist.Transparent.TButton"))
             self._play_playlist(playlist.get("uri"))
-        btn = ttk.Button(cell, text="", command=on_select, style="TButton")
-        btn.place(x=0, y=0, relwidth=1, width=PLAYLIST_IMAGE_SIZE[0], height=PLAYLIST_IMAGE_SIZE[1])
+
+        # Transparentes Button-Style anlegen (nur einmal global)
+        style = ttk.Style()
+        if not style.lookup("Playlist.Transparent.TButton", "background"):
+            style.configure("Playlist.Transparent.TButton", background="", borderwidth=0, relief="flat", foreground="", focuscolor="", highlightthickness=0)
+        if not style.lookup("Playlist.Highlight.TButton", "background"):
+            style.configure("Playlist.Highlight.TButton", background="#3b82f6", borderwidth=0, relief="flat", foreground="", focuscolor="", highlightthickness=0)
+
+        btn = ttk.Button(cell, text="", command=on_select, style="Playlist.Transparent.TButton")
+        btn.place(x=0, y=0, relwidth=1, relheight=0, width=PLAYLIST_IMAGE_SIZE[0], height=PLAYLIST_IMAGE_SIZE[1])
         btn.lift()  # Button über das Cover legen
         btn.configure(takefocus=True)
         cover_label = ttk.Label(cell, image=photo if photo else None, text="" if photo else "Cover", style="TLabel")
