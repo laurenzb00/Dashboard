@@ -84,9 +84,37 @@ class SpotifyTab:
         # Transparentes Button-Style anlegen (nur einmal global)
         style = ttk.Style()
         if not style.lookup("Playlist.Transparent.TButton", "background"):
-            style.configure("Playlist.Transparent.TButton", background="", borderwidth=0, relief="flat", foreground="", focuscolor="", highlightthickness=0)
+            style.configure(
+                "Playlist.Transparent.TButton",
+                background="",
+                borderwidth=0,
+                relief="flat",
+                foreground="",
+                focuscolor="",
+                highlightthickness=0,
+                highlightbackground="",
+                highlightcolor="",
+                lightcolor="",
+                darkcolor="",
+                bordercolor="",
+                padding=0
+            )
         if not style.lookup("Playlist.Highlight.TButton", "background"):
-            style.configure("Playlist.Highlight.TButton", background="#3b82f6", borderwidth=0, relief="flat", foreground="", focuscolor="", highlightthickness=0)
+            style.configure(
+                "Playlist.Highlight.TButton",
+                background="#3b82f6",
+                borderwidth=0,
+                relief="flat",
+                foreground="",
+                focuscolor="",
+                highlightthickness=0,
+                highlightbackground="",
+                highlightcolor="",
+                lightcolor="",
+                darkcolor="",
+                bordercolor="",
+                padding=0
+            )
 
         cover_label = ttk.Label(cell, image=photo if photo else None, text="" if photo else "Cover", style="TLabel")
         cover_label.pack()
