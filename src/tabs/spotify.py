@@ -28,6 +28,19 @@ PLAYLIST_IMAGE_SIZE = (96, 96)
 
 
 class SpotifyTab:
+
+        def _update_login_url(self, url: str) -> None:
+            """Speichert die aktuelle Login-URL und aktualisiert die UI-Variable."""
+            self._latest_login_url = url
+            # Optional: Schreibe die URL in eine Datei für Debugging oder externe Nutzung
+            try:
+                config_dir = os.path.join(os.path.dirname(__file__), '../../config')
+                os.makedirs(config_dir, exist_ok=True)
+                with open(os.path.join(config_dir, 'spotify_login_url.txt'), 'w', encoding='utf-8') as f:
+                    f.write(url)
+                logging.info("[SPOTIFY] Login-URL gespeichert unter %s", os.path.join(config_dir, 'spotify_login_url.txt'))
+            except Exception as exc:
+                logging.error("[SPOTIFY] Login-URL konnte nicht gespeichert werden: %s", exc)
     """Touch-optimierte Spotify-Integration mit Now-Playing- und Playlist-Ansicht."""
 
     def _bind_tab_refresh(self):

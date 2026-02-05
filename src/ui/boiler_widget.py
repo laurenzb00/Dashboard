@@ -162,8 +162,8 @@ class ModernBoilerWidget:
         add_temp_chip(mid_layer, temp_mid, "Mitte")
         self.ax.clear()
         layers = 24
-        # Titel links: Heizung
-        self.ax.text(2.5, layers + 2, "Heizung", ha='center', va='bottom', fontsize=12, fontweight='bold', color=COLOR_TEXT)
+        # Titel links: Warmwasser
+        self.ax.text(2.5, layers + 2, "Warmwasser", ha='center', va='bottom', fontsize=12, fontweight='bold', color=COLOR_TEXT)
         temps = np.linspace(temp_bot, temp_top, layers)
         heatmap_data = np.tile(temps[:, np.newaxis], (1, 5))
         from matplotlib.colors import TwoSlopeNorm
