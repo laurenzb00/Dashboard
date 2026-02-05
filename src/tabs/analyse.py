@@ -58,6 +58,14 @@ class AnalyseTab:
 
     def stop(self):
         self.alive = False
+        # Explicitly close matplotlib figure to prevent memory leaks
+        try:
+            import matplotlib.pyplot as plt
+            if hasattr(self, 'fig') and self.fig:
+                plt.close(self.fig)
+                self.fig = None
+        except Exception:
+            pass
 
     def _load_pv_data(self, hours: int = 72) -> pd.DataFrame:
         if not self.datastore:

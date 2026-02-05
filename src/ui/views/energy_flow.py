@@ -509,3 +509,13 @@ class EnergyFlowView(tk.Frame):
         frame = self.render_frame(pv_w, load_w, grid_w, batt_w, soc)
         self._tk_img = ImageTk.PhotoImage(frame)
         self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
+
+    def stop(self):
+        """Cleanup resources to prevent memory leaks and segfaults."""
+        try:
+            if hasattr(self, '_tk_img') and self._tk_img:
+                self._tk_img = None  # Remove reference to PhotoImage
+            if hasattr(self, 'canvas') and self.canvas:
+                self.canvas.destroy()
+        except Exception:
+            pass

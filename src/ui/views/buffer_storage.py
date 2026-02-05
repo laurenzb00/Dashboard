@@ -420,3 +420,22 @@ class BufferStorageView(tk.Frame):
             return float(value)
         except (ValueError, TypeError):
             return None
+
+    def stop(self):
+        """Cleanup resources to prevent memory leaks and segfaults."""
+        try:
+            import matplotlib.pyplot as plt
+            if hasattr(self, 'fig') and self.fig:
+                plt.close(self.fig)
+                self.fig = None
+            if hasattr(self, 'canvas_widget') and self.canvas_widget:
+                self.canvas_widget.destroy()
+            if hasattr(self, 'spark_fig') and self.spark_fig:
+                plt.close(self.spark_fig)
+                self.spark_fig = None
+            if hasattr(self, 'spark_canvas') and self.spark_canvas:
+                widget = self.spark_canvas.get_tk_widget()
+                if widget:
+                    widget.destroy()
+        except Exception:
+            pass

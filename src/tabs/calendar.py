@@ -82,6 +82,18 @@ class CalendarTab:
 
     def stop(self):
         self.alive = False
+        # Explicitly destroy canvas and scroll widgets to prevent memory leaks
+        try:
+            if hasattr(self, 'canvas') and self.canvas:
+                self.canvas.destroy()
+            if hasattr(self, 'scrollbar') and self.scrollbar:
+                self.scrollbar.destroy()
+            if hasattr(self, 'scroll_frame') and self.scroll_frame:
+                self.scroll_frame.destroy()
+            if hasattr(self, 'tab_frame') and self.tab_frame:
+                self.tab_frame.destroy()
+        except Exception:
+            pass
 
     def _ui_set(self, var: tk.StringVar, value: str):
         try:

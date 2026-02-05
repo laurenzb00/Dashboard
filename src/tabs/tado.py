@@ -146,6 +146,7 @@ class TadoTab:
             self._history_last_size = None
             widget.bind("<Configure>", self._on_history_resize)
             self.history_temps = []  # Liste für Temperatur-Historie
+            self.history_times = []  # Liste für Zeitstempel
         except Exception as e:
             logging.debug("[TADO] History chart unavailable: %s", e)
             self.history_canvas = None
@@ -383,9 +384,14 @@ class TadoTab:
                 # Update history chart
                 try:
                     if current and self.history_canvas:
+                        import datetime
+                        now = datetime.datetime.now()
                         self.history_temps.append(current)
-                        if len(self.history_temps) > 288:  # 24h * 5min = 288 punkte
+                        self.history_times.append(now)
+                        # Keep only last 288 points
+                        if len(self.history_temps) > 288:
                             self.history_temps = self.history_temps[-288:]
+                            self.history_times = self.history_times[-288:]
                         self._update_history_chart()
                 except Exception:
                     pass
@@ -402,25 +408,23 @@ class TadoTab:
         try:
             if not hasattr(self, 'history_canvas') or not self.history_canvas:
                 return
-            
             self.history_ax.clear()
-            
-            if len(self.history_temps) > 1:
-                # Plot min/max area + current line
+            if len(self.history_temps) > 1 and len(self.history_times) == len(self.history_temps):
                 import numpy as np
+                import matplotlib.dates as mdates
                 temps = np.array(self.history_temps)
-                x = np.arange(len(temps))
-                
-                self.history_ax.plot(x, temps, color=COLOR_PRIMARY, linewidth=2, label="Temperatur")
+                times = np.array(self.history_times)
+                self.history_ax.plot(times, temps, color=COLOR_PRIMARY, linewidth=2, label="Temperatur")
                 self.history_ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=9)
                 self.history_ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=8)
                 self.history_ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=7)
                 self.history_ax.grid(True, alpha=0.2, axis="y")
                 self.history_ax.set_ylim(min(temps) - 2, max(temps) + 2)
+                self.history_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                self.history_ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             else:
                 self.history_ax.text(0.5, 0.5, "Keine Historie", ha="center", va="center",
                                    transform=self.history_ax.transAxes, color=COLOR_SUBTEXT)
-            
             self.history_fig.tight_layout(pad=0.4)
             try:
                 self.history_canvas.draw_idle()

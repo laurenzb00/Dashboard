@@ -302,5 +302,24 @@ def main():
 
             # Debug prints and placeholder code removed for production cleanup
 
+def run_with_restart():
+    """Run main() and restart on crash unless exit requested."""
+    exit_requested = False
+    while not exit_requested:
+        try:
+            main()
+            exit_requested = True  # Normal exit (exit button)
+        except SystemExit:
+            exit_requested = True  # Explicit exit (exit button, pkill, etc.)
+        except Exception as e:
+            print(f"[RESTART] Crash detected: {e}. Restarting in 3 seconds...")
+            import time
+            time.sleep(3)
+            # Optionally log crash details here
+        except:
+            print("[RESTART] Fatal error. Restarting in 3 seconds...")
+            import time
+            time.sleep(3)
+
 if __name__ == "__main__":
-    main()
+    run_with_restart()

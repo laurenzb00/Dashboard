@@ -273,6 +273,20 @@ class BatteryGaugeWidget:
         else:
             self._update_simple_canvas(soc)
 
+    def stop(self):
+        """Cleanup resources to prevent memory leaks and segfaults."""
+        try:
+            if hasattr(self, 'battery_label') and self.battery_label:
+                self.battery_label.destroy()
+            if hasattr(self, 'gauge_label') and self.gauge_label:
+                self.gauge_label.destroy()
+            if hasattr(self, 'frame') and self.frame:
+                self.frame.destroy()
+            if hasattr(self, 'tk_img') and self.tk_img:
+                self.tk_img = None
+        except Exception:
+            pass
+
 
 # ========== 2. CIRCULAR PROGRESS WIDGET ==========
 class CircularProgressWidget:

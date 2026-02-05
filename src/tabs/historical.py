@@ -97,12 +97,16 @@ class HistoricalTab:
                 self.root.after_cancel(self._update_task_id)
             except Exception:
                 pass
-        # Figure-Objekt explizit schließen, um Speicher zu sparen
+        # Explicitly close matplotlib figure and destroy canvas to prevent memory leaks
         try:
             import matplotlib.pyplot as plt
             if hasattr(self, 'fig') and self.fig:
                 plt.close(self.fig)
                 self.fig = None
+            if hasattr(self, 'canvas') and self.canvas:
+                widget = self.canvas.get_tk_widget()
+                if widget:
+                    widget.destroy()
         except Exception:
             pass
 
@@ -202,8 +206,15 @@ class HistoricalTab:
                 self.ax.set_ylabel("°C", color=COLOR_TEXT, fontsize=10, fontweight='bold')
                 self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)
                 self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=8)
-                self.ax.xaxis.set_major_locator(MaxNLocator(nbins=6, integer=False))
-                self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
+                # Dynamic y-axis scaling
+                all_temps = top + mid + bot + boiler + outside
+                if len(all_temps) > 1:
+                    min_temp = min(all_temps)
+                    max_temp = max(all_temps)
+                    self.ax.set_ylim(min_temp - 2, max_temp + 2)
+                # Improved x-axis formatting
+                self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+                self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M"))
                 self.ax.grid(True, color=COLOR_BORDER, alpha=0.2, linewidth=0.5)
                 self.ax.legend(facecolor=COLOR_CARD, edgecolor=COLOR_BORDER, labelcolor=COLOR_TEXT, fontsize=8, loc='upper left')
 

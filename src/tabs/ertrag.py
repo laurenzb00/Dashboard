@@ -69,6 +69,14 @@ class ErtragTab:
                 self.root.after_cancel(self._update_task_id)
             except Exception:
                 pass
+        # Explicitly close matplotlib figure to prevent memory leaks
+        try:
+            import matplotlib.pyplot as plt
+            if hasattr(self, 'fig') and self.fig:
+                plt.close(self.fig)
+                self.fig = None
+        except Exception:
+            pass
 
     def _load_pv_daily(self, days: int = 365):
         cutoff = datetime.now() - timedelta(days=days)
