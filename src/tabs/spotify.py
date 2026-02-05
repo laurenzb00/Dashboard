@@ -28,6 +28,20 @@ PLAYLIST_IMAGE_SIZE = (96, 96)
 
 
 class SpotifyTab:
+    def _build_devices_tab(self) -> None:
+        header = ttk.Frame(self.devices_frame)
+        header.pack(fill=tk.X)
+        ttk.Label(header, text="Geräteauswahl", font=("Arial", 14, "bold")).pack(anchor=W)
+        ttk.Label(header, text="Wähle hier das Ausgabegerät für Spotify.",
+                  font=("Arial", 10), foreground="#94a3b8").pack(anchor=W, pady=(2, 6))
+        ttk.Button(header, text="Geräte aktualisieren", command=self._refresh_devices,
+                   bootstyle="info-outline").pack(anchor=W)
+
+        body = ttk.Frame(self.devices_frame)
+        body.pack(fill=BOTH, expand=True, pady=(12, 0))
+        self.device_container = ttk.Frame(body)
+        self.device_container.pack(fill=BOTH, expand=True)
+        ttk.Label(self.device_container, text="Keine Geräte geladen", padding=12).pack()
 
     def _update_login_url(self, url: str) -> None:
         """Speichert die aktuelle Login-URL und aktualisiert die UI-Variable."""
