@@ -50,7 +50,7 @@ class HistoricalTab:
         body.grid_columnconfigure(0, weight=1)
 
         stats_frame = tk.Frame(body, bg=COLOR_CARD)
-        stats_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        stats_frame.grid(row=0, column=0, sticky="new", pady=(0, 0), ipady=0)
         
         self.var_top = tk.StringVar(value="-- °C")
         self.var_mid = tk.StringVar(value="-- °C")
@@ -75,7 +75,7 @@ class HistoricalTab:
 
         # Plot
         plot_frame = tk.Frame(body, bg=COLOR_CARD)
-        plot_frame.pack(fill=tk.BOTH, expand=True, padx=32, pady=0)
+        plot_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
         self.fig = Figure(figsize=(8, 3.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
