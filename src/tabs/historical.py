@@ -75,7 +75,7 @@ class HistoricalTab:
 
         # Plot
         plot_frame = tk.Frame(body, bg=COLOR_CARD)
-        plot_frame.grid(row=1, column=0, sticky="nsew")
+        plot_frame.grid(row=1, column=0, sticky="nsew", padx=(24, 8))
         plot_frame.grid_propagate(True)
         self.fig = Figure(figsize=(4, 2.5), dpi=100)
         self.ax = self.fig.add_subplot(111)

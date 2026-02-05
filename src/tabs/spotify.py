@@ -88,12 +88,12 @@ class SpotifyTab:
         if not style.lookup("Playlist.Highlight.TButton", "background"):
             style.configure("Playlist.Highlight.TButton", background="#3b82f6", borderwidth=0, relief="flat", foreground="", focuscolor="", highlightthickness=0)
 
-        btn = ttk.Button(cell, text="", command=on_select, style="Playlist.Transparent.TButton")
-        btn.place(x=0, y=0, relwidth=1, relheight=0, width=PLAYLIST_IMAGE_SIZE[0], height=PLAYLIST_IMAGE_SIZE[1])
-        btn.lift()  # Button über das Cover legen
-        btn.configure(takefocus=True)
         cover_label = ttk.Label(cell, image=photo if photo else None, text="" if photo else "Cover", style="TLabel")
         cover_label.pack()
+        btn = ttk.Button(cell, text="", command=on_select, style="Playlist.Transparent.TButton")
+        btn.place(relx=0, rely=0, relwidth=1, relheight=1)
+        btn.lift()  # Button über das Cover legen
+        btn.configure(takefocus=True)
         name = playlist.get("name", "Unbenannte Playlist")
         ttk.Label(cell, text=name, font=("Arial", 11, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10).pack(pady=(2,0))
         tracks_total = playlist.get("tracks", {}).get("total", 0)
