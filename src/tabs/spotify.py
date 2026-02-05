@@ -67,7 +67,7 @@ class SpotifyTab:
         self.content_notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
     def _create_playlist_icon(self, playlist: dict, idx: int):
-        # 6 Playlists pro Zeile, vertikales Scrollen, kompaktes Layout, kein Queue-Button
+        # 6 Playlists pro Zeile, vertikales Scrollen, kompaktes Layout, unsichtbarer Button über Cover
         col_count = 6
         row = idx // col_count
         col_idx = idx % col_count
@@ -75,6 +75,13 @@ class SpotifyTab:
         cell.grid(row=row, column=col_idx, padx=8, pady=8, sticky="n")
         image_url = (playlist.get("images") or [{}])[0].get("url")
         photo = self._get_playlist_photo(playlist.get("id"), image_url)
+        # Unsichtbarer Button über dem Cover, reagiert auf Klick
+        def on_select():
+            self._play_playlist(playlist.get("uri"))
+        btn = ttk.Button(cell, text="", command=on_select, style="TButton")
+        btn.place(x=0, y=0, relwidth=1, width=PLAYLIST_IMAGE_SIZE[0], height=PLAYLIST_IMAGE_SIZE[1])
+        btn.lift()  # Button über das Cover legen
+        btn.configure(takefocus=True)
         cover_label = ttk.Label(cell, image=photo if photo else None, text="" if photo else "Cover", style="TLabel")
         cover_label.pack()
         name = playlist.get("name", "Unbenannte Playlist")
