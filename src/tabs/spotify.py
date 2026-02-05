@@ -40,24 +40,20 @@ class SpotifyTab:
         self.content_notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
     def _create_playlist_icon(self, playlist: dict, idx: int):
-        # 4 Playlists pro Zeile, Cover als Label (kein Button, kein Rahmen)
-        row = idx // 4
-        col_idx = idx % 4
-        col = ttk.Frame(self.playlist_inner, padding=2)
-        col.grid(row=row, column=col_idx, padx=12, pady=12, sticky="n")
+        # 6 Playlists pro Zeile, vertikales Scrollen, kompaktes Layout, kein Queue-Button
+        col_count = 6
+        row = idx // col_count
+        col_idx = idx % col_count
+        cell = ttk.Frame(self.playlist_inner, padding=2)
+        cell.grid(row=row, column=col_idx, padx=8, pady=8, sticky="n")
         image_url = (playlist.get("images") or [{}])[0].get("url")
         photo = self._get_playlist_photo(playlist.get("id"), image_url)
-        # Cover als Label (kein Button, kein Rahmen)
-        cover_label = ttk.Label(col, image=photo if photo else None, text="" if photo else "Cover", style="TLabel")
+        cover_label = ttk.Label(cell, image=photo if photo else None, text="" if photo else "Cover", style="TLabel")
         cover_label.pack()
-        # Playlist name
         name = playlist.get("name", "Unbenannte Playlist")
-        ttk.Label(col, text=name, font=("Arial", 12, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10).pack(pady=(4,0))
-        # Tracks
+        ttk.Label(cell, text=name, font=("Arial", 11, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10).pack(pady=(2,0))
         tracks_total = playlist.get("tracks", {}).get("total", 0)
-        ttk.Label(col, text=f"{tracks_total} Titel", font=("Arial", 10), foreground="#9ca3af").pack()
-        # Queue button
-        ttk.Button(col, text="In Queue", command=lambda p=playlist: self._queue_playlist(p), bootstyle="secondary").pack(pady=(2,0))
+        ttk.Label(cell, text=f"{tracks_total} Titel", font=("Arial", 9), foreground="#9ca3af").pack()
 
     def __init__(self, root, notebook):
         self.root = root
@@ -208,29 +204,26 @@ class SpotifyTab:
         self.play_button.pack(side=LEFT, padx=4)
         ttk.Button(controls, text="⏭", width=5, command=self._next_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
 
-    def _build_devices_tab(self) -> None:
-        header = ttk.Frame(self.devices_frame)
-        header.pack(fill=tk.X)
-        ttk.Label(header, text="Geräteauswahl", font=("Arial", 14, "bold")).pack(anchor=W)
-        ttk.Label(header, text="Wähle hier das Ausgabegerät für Spotify.",
-                  font=("Arial", 10), foreground="#94a3b8").pack(anchor=W, pady=(2, 6))
-        ttk.Button(header, text="Geräte aktualisieren", command=self._refresh_devices,
-                   bootstyle="info-outline").pack(anchor=W)
-
-        body = ttk.Frame(self.devices_frame)
-        body.pack(fill=BOTH, expand=True, pady=(12, 0))
-        self.device_container = ttk.Frame(body)
-        self.device_container.pack(fill=BOTH, expand=True)
-        ttk.Label(self.device_container, text="Keine Geräte geladen", padding=12).pack()
-
     def _build_library_tab(self) -> None:
         top = ttk.Frame(self.library_frame)
         top.pack(fill=tk.X)
         ttk.Label(top, text="Playlists & Favoriten", font=("Arial", 14, "bold")).pack(anchor=W)
-        # Move search bar above playlists
-
 
         list_wrapper = ttk.Frame(self.library_frame)
+        list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
+        self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0)
+        v_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=self.playlist_canvas.yview)
+        self.playlist_canvas.configure(yscrollcommand=v_scrollbar.set)
+        self.playlist_canvas.pack(side=tk.LEFT, fill=BOTH, expand=True)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.playlist_inner = ttk.Frame(self.playlist_canvas)
+        self.playlist_canvas.create_window((0, 0), window=self.playlist_inner, anchor="nw")
+        self.playlist_inner.bind(
+            "<Configure>",
+            lambda e: self.playlist_canvas.configure(scrollregion=self.playlist_canvas.bbox("all")),
+        )
+        self.playlist_empty = ttk.Label(self.playlist_inner, text="Noch keine Playlists geladen", padding=16)
+        self.playlist_empty.pack()
         list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
         self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0, height=PLAYLIST_IMAGE_SIZE[1]+80)
         h_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.HORIZONTAL, command=self.playlist_canvas.xview)

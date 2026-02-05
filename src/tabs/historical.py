@@ -76,15 +76,16 @@ class HistoricalTab:
         # Plot
         plot_frame = tk.Frame(body, bg=COLOR_CARD)
         plot_frame.grid(row=1, column=0, sticky="nsew")
-        # Initiale Figure mit kleiner Größe, wird dynamisch angepasst
-        self.fig = Figure(figsize=(4.5, 2.8), dpi=100)
+        plot_frame.grid_propagate(True)
+        self.fig = Figure(figsize=(4, 2.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._last_canvas_size = None
-        self.canvas.get_tk_widget().bind("<Configure>", self._on_canvas_resize)
+        # Binde das Configure-Event des plot_frame für echtes dynamisches Resizing
+        plot_frame.bind("<Configure>", self._on_plot_frame_resize)
 
         self._last_key = None
         self._resize_pending = False  # Prevent Configure event loop
@@ -270,29 +271,23 @@ class HistoricalTab:
                 pass
         self._update_task_id = self.root.after(30 * 1000, self._update_plot)
 
-    def _on_canvas_resize(self, event):
-        # Prevent Configure event loop - debounce rapid resize events
-        if self._resize_pending:
-            return
-
+    def _on_plot_frame_resize(self, event):
+        # Dynamisches Resizing der Figure auf die exakte Frame-Größe
         w = max(1, event.width)
         h = max(1, event.height)
         if self._last_canvas_size:
             last_w, last_h = self._last_canvas_size
-            # Only redraw if size changed significantly (more than 10px)
-            if abs(w - last_w) < 10 and abs(h - last_h) < 10:
+            if abs(w - last_w) < 8 and abs(h - last_h) < 8:
                 return
-        
         self._last_canvas_size = (w, h)
-        self._resize_pending = True
-        
         try:
-            self._resize_figure(w, h)
-            # Keine dynamische Größenanpassung nötig
-            # Use after() to defer the draw and prevent event loop
-            self.root.after(100, lambda: self._do_canvas_draw())
+            dpi = self.fig.dpi or 100
+            width_in = w / dpi
+            height_in = h / dpi
+            self.fig.set_size_inches(width_in, height_in, forward=True)
+            self.canvas.draw_idle()
         except Exception:
-            self._resize_pending = False
+            pass
     
     def _do_canvas_draw(self):
         """Deferred canvas draw to prevent Configure event loop."""
