@@ -50,7 +50,7 @@ class HistoricalTab:
         body.grid_columnconfigure(0, weight=1)
 
         stats_frame = tk.Frame(body, bg=COLOR_CARD)
-        stats_frame.grid(row=0, column=0, sticky="new", pady=(0, 0), ipady=0)
+        stats_frame.grid(row=0, column=0, sticky="ew", pady=(8, 0))
         
         self.var_top = tk.StringVar(value="-- °C")
         self.var_mid = tk.StringVar(value="-- °C")
@@ -75,13 +75,16 @@ class HistoricalTab:
 
         # Plot
         plot_frame = tk.Frame(body, bg=COLOR_CARD)
-        plot_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        plot_frame.grid(row=1, column=0, sticky="nsew", padx=(0,0), pady=(0,0))
+        body.grid_rowconfigure(1, weight=1)
         self.fig = Figure(figsize=(8, 3.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        plot_frame.grid_rowconfigure(0, weight=1)
+        plot_frame.grid_columnconfigure(0, weight=1)
         self._last_canvas_size = None
         # Dynamische Größenanpassung: Passe Figure-Größe an Frame an
         def on_resize(event):
