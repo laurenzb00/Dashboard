@@ -197,6 +197,8 @@ class HistoricalTab:
                     print(f"[HISTORIE] Matplotlib-Liniendiagramm aktiv (Samples={len(rows)})")
                     self._log_once = True
                 ts, top, mid, bot, boiler, outside = zip(*rows)
+                # Collect all temperature values for dynamic y-axis scaling
+                all_temps = list(top) + list(mid) + list(bot) + list(boiler) + list(outside)
                 # Moderneres Design mit besseren Farben und Liniendicken
                 self.ax.plot(ts, top, color=COLOR_PRIMARY, label="Puffer oben", linewidth=2.0, alpha=0.8)
                 self.ax.plot(ts, mid, color=COLOR_INFO, label="Puffer mitte", linewidth=1.5, alpha=0.7)
@@ -207,7 +209,7 @@ class HistoricalTab:
                 self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)
                 self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=8)
                 # Dynamic y-axis scaling
-                    self.fig.subplots_adjust(left=0.10, right=0.995, top=0.92, bottom=0.18)
+                self.fig.subplots_adjust(left=0.10, right=0.995, top=0.92, bottom=0.18)
                 if len(all_temps) > 1:
                     min_temp = min(all_temps)
                     max_temp = max(all_temps)

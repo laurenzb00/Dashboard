@@ -476,27 +476,13 @@ class EnergyFlowView(tk.Frame):
         self._text_center(draw, "SoC", bat[0], bat[1] + 28, size=12, color=COLOR_TEXT, outline=True)
         return img
 
-    def update_flows(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float):
+    def update_flows(self, pv_w, load_w, grid_w, batt_w, soc):
         """Update power flows - only re-render if values changed significantly (save CPU)."""
         values = (pv_w, load_w, grid_w, batt_w, soc)
-        
-        # Skip rendering if values haven't changed significantly (saves PIL rendering CPU)
-        if self._last_flows:
-            last_pv, last_load, last_grid, last_batt, last_soc = self._last_flows
-            # Only re-render if: delta > 1% OR absolute change > 50W
-            if (abs(pv_w - last_pv) < 0.05 * max(1, last_pv + pv_w) or abs(pv_w - last_pv) < 50) and \
-                (abs(load_w - last_load) < 0.05 * max(1, last_load + load_w) or abs(load_w - last_load) < 50) and \
-                (abs(grid_w - last_grid) < 0.05 * max(1, last_grid + grid_w) or abs(grid_w - last_grid) < 50) and \
-                (abs(batt_w - last_batt) < 0.05 * max(1, last_batt + batt_w) or abs(batt_w - last_batt) < 50) and \
-                (abs(soc - last_soc) < 2):
-                return  # Skip render - values too similar, saves CPU
-        
         self._last_flows = values
-        
         # Check for canvas size changes
         cw = max(200, self.canvas.winfo_width())
         ch = max(200, self.canvas.winfo_height())
-        
         # Only recreate layout if size changed by more than 30px
         if abs(cw - self.width) > 30 or abs(ch - self.height) > 30:
             elapsed = time.time() - self._start_time
@@ -505,7 +491,6 @@ class EnergyFlowView(tk.Frame):
             self.width, self.height = cw, ch
             self.nodes = self._define_nodes()
             self._base_img = self._render_background()
-
         frame = self.render_frame(pv_w, load_w, grid_w, batt_w, soc)
         self._tk_img = ImageTk.PhotoImage(frame)
         self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
