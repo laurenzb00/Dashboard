@@ -219,6 +219,46 @@ class MainApp:
 
         # Start periodic header update for date/time
         self._update_header_datetime()
+
+        # Notebook (Tabs) inside rounded container
+        self.notebook_container = RoundedFrame(self.root, bg=COLOR_HEADER, border=None, radius=18, padding=0)
+        self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=0)
+        self.notebook = ttk.Notebook(self.notebook_container.content())
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        self.notebook.grid_propagate(False)
+
+        # Energy Dashboard Tab
+        self.dashboard_tab = tk.Frame(self.notebook, bg=COLOR_ROOT)
+        self.notebook.add(self.dashboard_tab, text=emoji("⚡ Energie", "Energie"))
+        self.dashboard_tab.pack_propagate(False)
+
+        # Body (Energy + Buffer)
+        self.body = tk.Frame(self.dashboard_tab, bg=COLOR_ROOT)
+        self.body.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
+        self.body.grid_columnconfigure(0, weight=7)
+        self.body.grid_columnconfigure(1, weight=3)
+        self.body.grid_rowconfigure(0, weight=1)
+
+        # Energy Card (70%) - reduced size and padding
+        self.energy_card = Card(self.body, padding=6)
+        self.energy_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=0)
+        self.energy_card.add_title("Energiefluss", icon="⚡")
+        # LAYOUT FIX: Start with minimal size, will resize after layout settles
+        self.energy_view = EnergyFlowView(self.energy_card.content(), width=240, height=200)
+        self.energy_view.pack(fill=tk.BOTH, expand=True, pady=2)
+
+        # Buffer Card (30%) - reduced size and padding
+        self.buffer_card = Card(self.body, padding=6)
+        self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=0)
+        # Update title to 'Warmwasser' with appropriate icon
+        self.buffer_card.add_title("Warmwasser", icon="🔥")
+        # LAYOUT FIX: Start with minimal height, will resize after layout settles
+        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180, datastore=self.datastore)
+        self.buffer_view.pack(fill=tk.BOTH, expand=True)
+
+        # Statusbar
+        self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
+        self.status.grid(row=2, column=0, sticky="nsew", padx=8, pady=(2, 4))
     def _update_header_datetime(self):
         now = datetime.now()
         date_text = now.strftime("%d.%m.%Y")
