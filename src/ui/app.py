@@ -380,7 +380,7 @@ class MainApp:
         
         if HistoricalTab:
             try:
-                self.historical_tab = HistoricalTab(self.root, self.notebook)
+                self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore)
             except Exception as e:
                 print(f"[ERROR] HistoricalTab init failed: {e}")
                 self.historical_tab = None

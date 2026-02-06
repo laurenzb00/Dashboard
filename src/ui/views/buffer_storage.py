@@ -359,13 +359,11 @@ class BufferStorageView(tk.Frame):
 
     def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
-            if DEBUG_LOG:
-                print("[SPARKLINE] Kein Datastore verfügbar!")
+            print("[DEBUG] Kein Datastore für PV-Serie!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_fronius(hours=hours + 4, limit=2000)
-        if DEBUG_LOG:
-            print(f"[SPARKLINE] get_recent_fronius liefert {len(rows)} Zeilen")
+        print(f"[DEBUG] get_recent_fronius liefert {len(rows)} Zeilen")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-1000:]:
             ts = self._parse_ts(entry.get('timestamp'))
@@ -376,41 +374,36 @@ class BufferStorageView(tk.Frame):
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, pv_kw))
-        if DEBUG_LOG:
-            print(f"[SPARKLINE] PV-Samples: {samples[:5]} ... (insg. {len(samples)})")
+        print(f"[DEBUG] PV-Samples: {len(samples)}")
         return self._aggregate_series(samples)
 
     def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
-            if DEBUG_LOG:
-                print("[SPARKLINE] Kein Datastore verfügbar (outdoor)!")
+            print("[DEBUG] Kein Datastore für Außentemperatur!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
-        if DEBUG_LOG:
-            print(f"[SPARKLINE] get_recent_heating liefert {len(rows)} Zeilen")
+        print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (outdoor)")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-800:]:
             ts = self._parse_ts(entry.get('timestamp'))
-            # Fallback: falls 'outdoor' nicht im Dict, versuche 'außentemp'
             val = self._safe_float(entry.get('outdoor'))
-            if val is None and 'außentemp' in entry:
-                val = self._safe_float(entry.get('außentemp'))
             if ts is None or val is None or ts < cutoff:
                 continue
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, val))
-        if DEBUG_LOG:
-            print(f"[SPARKLINE] Outdoor-Samples: {samples[:5]} ... (insg. {len(samples)})")
+        print(f"[DEBUG] Outdoor-Samples: {len(samples)}")
         return self._aggregate_series(samples)
 
     def _load_puffer_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
+            print("[DEBUG] Kein Datastore für Puffer-Serie!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
+        print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (puffer)")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-800:]:
             ts = self._parse_ts(entry.get('timestamp'))
@@ -421,6 +414,7 @@ class BufferStorageView(tk.Frame):
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, mid))
+        print(f"[DEBUG] Puffer-Samples: {len(samples)}")
         aggregated = self._aggregate_series(samples)
         if len(aggregated) < 3:
             return aggregated

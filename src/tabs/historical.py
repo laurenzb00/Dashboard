@@ -24,7 +24,7 @@ from ui.components.card import Card
 class HistoricalTab:
     """Historie der Heizung/Puffer/Außen + aktuelle Werte."""
 
-    def __init__(self, root: tk.Tk, notebook: ttk.Notebook):
+    def __init__(self, root: tk.Tk, notebook: ttk.Notebook, datastore=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
@@ -34,7 +34,11 @@ class HistoricalTab:
 
         self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
         self.notebook.add(self.tab_frame, text=emoji("📈 Heizung-Historie", "Heizung-Historie"))
-        self.datastore = get_shared_datastore()
+        if datastore is not None:
+            self.datastore = datastore
+        else:
+            from core.datastore import get_shared_datastore
+            self.datastore = get_shared_datastore()
 
         self.tab_frame.grid_columnconfigure(0, weight=1)
         self.tab_frame.grid_rowconfigure(0, weight=0)
