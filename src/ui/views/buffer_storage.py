@@ -271,6 +271,22 @@ class BufferStorageView(tk.Frame):
         except (ValueError, TypeError):
             return None
 
+    def update_temperatures(self, temp_top, temp_mid, temp_bot, temp_warmwasser=None):
+        """Aktualisiert die Visualisierung mit neuen Temperaturen."""
+        try:
+            t_top = float(temp_top)
+            t_mid = float(temp_mid)
+            t_bot = float(temp_bot)
+            t_warmwasser = float(temp_warmwasser) if temp_warmwasser is not None else None
+        except (ValueError, TypeError):
+            t_top, t_mid, t_bot = 0, 0, 0
+            t_warmwasser = None
+        # Beispiel: Heatmap/Gradient/Block-Update
+        # Hier könntest du weitere Visualisierungen einbauen
+        # Für die Sparkline gibt es keine Temperaturanzeige, aber ggf. für andere Widgets
+        # Placeholder: Du kannst hier z.B. Labels setzen oder eine eigene Methode aufrufen
+        # print(f"[BUFFER] update_temperatures: top={t_top}, mid={t_mid}, bot={t_bot}, warmwasser={t_warmwasser}")
+        pass
     def stop(self):
         """Cleanup resources to prevent memory leaks and segfaults."""
         try:
