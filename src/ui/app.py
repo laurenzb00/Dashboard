@@ -143,9 +143,19 @@ class MainApp:
         import time
         self._tick_count += 1
         now = time.time()
-        if now - self._dbg_last_dump > 2.0:
-            print(f"[TICK] count={self._tick_count}", flush=True)
-            self._dbg_last_dump = now
+        if not hasattr(self, "_dbg_last_data") or now - self._dbg_last_data > 2.0:
+            keys = [
+                "pv_power_kw",
+                "grid_power_kw",
+                "battery_power_kw",
+                "battery_soc_pct",
+                "bmk_boiler_c",
+                "buf_top_c",
+                "buf_mid_c",
+                "buf_bottom_c",
+            ]
+            print("[DATA_KEYS]", {k: data.get(k, "MISSING") for k in keys}, flush=True)
+            self._dbg_last_data = now
         from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         try:
             now = time.time()
