@@ -107,6 +107,16 @@ class BufferStorageView(tk.Frame):
         fig_height = 4.5 # optimal für ca. 600px Höhe
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
+        # --- Sparkline Figure (PV & Außentemp) ---
+        self.spark_fig = Figure(figsize=(4.5, 1.0), dpi=100)
+        self.spark_ax = self.spark_fig.add_subplot(111)
+        self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
+        self.spark_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.spark_ax.set_facecolor(COLOR_CARD)
+        self.spark_ax.tick_params(axis='both', which='major', labelsize=7, colors=COLOR_SUBTEXT)
+        self.spark_ax.set_axisbelow(True)
+        self.spark_ax.grid(True, alpha=0.12)
+        # ---
         self._create_sparkline()
 
     def resize(self, height: int) -> None:
