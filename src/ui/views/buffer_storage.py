@@ -217,9 +217,20 @@ class BufferStorageView(tk.Frame):
         self.update_temperatures(top, mid, bot, boiler)
 
     def update_temperatures(self, top, mid, bot, kessel=None):
+        # Build stratified 2D array for heatmap
+        if hasattr(self, '_build_stratified_data'):
+            self.data = self._build_stratified_data(top, mid, bot)
+        else:
+            self.data = [[top], [mid], [bot]]  # fallback
         # Update heatmap values
         if hasattr(self, 'im'):
-            self.im.set_data([top, mid, bot])
+            self.im.set_data(self.data)
+            # Ensure colormap scaling
+            if hasattr(self, 'norm'):
+                self.im.set_norm(self.norm)
+            # Update colorbar if present
+            if hasattr(self, 'colorbar') and self.colorbar:
+                self.colorbar.update_normal(self.im)
         # Update text labels
         if hasattr(self, 'val_texts'):
             vals = [top, mid, bot]
