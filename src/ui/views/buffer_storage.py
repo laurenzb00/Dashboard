@@ -367,11 +367,16 @@ class BufferStorageView(tk.Frame):
             print(f"[DEBUG] Beispiel-Eintrag Fronius: {rows[-1]}")
             print(f"[DEBUG] Alle Keys im letzten Eintrag: {list(rows[-1].keys())}")
         samples: list[tuple[datetime, float]] = []
+        now = datetime.now()
         for entry in rows[-1000:]:
             ts = self._parse_ts(entry.get('timestamp'))
             pv_kw = self._safe_float(entry.get('pv'))
             if ts is None or pv_kw is None or ts < cutoff:
                 continue
+            # Korrigiere Zukunftszeiten
+            if ts > now:
+                print(f"[DEBUG] PV-Sparkline: timestamp in future ({entry.get('timestamp')} -> {ts}), capped to now.")
+                ts = now
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
@@ -392,11 +397,16 @@ class BufferStorageView(tk.Frame):
         else:
             print("[DEBUG] Keine Daten von get_recent_heating (outdoor)")
         samples: list[tuple[datetime, float]] = []
+        now = datetime.now()
         for entry in rows[-800:]:
             ts = self._parse_ts(entry.get('timestamp'))
             val = self._safe_float(entry.get('outdoor'))
             if ts is None or val is None or ts < cutoff:
                 continue
+            # Korrigiere Zukunftszeiten
+            if ts > now:
+                print(f"[DEBUG] Outdoor-Sparkline: timestamp in future ({entry.get('timestamp')} -> {ts}), capped to now.")
+                ts = now
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
@@ -417,11 +427,16 @@ class BufferStorageView(tk.Frame):
         else:
             print("[DEBUG] Keine Daten von get_recent_heating (puffer)")
         samples: list[tuple[datetime, float]] = []
+        now = datetime.now()
         for entry in rows[-800:]:
             ts = self._parse_ts(entry.get('timestamp'))
             mid = self._safe_float(entry.get('mid'))
             if ts is None or mid is None or ts < cutoff:
                 continue
+            # Korrigiere Zukunftszeiten
+            if ts > now:
+                print(f"[DEBUG] Puffer-Sparkline: timestamp in future ({entry.get('timestamp')} -> {ts}), capped to now.")
+                ts = now
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
@@ -460,21 +475,52 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _parse_ts(value):
+        import re
+        import pytz
+        from datetime import datetime, timezone
         if not value:
             return None
-        s = str(value).strip().replace('T', ' ', 1)
-        # Remove milliseconds if present
-        if '.' in s:
-            s = s.split('.')[0]
-        # Remove timezone if present
-        if '+' in s:
-            s = s.split('+')[0]
-        if 'Z' in s:
-            s = s.replace('Z', '')
+        s = str(value).strip()
+        # Remove milliseconds for easier parsing
+        s = re.sub(r"\.\d{1,6}", "", s)
+        s = s.replace('T', ' ', 1)
+        # Handle Z (UTC)
+        if s.endswith('Z'):
+            s = s[:-1]
+            try:
+                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+                dt = dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+        # Handle explicit offset (e.g. +01:00)
+        elif re.search(r"[+-]\d{2}:\d{2}$", s):
+            try:
+                dt = datetime.fromisoformat(s)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+        else:
+            # Assume naive local time
+            try:
+                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+                dt = dt.replace(tzinfo=None)
+            except Exception:
+                return None
+        # Convert to Europe/Vienna local time (naive)
         try:
-            return datetime.fromisoformat(s)
+            vienna = pytz.timezone("Europe/Vienna")
+            if dt.tzinfo is not None:
+                local_dt = dt.astimezone(vienna)
+                naive_local = local_dt.replace(tzinfo=None)
+            else:
+                naive_local = dt
         except Exception:
-            return None
+            naive_local = dt
+        # Debug: print conversion
+        if naive_local > datetime.now():
+            print(f"[DEBUG] Parsed timestamp in future: {value} -> {naive_local}")
+        return naive_local
 
     @staticmethod
     def _safe_float(value):

@@ -1,4 +1,219 @@
 import tkinter as tk
+from tkinter import Frame, Label
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from datetime import datetime
+import numpy as np
+
+# Farben/Fallbacks
+try:
+    from src.ui.styles import (
+        COLOR_CARD, COLOR_BORDER, COLOR_TEXT, COLOR_SUBTEXT,
+        COLOR_PRIMARY, COLOR_INFO, COLOR_WARNING, COLOR_DANGER
+    )
+except ImportError:
+    COLOR_CARD = "#222"
+    COLOR_BORDER = "#444"
+    COLOR_TEXT = "#EEE"
+    COLOR_SUBTEXT = "#AAA"
+    COLOR_PRIMARY = "#1E90FF"
+    COLOR_INFO = "#00CED1"
+    COLOR_WARNING = "#FFD700"
+    COLOR_DANGER = "#FF6347"
+
+COLOR_SUCCESS = "#FFF"  # Warmwasser/Boiler: weiß
+
+class HistoricalTab(Frame):
+    def __init__(self, parent, datastore, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.datastore = datastore
+        self.root = parent.winfo_toplevel()
+        self.after_job = None
+        self.last_data_len = 0
+        self.last_timestamp = None
+
+        # Aktuelle Werte oben
+        self.value_labels = {}
+        value_names = [
+            ("Puffer Oben", "top", COLOR_PRIMARY),
+            ("Puffer Mitte", "mid", COLOR_INFO),
+            ("Puffer Unten", "bot", COLOR_WARNING),
+            ("Kessel", "kessel", COLOR_DANGER),
+            ("Warmwasser", "warm", COLOR_SUCCESS),
+            ("Außen", "outdoor", COLOR_SUBTEXT),
+        ]
+        row = 0
+        for name, key, color in value_names:
+            lbl = Label(self, text=f"{name}: --", fg=color, bg=COLOR_CARD, font=("Segoe UI", 11, "bold"))
+            lbl.grid(row=row, column=0, sticky="w", padx=8, pady=2)
+            self.value_labels[key] = lbl
+            row += 1
+
+        # Matplotlib Figure
+        self.fig = Figure(figsize=(7, 3), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.fig.patch.set_facecolor(COLOR_CARD)
+        self.ax.set_facecolor(COLOR_CARD)
+        self.ax.spines['bottom'].set_color(COLOR_BORDER)
+        self.ax.spines['top'].set_color(COLOR_BORDER)
+        self.ax.spines['right'].set_color(COLOR_BORDER)
+        self.ax.spines['left'].set_color(COLOR_BORDER)
+        self.ax.tick_params(axis='x', colors=COLOR_SUBTEXT)
+        self.ax.tick_params(axis='y', colors=COLOR_SUBTEXT)
+        self.ax.yaxis.label.set_color(COLOR_TEXT)
+        self.ax.xaxis.label.set_color(COLOR_TEXT)
+        self.ax.title.set_color(COLOR_TEXT)
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
+        self.canvas.get_tk_widget().grid(row=0, column=1, rowspan=row, sticky="nsew", padx=8, pady=8)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(row, weight=1)
+
+        # Linien-Handles
+        self.lines = {}
+        self.legend = None
+
+        self._update_plot()
+        self._schedule_update()
+
+    def _schedule_update(self):
+        self._cancel_update()
+        self.after_job = self.root.after(30000, self._update_plot)
+
+    def _cancel_update(self):
+        if self.after_job:
+            self.root.after_cancel(self.after_job)
+            self.after_job = None
+
+    def _parse_ts(self, ts):
+        if not ts:
+            return None
+        s = str(ts).strip().replace('T', ' ', 1)
+        if '.' in s:
+            s = s.split('.')[0]
+        if '+' in s:
+            s = s.split('+')[0]
+        if 'Z' in s:
+            s = s.replace('Z', '')
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            return None
+
+    def _update_plot(self):
+        # Daten holen
+        data = self.datastore.get_recent_heating(hours=168)
+        if not data:
+            self._schedule_update()
+            return
+
+        # Prüfe, ob Update nötig
+        data_len = len(data)
+        last_ts = data[-1]['timestamp'] if data else None
+        if data_len == self.last_data_len and last_ts == self.last_timestamp:
+            self._schedule_update()
+            return
+        self.last_data_len = data_len
+        self.last_timestamp = last_ts
+
+        # Aktuelle Werte oben anzeigen
+        latest = data[-1] if data else {}
+        for key, lbl in self.value_labels.items():
+            val = latest.get(key)
+            if val is not None:
+                lbl.config(text=f"{lbl.cget('text').split(':')[0]}: {val:.1f}°C")
+            else:
+                lbl.config(text=f"{lbl.cget('text').split(':')[0]}: --")
+
+        # Zeitachsen und Werte extrahieren, None filtern
+        times = []
+        values = {k: [] for k in ['top', 'mid', 'bot', 'kessel', 'warm', 'outdoor']}
+        for row in data:
+            ts = self._parse_ts(row.get('timestamp'))
+            if not ts:
+                continue
+            # Pufferwerte müssen vorhanden sein
+            if any(row.get(k) is None for k in ['top', 'mid', 'bot']):
+                continue
+            times.append(ts)
+            for k in values:
+                v = row.get(k)
+                values[k].append(v if v is not None else np.nan)
+
+        # Downsampling auf max 2000 Punkte
+        n = len(times)
+        max_points = 2000
+        if n > max_points:
+            step = n // max_points
+            times = times[::step]
+            for k in values:
+                values[k] = values[k][::step]
+
+        # Plot aktualisieren
+        self.ax.clear()
+        self.fig.patch.set_facecolor(COLOR_CARD)
+        self.ax.set_facecolor(COLOR_CARD)
+        self.ax.spines['bottom'].set_color(COLOR_BORDER)
+        self.ax.spines['top'].set_color(COLOR_BORDER)
+        self.ax.spines['right'].set_color(COLOR_BORDER)
+        self.ax.spines['left'].set_color(COLOR_BORDER)
+        self.ax.tick_params(axis='x', colors=COLOR_SUBTEXT)
+        self.ax.tick_params(axis='y', colors=COLOR_SUBTEXT)
+        self.ax.yaxis.label.set_color(COLOR_TEXT)
+        self.ax.xaxis.label.set_color(COLOR_TEXT)
+        self.ax.title.set_color(COLOR_TEXT)
+
+        # Linien plotten
+        line_cfg = [
+            ("Puffer Oben", "top", COLOR_PRIMARY),
+            ("Puffer Mitte", "mid", COLOR_INFO),
+            ("Puffer Unten", "bot", COLOR_WARNING),
+            ("Kessel", "kessel", COLOR_DANGER),
+            ("Warmwasser", "warm", COLOR_SUCCESS),
+            ("Außen", "outdoor", COLOR_SUBTEXT),
+        ]
+        for name, key, color in line_cfg:
+            y = np.array(values[key])
+            if np.all(np.isnan(y)):
+                continue  # Keine Werte vorhanden
+            # Für warm/outdoor: plotten, wenn mind. 1 Wert vorhanden
+            if key in ['warm', 'outdoor'] and np.nanmax(y) == np.nanmin(y) and np.isnan(np.nanmax(y)):
+                continue
+            l, = self.ax.plot(times, y, label=name, color=color, linewidth=2 if key != 'outdoor' else 1.2)
+            self.lines[key] = l
+
+        # Achsen/Legende
+        self.ax.set_xlabel("Zeit", color=COLOR_TEXT)
+        self.ax.set_ylabel("Temperatur [°C]", color=COLOR_TEXT)
+        self.ax.set_title("Heizungs-/Pufferhistorie (7 Tage)", color=COLOR_TEXT)
+        self.ax.legend(loc="upper left", fontsize=9, facecolor=COLOR_CARD, edgecolor=COLOR_BORDER)
+        self.ax.grid(True, color=COLOR_BORDER, alpha=0.2)
+
+        # X-Achse: Datum+Uhrzeit, Labels drehen
+        self.ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%d.%m %H:%M'))
+        self.fig.autofmt_xdate(rotation=30)
+
+        # Y-Achse: min/max + Rand
+        all_y = np.concatenate([np.array(values[k]) for k in ['top', 'mid', 'bot', 'kessel', 'warm'] if len(values[k])])
+        all_y = all_y[~np.isnan(all_y)]
+        if len(all_y):
+            ymin = np.min(all_y)
+            ymax = np.max(all_y)
+            yrange = ymax - ymin
+            self.ax.set_ylim(ymin - 2, ymax + 2 if yrange < 10 else ymax + 0.1 * yrange)
+
+        self.canvas.draw_idle()
+        self._schedule_update()
+
+    def stop(self):
+        self._cancel_update()
+        try:
+            self.fig.clf()
+            self.canvas.get_tk_widget().destroy()
+        except Exception:
+            passimport tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
