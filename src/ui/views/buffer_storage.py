@@ -64,6 +64,14 @@ class BufferStorageView(tk.Frame):
                 pass
         self.spark_ax2 = self.spark_ax.twinx()
         ax2 = self.spark_ax2
+        # Remove background and spines for both axes to avoid white outlines
+        self.spark_ax2.patch.set_alpha(0)
+        for ax in [self.spark_ax, ax2]:
+            ax.set_facecolor('none')
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_edgecolor(COLOR_BORDER)
+                spine.set_linewidth(0.5)
         if pv_series:
             xs_pv, ys_pv = zip(*pv_series)
             self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
@@ -160,10 +168,12 @@ class BufferStorageView(tk.Frame):
         self._setup_plot()
         # --- Sparkline Figure (PV & Außentemp) ---
         self.spark_fig = Figure(figsize=(4.5, 1.0), dpi=100)
+        self.spark_fig.patch.set_alpha(0)  # Make figure background transparent
         self.spark_ax = self.spark_fig.add_subplot(111)
+        self.spark_ax.set_facecolor(COLOR_CARD)  # Match card color
+        self.spark_ax.patch.set_alpha(0)  # Make axes background transparent
         self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
         self.spark_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self.spark_ax.set_facecolor(COLOR_CARD)
         self.spark_ax.tick_params(axis='both', which='major', labelsize=7, colors=COLOR_SUBTEXT)
         self.spark_ax.set_axisbelow(True)
         self.spark_ax.grid(True, alpha=0.12)
