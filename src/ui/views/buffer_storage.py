@@ -364,6 +364,9 @@ class BufferStorageView(tk.Frame):
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_fronius(hours=hours + 4, limit=2000)
         print(f"[DEBUG] get_recent_fronius liefert {len(rows)} Zeilen")
+        if rows:
+            print(f"[DEBUG] Beispiel-Eintrag Fronius: {rows[-1]}")
+            print(f"[DEBUG] Alle Keys im letzten Eintrag: {list(rows[-1].keys())}")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-1000:]:
             ts = self._parse_ts(entry.get('timestamp'))
