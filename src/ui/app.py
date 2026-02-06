@@ -114,12 +114,12 @@ class MainApp:
             heat_age = int(now - self._parse_ts(heat_ts)) if heat_ts else None
             # --- Widgets/Diagramme updaten (nur im MainThread!) ---
             if hasattr(self, 'energy_view'):
-                self.energy_view.update(
+                self.energy_view.update_data(
                     pv=pv.get('pv', 0),
                     load=self._last_data.get('load', 0),
-                    battery=pv.get('batt', 0),
+                    batt=pv.get('batt', 0),
                     grid=pv.get('grid', 0),
-                    battery_soc=pv.get('soc', 0)
+                    soc=pv.get('soc', 0)
                 )
             if hasattr(self, 'buffer_view'):
                 self.buffer_view.update(
