@@ -256,6 +256,9 @@ class MainApp:
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True)
 
+        # Add all other tabs (Spotify, Tado, Hue, System, Calendar, Historical, Ertrag)
+        self._add_other_tabs()
+
         # Statusbar
         self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
         self.status.grid(row=2, column=0, sticky="nsew", padx=8, pady=(2, 4))
