@@ -99,8 +99,6 @@ except ImportError:
 
 
 
-
-
 class MainApp:
     def _start_ertrag_validator(self):
         """Starte wöchentliche Ertrag-Validierung im Hintergrund."""
@@ -141,32 +139,44 @@ class MainApp:
     def update_tick(self):
         """Zentrale UI-Update-Schleife: holt aktuelle Daten, aktualisiert Widgets und Status."""
         import time
+        data = {}
         self._tick_count += 1
         now = time.time()
-        if not hasattr(self, "_dbg_last_data") or now - self._dbg_last_data > 2.0:
-            keys = [
-                "pv_power_kw",
-                "grid_power_kw",
-                "battery_power_kw",
-                "battery_soc_pct",
-                "bmk_boiler_c",
-                "buf_top_c",
-                "buf_mid_c",
-                "buf_bottom_c",
-            ]
-            print("[DATA_KEYS]", {k: data.get(k, "MISSING") for k in keys}, flush=True)
-            self._dbg_last_data = now
-        from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         try:
-            now = time.time()
             # --- Datenquellen: Letzte Timestamps holen ---
             pv = self.datastore.get_last_fronius_record() or {}
             heat = self.datastore.get_last_heating_record() or {}
-            data = {}
             data.update(pv)
             data.update(heat)
 
-            # --- Altersberechnung für Statusanzeige ---
+            # --- Rate-limitiertes Debug-Logging (alle 2s) ---
+            if not hasattr(self, '_dbg_last_data'):
+                self._dbg_last_data = 0.0
+            if now - self._dbg_last_data > 2.0:
+                keys = [
+                    "pv_power_kw",
+                    "grid_power_kw",
+                    "battery_power_kw",
+                    "battery_soc_pct",
+                    "bmk_boiler_c",
+                    "buf_top_c",
+                    "buf_mid_c",
+                    "buf_bottom_c",
+                ]
+                print("[DATA_KEYS]", {k: data.get(k, "MISSING") for k in keys}, flush=True)
+                self._dbg_last_data = now
+
+            # --- Widgets/Diagramme updaten (nur im MainThread!) ---
+            if hasattr(self, 'energy_view'):
+                self.energy_view.update_data(data)
+            if hasattr(self, 'buffer_view'):
+                try:
+                    self.buffer_view.update_data(data)
+                except Exception:
+                    logging.exception("buffer_view update_data failed")
+
+            # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
+            last_update = datetime.now().strftime('%H:%M:%S')
             pv_ts = pv.get("ts")
             heat_ts = heat.get("ts")
             pv_age = None
@@ -181,47 +191,37 @@ class MainApp:
                     heat_age = round(now - self._parse_ts(heat_ts))
                 except Exception:
                     heat_age = None
-
-            # --- Rate-limitiertes Debug-Logging aller Daten (max alle 2s) ---
-            if not hasattr(self, '_last_data_dump_ts'):
-                self._last_data_dump_ts = 0.0
-            if now - self._last_data_dump_ts > 2.0:
-                logger = logging.getLogger(__name__)
-                # Logge alle final keys sortiert
-                logger.info("[DATA] %s", {k: data.get(k) for k in sorted(data.keys())})
-                # Logge explizit die wichtigsten Finalkeys (auch wenn sie fehlen)
-                keys = [
-                    "pv_power_kw", "grid_power_kw", "battery_power_kw", "battery_soc_pct",
-                    "bmk_boiler_c", "buf_top_c", "buf_mid_c", "buf_bottom_c"
-                ]
-                logger.info("[DATA_KEYS] %s", {k: data.get(k, "MISSING") for k in keys})
-                self._last_data_dump_ts = now
-
-            # --- Widgets/Diagramme updaten (nur im MainThread!) ---
-            if hasattr(self, 'energy_view'):
-                self.energy_view.update_data(data)
-            if hasattr(self, 'buffer_view'):
-                try:
-                    self.buffer_view.update_data(data)
-                except Exception:
-                    logging.exception("buffer_view update_data failed")
-
-            # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
-            last_update = datetime.now().strftime('%H:%M:%S')
             status_str = f"BMK age: {heat_age if heat_age is not None else '-'}s | Fronius age: {pv_age if pv_age is not None else '-'}s | last update: {last_update}"
             if hasattr(self, 'status'):
-                self.status.set_status(status_str)
+                self.status.update_status(status_str)
 
             # --- Rate-limitiertes Logging (alle 10s) ---
             if not hasattr(self, '_last_log_tick'):
                 self._last_log_tick = 0
             if now - self._last_log_tick > 10:
+                from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_BOILER_C, BUF_TOP_C
                 logging.info(f"latest values: PV {data.get(PV_POWER_KW, 0)}kW, Grid {data.get(GRID_POWER_KW, 0)}kW, Batt {data.get(BATTERY_POWER_KW, 0)}kW, SOC {data.get(BATTERY_SOC_PCT, 0)}%, Kessel {data.get(BMK_BOILER_C, 0)}°C, PufferTop {data.get(BUF_TOP_C, 0)}°C")
                 self._last_log_tick = now
         except Exception:
             logging.exception("update_tick failed")
         # Tick erneut einplanen
         self.root.after(500, self.update_tick)
+
+    # DEPRECATED: _loop() is no longer used. All updates handled by update_tick().
+    def _loop(self):
+        pass
+
+    # DEPRECATED: handle_wechselrichter_data() is no longer used.
+    def handle_wechselrichter_data(self, data: dict):
+        pass
+
+    # DEPRECATED: handle_bmkdaten_data() is no longer used.
+    def handle_bmkdaten_data(self, data: dict):
+        pass
+
+    # DEPRECATED: _fetch_real_data() is no longer used.
+    def _fetch_real_data(self):
+        pass
 
     @staticmethod
     def _parse_ts(ts):
@@ -243,7 +243,7 @@ class MainApp:
         self.root.title("Smart Home Dashboard")
         self._tick_count = 0
         self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
-        
+
         # Shared DataStore wird beim Start bereitgestellt
         self.datastore = datastore or safe_get_datastore()
 
@@ -253,31 +253,17 @@ class MainApp:
             "heating": {"label": "Heizung", "ts": None, "count": 0},
         }
 
-        # Letzte Datenpunkte für schnellen Zugriff
-        self._last_data = {
-            "pv": 0,
-            "load": 0,
-            "grid": 0,
-            "batt": 0,
-            "soc": 0,
-            "out_temp": 0,
-            "puffer_top": 0,
-            "puffer_mid": 0,
-            "puffer_bot": 0,
-            "warmwasser": 0,
-            "kesseltemperatur": 0,
-        }
         self._data_fresh_seconds = None
         self._last_status_compact = ""
         self._last_data_dump_ts = 0.0  # Für rate-limitiertes Daten-Logging
-        
+
         # Define base header and status heights before using them
         self._base_header_h = 56
         self._base_status_h = 44
 
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
-        
+
         # Debug: Bind Configure events
         self.root.bind("<Configure>", self._on_root_configure)
         self.root.bind("<Map>", self._on_root_map)
@@ -303,7 +289,6 @@ class MainApp:
         init_style(self.root)
         self._ensure_emoji_font()
         self._status_icon_ok, self._status_icon_warn = self._resolve_status_icons()
-        # ...existing code...
 
         self._base_energy_h = 230
         self._base_buffer_h = 180
