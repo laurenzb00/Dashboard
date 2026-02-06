@@ -101,6 +101,7 @@ class BufferStorageView(tk.Frame):
                 self.spark_canvas.draw_idle()
             except Exception as exc:
                 print(f"[BUFFER] Sparkline canvas draw error: {exc}")
+
     """Heatmap-style visualization for buffer storage and boiler temperatures."""
 
     def _build_stratified_data(self, top, mid, bot):
