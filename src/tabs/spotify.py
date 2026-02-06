@@ -28,6 +28,26 @@ PLAYLIST_IMAGE_SIZE = (96, 96)
 
 
 class SpotifyTab:
+    def safe_toggle_style(style_name="round-toggle"):
+        try:
+            import ttkbootstrap as ttk
+            s = ttk.Style()
+            # Prüfe, ob Style existiert
+            try:
+                s.layout(style_name)
+                return style_name
+            except Exception:
+                pass
+            # Fallbacks
+            for fallback in ["toggle", "roundtoggle", None]:
+                try:
+                    if fallback and s.layout(fallback):
+                        return fallback
+                except Exception:
+                    continue
+            return None
+        except Exception:
+            return None
     def _build_devices_tab(self) -> None:
         header = ttk.Frame(self.devices_frame)
         header.pack(fill=tk.X)
@@ -316,8 +336,17 @@ class SpotifyTab:
         quick_box = ttk.Labelframe(right, text="Schnellaktionen")
         quick_box.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         self.shuffle_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
-                        command=self._set_shuffle, bootstyle="round-toggle").pack(side=LEFT, padx=8)
+        toggle_style = safe_toggle_style("round-toggle")
+        try:
+            if toggle_style:
+                ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
+                                command=self._set_shuffle, bootstyle=toggle_style).pack(side=LEFT, padx=8)
+            else:
+                ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
+                                command=self._set_shuffle).pack(side=LEFT, padx=8)
+        except Exception:
+            ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
+                            command=self._set_shuffle).pack(side=LEFT, padx=8)
         self.repeat_mode = tk.StringVar(value="off")
         self.repeat_button = ttk.Button(quick_box, text="Repeat: off", command=self._cycle_repeat,
                                         bootstyle="outline-secondary")

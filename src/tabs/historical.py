@@ -33,6 +33,7 @@ from tkinter import StringVar, OptionMenu
 from datetime import timedelta
 
 class HistoricalTab(Frame):
+
     def __init__(self, parent, notebook, datastore, *args, **kwargs):
         super().__init__(notebook, *args, **kwargs)
         notebook.add(self, text="Heizung-Historie")
@@ -47,6 +48,7 @@ class HistoricalTab(Frame):
         self._last_data = None
         self._period = StringVar(value="24h")
         self._period_map = {"24h": 24, "7d": 168, "30d": 720}
+        self.after_job = None  # Robust: immer initialisieren
 
         # Layout
         self.grid_rowconfigure(0, minsize=44)
@@ -99,6 +101,11 @@ class HistoricalTab(Frame):
             return None
 
     def _schedule_update(self):
+        if self.after_job is not None:
+            try:
+                self.after_cancel(self.after_job)
+            except Exception:
+                pass
         self.after_job = self.after(30000, self._update_plot)
 
     def _update_plot(self):
@@ -262,8 +269,11 @@ class HistoricalTab(Frame):
         self.after_job = self.root.after(30000, self._update_plot)
 
     def _cancel_update(self):
-        if self.after_job:
-            self.root.after_cancel(self.after_job)
+        if self.after_job is not None:
+            try:
+                self.root.after_cancel(self.after_job)
+            except Exception:
+                pass
             self.after_job = None
 
     def _update_plot(self):
