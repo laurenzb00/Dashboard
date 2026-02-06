@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import Frame, Label
 import matplotlib
 matplotlib.use("Agg")
+from matplotlib import dates as mdates
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from datetime import datetime
@@ -77,6 +78,9 @@ class HistoricalTab(Frame):
 
         self._update_plot()
         self._schedule_update()
+        # Ensure tab is added to notebook
+        if hasattr(parent, "add"):
+            parent.add(self, text="Heizung-Historie")
 
     def _schedule_update(self):
         self._cancel_update()
