@@ -96,6 +96,7 @@ except ImportError:
 
 
 
+
 class MainApp:
     """1024x600 Dashboard mit Grid-Layout, Cards, Header und Statusbar + Tabs."""
 
