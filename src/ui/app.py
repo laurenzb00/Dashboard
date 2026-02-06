@@ -162,17 +162,9 @@ class MainApp:
             # --- Datenquellen: Letzte Timestamps holen ---
             pv = self.datastore.get_last_fronius_record() or {}
             heat = self.datastore.get_last_heating_record() or {}
-            pv_ts = pv.get('timestamp')
-            heat_ts = heat.get('timestamp')
-            pv_age = int(now - self._parse_ts(pv_ts)) if pv_ts else None
-            heat_age = int(now - self._parse_ts(heat_ts)) if heat_ts else None
-            # --- Kombiniere alle final keys zu einem dict ---
             data = {}
-            for d in (pv, heat):
-                for k, v in d.items():
-                    if k != 'timestamp':
-                        data[k] = v
-
+            data.update(pv)
+            data.update(heat)
             # --- Rate-limitiertes Debug-Logging aller Daten (max alle 2s) ---
             if not hasattr(self, '_last_data_dump_ts'):
                 self._last_data_dump_ts = 0.0
