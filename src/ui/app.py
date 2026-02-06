@@ -155,38 +155,6 @@ class MainApp:
                 return time.mktime(datetime.fromisoformat(ts).timetuple())
             except Exception:
                 return 0
-    def _periodic_widget_update(self):
-        """Update all main widgets with live data from the datastore."""
-        try:
-            # PV/Heizung: get latest records
-            pv = self.datastore.get_last_fronius_record() or {}
-            heat = self.datastore.get_last_heating_record() or {}
-            # Energy Flow Widget
-            if hasattr(self, 'energy_view'):
-                self.energy_view.update(
-                    pv=pv.get('pv', 0),
-                    load=self._last_data.get('load', 0),
-                    battery=pv.get('batt', 0),
-                    grid=pv.get('grid', 0),
-                    battery_soc=pv.get('soc', 0)
-                )
-            # Buffer/Boiler Widget
-            if hasattr(self, 'buffer_view'):
-                self.buffer_view.update(
-                    top=heat.get('top', 0),
-                    mid=heat.get('mid', 0),
-                    bot=heat.get('bot', 0),
-                    warm=heat.get('warm', 0),
-                    kessel=heat.get('kessel', 0),
-                    outdoor=heat.get('outdoor', 0)
-                )
-            # Add more widget updates as needed
-        except Exception as e:
-            if self._debug_log:
-                print(f"[WIDGET-UPDATE-ERROR] {e}")
-        # Schedule next update (every 2 seconds)
-
-        self.root.after(2000, self._periodic_widget_update)
 
     """1024x600 Dashboard mit Grid-Layout, Cards, Header und Statusbar + Tabs."""
     def __init__(self, root: tk.Tk, datastore: DataStore | None = None):
