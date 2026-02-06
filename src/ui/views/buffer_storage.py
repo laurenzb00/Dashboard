@@ -231,53 +231,33 @@ class BufferStorageView(tk.Frame):
             self.im.set_data(self.data)
             self.im.set_norm(self.norm)
         # Update left temperature texts
-        if hasattr(self, 'val_texts'):
-            vals = [top, mid, bot]
-            for i, t in enumerate(self.val_texts):
-                t.set_text(f"{vals[i]:.1f}°C")
-        # Update boiler rectangle color and text
-        if hasattr(self, 'boiler_rect'):
-            color = self._get_boiler_color(boiler)
-            self.boiler_rect.set_facecolor(color)
-        if hasattr(self, 'boiler_text'):
-            self.boiler_text.set_text(f"{boiler:.1f}°C")
-        # Redraw canvas only if widget exists
-        if hasattr(self, 'canvas') and hasattr(self, 'canvas_widget') and self.canvas_widget.winfo_exists():
+        def _parse_ts(self, value):
+            # Robust, always returns UTC datetime (timezone-aware)
+            import re
+            import pytz
+            from datetime import datetime, timezone
+            if not value:
+                return None
+            s = str(value).strip()
+            s = re.sub(r"\.\d{1,6}", "", s)
+            s = s.replace('T', ' ', 1)
+            dt = None
             try:
-                self.canvas.draw_idle()
+                if s.endswith('Z'):
+                    s = s[:-1]
+                    dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                elif re.search(r"[+-]\d{2}:\d{2}$", s):
+                    dt = datetime.fromisoformat(s)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                else:
+                    # Assume naive = local time, localize to Europe/Vienna
+                    vienna = pytz.timezone("Europe/Vienna")
+                    dt = vienna.localize(datetime.strptime(s, "%Y-%m-%d %H:%M:%S"))
+                # Always return UTC for internal use
+                return dt.astimezone(timezone.utc)
             except Exception:
-                try:
-                    self.canvas.draw()
-                except Exception:
-                    pass
-        # Sparkline regelmäßig aktualisieren
-        self._update_sparkline()
-
-    def _build_stratified_data(self, top: float, mid: float, bottom: float) -> np.ndarray:
-        h = 120
-        y = np.linspace(0, 1, h)
-        vals = np.zeros_like(y, dtype=float)
-        for i, pos in enumerate(y):
-            if pos < 0.33:
-                vals[i] = bottom + (mid - bottom) * (pos / 0.33)
-            elif pos < 0.66:
-                vals[i] = mid + (top - mid) * ((pos - 0.33) / 0.33)
-            else:
-                vals[i] = top
-        return vals.reshape(h, 1)
-
-    def _create_sparkline(self) -> None:
-        self.spark_fig = Figure(figsize=(3.4, 0.9), dpi=100)
-        self.spark_fig.patch.set_alpha(0)
-        self.spark_ax = self.spark_fig.add_subplot(111)
-        self.spark_ax.set_facecolor("none")
-        self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
-        self.spark_canvas.get_tk_widget().pack(fill=tk.X, expand=False)
-
-    def _update_sparkline(self) -> None:
-        if (datetime.now().timestamp() - self._last_spark_update) < 30:
-            return
-        if not hasattr(self, "spark_canvas") or not self.spark_canvas.get_tk_widget().winfo_exists():
+                return None
             return
         self._last_spark_update = datetime.now().timestamp()
 
