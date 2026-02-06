@@ -1,15 +1,15 @@
 {
-  "timestamp": "2026-02-03T15:19:25.564919",
-  "fronius_entries": 59000,
+  "timestamp": "2026-02-06T11:52:29.854642",
+  "fronius_entries": 13983,
   "fronius_range": {
-    "count": 59000,
-    "start": "2025-04-09 13:18:39",
-    "end": "2025-11-28 12:03:44"
+    "count": 13983,
+    "start": "2026-02-04 15:08:07",
+    "end": "2026-02-06 11:18:11"
   },
-  "current_entries": 0,
-  "current_total_kwh": 0.0,
-  "reconstructed_entries": 0,
-  "reconstructed_total_kwh": 0.0,
+  "current_entries": 3,
+  "current_total_kwh": 21.49750675887031,
+  "reconstructed_entries": 3,
+  "reconstructed_total_kwh": 21.49750675887031,
   "difference_percent": 0.0,
-  "backup_created": null
+  "backup_created": "/home/laurenz/Dashboard/src/core/ertrag_history_backup.json"
 }
