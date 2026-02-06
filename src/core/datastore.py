@@ -47,6 +47,32 @@ def close_shared_datastore() -> None:
 
 
 class DataStore:
+        def normalize_heating_record(self, record: dict, stale_minutes: int = 5) -> dict:
+            """Normalize heating record for UI: parse timestamp, map keys, handle staleness."""
+            from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+            ts = record.get('timestamp')
+            dt = _parse_iso_timestamp(ts)
+            now = datetime.now()
+            age_min = (now - dt).total_seconds() / 60 if dt else None
+            outdoor = _safe_float(record.get('outdoor') or record.get('außentemp'))
+            kessel = record.get(BMK_KESSEL_C) or record.get('kessel') or record.get(BMK_BOILER_C)
+            warm = record.get(BMK_WARMWASSER_C) or record.get('warm') or record.get('warmwasser')
+            top = record.get(BUF_TOP_C) or record.get('top')
+            mid = record.get(BUF_MID_C) or record.get('mid')
+            bot = record.get(BUF_BOTTOM_C) or record.get('bot')
+            is_stale = age_min is not None and age_min > stale_minutes
+            return {
+                'timestamp': ts,
+                'datetime': dt,
+                'age_min': age_min,
+                'is_stale': is_stale,
+                'outdoor': outdoor,
+                BMK_KESSEL_C: kessel,
+                BMK_WARMWASSER_C: warm,
+                BUF_TOP_C: top,
+                BUF_MID_C: mid,
+                BUF_BOTTOM_C: bot,
+            }
     """SQLite-basierter Datenspeicher für schnelle Zugriffe."""
 
     def __init__(self, db_path: Path | str = DB_PATH):

@@ -5,6 +5,8 @@ GRID_POWER_KW = "grid_power_kw"
 BATTERY_POWER_KW = "battery_power_kw"
 BATTERY_SOC_PCT = "battery_soc_pct"
 BMK_BOILER_C = "bmk_boiler_c"
+BMK_KESSEL_C = "bmk_kessel_c"
+BMK_WARMWASSER_C = "bmk_warmwasser_c"
 BUF_TOP_C = "buf_top_c"
 BUF_MID_C = "buf_mid_c"
 BUF_BOTTOM_C = "buf_bottom_c"
@@ -15,6 +17,8 @@ ALL_KEYS = {
     BATTERY_POWER_KW,
     BATTERY_SOC_PCT,
     BMK_BOILER_C,
+    BMK_KESSEL_C,
+    BMK_WARMWASSER_C,
     BUF_TOP_C,
     BUF_MID_C,
     BUF_BOTTOM_C,

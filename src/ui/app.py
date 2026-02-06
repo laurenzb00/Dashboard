@@ -375,7 +375,12 @@ class MainApp:
         date_text = now.strftime("%d.%m.%Y")
         weekday = now.strftime("%A")
         time_text = now.strftime("%H:%M:%S")
-        out_temp = f"{self._last_data.get('out_temp', 0):.1f} °C"
+        heat = self.datastore.get_last_heating_record() or {}
+        norm = self.datastore.normalize_heating_record(heat, stale_minutes=5)
+        if norm['is_stale'] or norm['outdoor'] is None:
+            out_temp = "--.- °C"
+        else:
+            out_temp = f"{norm['outdoor']:.1f} °C"
         self.header.update_header(date_text, weekday, time_text, out_temp)
         self.root.after(1000, self._update_header_datetime)
 
