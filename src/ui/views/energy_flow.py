@@ -73,17 +73,6 @@ class EnergyFlowView(tk.Frame):
         self._icons_pil = {}  # PIL Images for embedding
         self._load_icons()
 
-                # Support force_kw for Grid->Haus arrow
-                force_kw = False
-                import inspect
-                frame = inspect.currentframe().f_back
-                if 'force_kw' in frame.f_locals:
-                    force_kw = frame.f_locals['force_kw']
-                if force_kw:
-                    value_text = f"{abs(watts)/1000:.2f}"
-                    unit_text = "kW"
-                else:
-                    value_text, unit_text = self._format_power_parts(abs(watts))
         self._base_img = self._render_background()
         self._canvas_img = self.canvas.create_image(0, 0, anchor="nw")
         
