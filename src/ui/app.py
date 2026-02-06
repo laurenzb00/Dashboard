@@ -103,6 +103,7 @@ except ImportError:
 class MainApp:
     def update_tick(self):
         """Zentrale UI-Update-Schleife: holt aktuelle Daten, aktualisiert Widgets und Status."""
+        from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         try:
             now = time.time()
             # --- Datenquellen: Letzte Timestamps holen ---
@@ -112,23 +113,18 @@ class MainApp:
             heat_ts = heat.get('timestamp')
             pv_age = int(now - self._parse_ts(pv_ts)) if pv_ts else None
             heat_age = int(now - self._parse_ts(heat_ts)) if heat_ts else None
+            # --- Kombiniere alle final keys zu einem dict ---
+            data = {}
+            for d in (pv, heat):
+                for k, v in d.items():
+                    if k != 'timestamp':
+                        data[k] = v
             # --- Widgets/Diagramme updaten (nur im MainThread!) ---
             if hasattr(self, 'energy_view'):
-                self.energy_view.update_data(
-                    pv=pv.get('pv', 0),
-                    load=self._last_data.get('load', 0),
-                    batt=pv.get('batt', 0),
-                    grid=pv.get('grid', 0),
-                    soc=pv.get('soc', 0)
-                )
+                self.energy_view.update_data(data)
             if hasattr(self, 'buffer_view'):
                 try:
-                    self.buffer_view.update_data(
-                        top=heat.get('top', 0),
-                        mid=heat.get('mid', 0),
-                        bot=heat.get('bot', 0),
-                        kessel=heat.get('kessel', 0)
-                    )
+                    self.buffer_view.update_data(data)
                 except Exception:
                     logging.exception("buffer_view update_data failed")
             # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
@@ -140,7 +136,7 @@ class MainApp:
             if not hasattr(self, '_last_log_tick'):
                 self._last_log_tick = 0
             if now - self._last_log_tick > 10:
-                logging.info(f"latest values: PV {pv.get('pv', 0)}kW, Grid {pv.get('grid', 0)}kW, Batt {pv.get('batt', 0)}kW, SOC {pv.get('soc', 0)}%, Kessel {heat.get('kessel', 0)}°C, PufferTop {heat.get('top', 0)}°C")
+                logging.info(f"latest values: PV {data.get(PV_POWER_KW, 0)}kW, Grid {data.get(GRID_POWER_KW, 0)}kW, Batt {data.get(BATTERY_POWER_KW, 0)}kW, SOC {data.get(BATTERY_SOC_PCT, 0)}%, Kessel {data.get(BMK_BOILER_C, 0)}°C, PufferTop {data.get(BUF_TOP_C, 0)}°C")
                 self._last_log_tick = now
         except Exception:
             logging.exception("update_tick failed")

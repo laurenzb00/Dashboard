@@ -26,34 +26,35 @@ def _s(val: float) -> int:
 
 MISSING_LOG_COOLDOWN = 60.0  # seconds
 
+from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT
+
 class EnergyFlowView(tk.Frame):
-    def update_data(self, pv=None, load=None, batt=None, grid=None, soc=None):
-        """Robustes Update für Energieflussdaten. Alle Werte werden als float gesetzt, None wird zu 0.0."""
+    def update_data(self, data: dict):
+        """Update für Energiefluss-View: erwartet dict mit final keys."""
         def as_float(x, default=0.0):
             try:
-                if x is None:
-                    return default
                 return float(x)
             except (TypeError, ValueError):
                 return default
 
-        # Rate-limitiertes Logging für fehlende Werte (pv/batt)
         now = time.time()
         if not hasattr(self, '_last_missing_log'):
-            self._last_missing_log = {"pv": 0.0, "batt": 0.0}
-        for name, val in [("pv", pv), ("batt", batt)]:
+            self._last_missing_log = {PV_POWER_KW: 0.0, BATTERY_POWER_KW: 0.0}
+        # Rate-limitiertes Logging für fehlende Werte (pv_power_kw, battery_power_kw)
+        for key in (PV_POWER_KW, BATTERY_POWER_KW):
+            val = data.get(key)
             if val is None:
-                if now - self._last_missing_log[name] > MISSING_LOG_COOLDOWN:
+                if now - self._last_missing_log[key] > MISSING_LOG_COOLDOWN:
                     import logging
                     logger = logging.getLogger("dashboard.energyflow")
-                    logger.debug(f"{name} value missing/None, set to 0.0 for EnergyFlowView")
-                    self._last_missing_log[name] = now
+                    logger.debug(f"{key} value missing/None, set to 0.0 for EnergyFlowView")
+                    self._last_missing_log[key] = now
         self.update_flows(
-            as_float(pv),
-            as_float(load),
-            as_float(grid),
-            as_float(batt),
-            as_float(soc)
+            as_float(data.get(PV_POWER_KW)),
+            0.0,  # load wird nicht mehr verwendet
+            as_float(data.get(GRID_POWER_KW)),
+            as_float(data.get(BATTERY_POWER_KW)),
+            as_float(data.get(BATTERY_SOC_PCT)),
         )
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)

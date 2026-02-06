@@ -188,7 +188,8 @@ class DataStore:
             return False
     
     def get_last_fronius_record(self):
-        """Hole letzten PV-Record."""
+        """Hole letzten PV-Record als dict mit final keys (schema.py)."""
+        from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -198,14 +199,14 @@ class DataStore:
         )
         row = cursor.fetchone()
         if row:
-                self._update_last_ingest_locked(row[0])
-                return {
-                    'timestamp': row[0],
-                    'pv': row[1],
-                    'grid': row[2],
-                    'batt': row[3],
-                    'soc': row[4]
-                }
+            self._update_last_ingest_locked(row[0])
+            return {
+                'timestamp': row[0],
+                PV_POWER_KW: row[1] or 0.0,
+                GRID_POWER_KW: row[2] or 0.0,
+                BATTERY_POWER_KW: row[3] or 0.0,
+                BATTERY_SOC_PCT: row[4] or 0.0,
+            }
         return None
     
     def get_hourly_averages(self, hours=24):
@@ -386,6 +387,8 @@ class DataStore:
         ]
 
     def get_last_heating_record(self) -> Optional[dict]:
+        """Hole letzten Heizungs-Record als dict mit final keys (schema.py)."""
+        from core.schema import BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -395,16 +398,14 @@ class DataStore:
         )
         row = cursor.fetchone()
         if row:
-                self._update_last_ingest_locked(row[0])
-                return {
-                    'timestamp': row[0],
-                    'kessel': row[1],
-                    'outdoor': row[2],
-                    'top': row[3],
-                    'mid': row[4],
-                    'bot': row[5],
-                    'warm': row[6],
-                }
+            self._update_last_ingest_locked(row[0])
+            return {
+                'timestamp': row[0],
+                BMK_BOILER_C: row[1] or 0.0,
+                BUF_TOP_C: row[3] or 0.0,
+                BUF_MID_C: row[4] or 0.0,
+                BUF_BOTTOM_C: row[5] or 0.0,
+            }
         return None
 
     def get_latest_timestamp(self) -> Optional[str]:
