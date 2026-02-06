@@ -214,12 +214,13 @@ class BufferStorageView(tk.Frame):
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
-        boiler = float(data.get(BMK_BOILER_C) or 0.0)
+        boiler = float(data.get('warm') or 0.0)  # Boiler = Warmwasser
+        kessel = float(data.get(BMK_BOILER_C) or 0.0)  # Kessel
         now = time.time()
         if not hasattr(self, '_last_heat_dbg'):
             self._last_heat_dbg = 0.0
         if now - self._last_heat_dbg > 2.0:
-            print("[BUFFER_PARSED]", top, mid, bot, boiler, flush=True)
+            print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler} kessel={kessel}", flush=True)
             self._last_heat_dbg = now
         self.update_temperatures(top, mid, bot, boiler)
 

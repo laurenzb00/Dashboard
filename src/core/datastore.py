@@ -401,10 +401,12 @@ class DataStore:
             self._update_last_ingest_locked(row[0])
             return {
                 'timestamp': row[0],
-                BMK_BOILER_C: row[1] or 0.0,
+                BMK_BOILER_C: row[1] or 0.0,  # Kessel
                 BUF_TOP_C: row[3] or 0.0,
                 BUF_MID_C: row[4] or 0.0,
                 BUF_BOTTOM_C: row[5] or 0.0,
+                'warm': row[6] or 0.0,         # Warmwasser/Boiler
+                'outdoor': row[2] or 0.0,      # Außentemperatur
             }
         return None
 

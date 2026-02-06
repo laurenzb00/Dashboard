@@ -27,16 +27,26 @@ except ImportError:
 COLOR_SUCCESS = "#FFF"  # Warmwasser/Boiler: weiß
 
 class HistoricalTab(Frame):
-    def __init__(self, parent, datastore, *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
+    def __init__(self, parent, notebook, datastore, *args, **kwargs):
+        super().__init__(notebook, *args, **kwargs)
         self.datastore = datastore
         self.root = parent.winfo_toplevel()
         self.after_job = None
         self.last_data_len = 0
         self.last_timestamp = None
+        self._resize_debounce_id = None
+        self._last_view_size = (0, 0)
+        self._stats_warn = False
 
-        # Aktuelle Werte oben
-        self.value_labels = {}
+        # Layout: row 0 = stats, row 1 = plot
+        self.grid_rowconfigure(0, minsize=60)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # Stats grid
+        self.stats_frame = Frame(self, bg=COLOR_CARD)
+        self.stats_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8,2))
+        self.stats_labels = {}
         value_names = [
             ("Puffer Oben", "top", COLOR_PRIMARY),
             ("Puffer Mitte", "mid", COLOR_INFO),
@@ -45,22 +55,26 @@ class HistoricalTab(Frame):
             ("Warmwasser", "warm", COLOR_SUCCESS),
             ("Außen", "outdoor", COLOR_SUBTEXT),
         ]
-        row = 0
-        for name, key, color in value_names:
-            lbl = Label(self, text=f"{name}: --", fg=color, bg=COLOR_CARD, font=("Segoe UI", 11, "bold"))
-            lbl.grid(row=row, column=0, sticky="w", padx=8, pady=2)
-            self.value_labels[key] = lbl
-            row += 1
+        for i, (name, key, color) in enumerate(value_names):
+            lbl = Label(self.stats_frame, text=f"{name}: --", fg=color, bg=COLOR_CARD, font=("Segoe UI", 12, "bold"))
+            lbl.grid(row=0, column=i, sticky="nsew", padx=6, pady=2)
+            self.stats_labels[key] = lbl
 
-        # Matplotlib Figure
-        self.fig = Figure(figsize=(7, 3), dpi=100)
+        # Datenalter
+        self.age_label = Label(self.stats_frame, text="Datenalter: --", fg=COLOR_TEXT, bg=COLOR_CARD, font=("Segoe UI", 11))
+        self.age_label.grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=(0,2))
+
+        # Warnhinweis
+        self.warn_label = Label(self.stats_frame, text="", fg=COLOR_WARNING, bg=COLOR_CARD, font=("Segoe UI", 11, "bold"))
+        self.warn_label.grid(row=1, column=3, columnspan=4, sticky="e", padx=6, pady=(0,2))
+
+        # Plot
+        self.fig = Figure(figsize=(7, 2.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
-        self.ax.spines['bottom'].set_color(COLOR_BORDER)
-        self.ax.spines['top'].set_color(COLOR_BORDER)
-        self.ax.spines['right'].set_color(COLOR_BORDER)
-        self.ax.spines['left'].set_color(COLOR_BORDER)
+        for spine in self.ax.spines.values():
+            spine.set_color(COLOR_BORDER)
         self.ax.tick_params(axis='x', colors=COLOR_SUBTEXT)
         self.ax.tick_params(axis='y', colors=COLOR_SUBTEXT)
         self.ax.yaxis.label.set_color(COLOR_TEXT)
@@ -68,15 +82,119 @@ class HistoricalTab(Frame):
         self.ax.title.set_color(COLOR_TEXT)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
-        self.canvas.get_tk_widget().grid(row=0, column=1, rowspan=row, sticky="nsew", padx=8, pady=8)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(row, weight=1)
+        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
 
-        # Linien-Handles
+        # Plot lines
         self.lines = {}
         self.legend = None
 
+        # Add tab to notebook
+        notebook.add(self, text="Heizung-Historie")
+
+        # Bind resize
+        self.bind("<Configure>", self._on_resize)
+
         self._update_plot()
+        self._schedule_update()
+
+    def _on_resize(self, event):
+        if self._resize_debounce_id:
+            self.after_cancel(self._resize_debounce_id)
+        self._resize_debounce_id = self.after(100, self._handle_resize)
+
+    def _handle_resize(self):
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if (w, h) != self._last_view_size:
+            self.fig.set_size_inches(max(4, w/100), max(2, h/100))
+            self.canvas.draw_idle()
+            self._last_view_size = (w, h)
+
+    def _parse_ts(self, ts):
+        if not ts:
+            return None
+        s = str(ts).strip().replace('T', ' ', 1)
+        if '.' in s:
+            s = s.split('.')[0]
+        if '+' in s:
+            s = s.split('+')[0]
+        if 'Z' in s:
+            s = s.replace('Z', '')
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            return None
+
+    def _schedule_update(self):
+        self._cancel_update()
+        self.after_job = self.root.after(30000, self._update_plot)
+
+    def _cancel_update(self):
+        if self.after_job:
+            self.root.after_cancel(self.after_job)
+            self.after_job = None
+
+    def _update_plot(self):
+        # Daten holen
+        data = self.datastore.get_recent_heating(hours=168, limit=2000)
+        if not data:
+            self._schedule_update()
+            return
+
+        # Robust timestamp parsing, filter future/old
+        now = datetime.now()
+        times = []
+        values = {k: [] for k in ['top','mid','bot','kessel','warm','outdoor']}
+        for row in data:
+            ts = self._parse_ts(row['timestamp'])
+            if not ts or ts > now + timedelta(seconds=60):
+                continue  # skip future
+            times.append(ts)
+            for k in values:
+                values[k].append(float(row.get(k, 0.0)))
+
+        # Clamp xmax
+        if times:
+            xmax = min(max(times), now)
+        else:
+            xmax = now
+
+        # Update stats
+        latest_idx = -1 if times else None
+        for k, lbl in self.stats_labels.items():
+            v = values[k][latest_idx] if times else 0.0
+            lbl.config(text=f"{lbl.cget('text').split(':')[0]}: {v:.1f}")
+
+        # Datenalter
+        if times:
+            age_min = int((now - times[-1]).total_seconds() // 60)
+            self.age_label.config(text=f"Datenalter: {age_min} min")
+            self._stats_warn = age_min > 30
+            if self._stats_warn:
+                self.warn_label.config(text="Warnung: Daten >30min alt!", fg=COLOR_WARNING)
+            else:
+                self.warn_label.config(text="", fg=COLOR_TEXT)
+            print(f"[HISTORICAL] latest ts: {times[-1]} age: {age_min} min", flush=True)
+        else:
+            self.age_label.config(text="Datenalter: --")
+            self.warn_label.config(text="Keine Daten", fg=COLOR_WARNING)
+
+        # Plot
+        self.ax.clear()
+        self.ax.set_facecolor(COLOR_CARD)
+        for spine in self.ax.spines.values():
+            spine.set_color(COLOR_BORDER)
+        for k, color in zip(['top','mid','bot','kessel','warm','outdoor'], [COLOR_PRIMARY, COLOR_INFO, COLOR_WARNING, COLOR_DANGER, COLOR_SUCCESS, COLOR_SUBTEXT]):
+            if times and values[k]:
+                self.lines[k] = self.ax.plot(times, values[k], label=k.capitalize(), color=color, linewidth=2)[0]
+        self.ax.set_xlim(times[0] if times else now, xmax)
+        self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m %H:%M'))
+        self.ax.legend(loc='upper left', fontsize=9)
+        self.ax.set_ylabel('°C')
+        self.ax.set_xlabel('Zeit')
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
         self._schedule_update()
         # Ensure tab is added to notebook
         if hasattr(parent, "add"):
