@@ -98,81 +98,111 @@ except ImportError:
 
 
 class MainApp:
+    def _periodic_widget_update(self):
+        """Update all main widgets with live data from the datastore."""
+        try:
+            # PV/Heizung: get latest records
+            pv = self.datastore.get_last_fronius_record() or {}
+            heat = self.datastore.get_last_heating_record() or {}
+            # Energy Flow Widget
+            if hasattr(self, 'energy_view'):
+                self.energy_view.update(
+                    pv=pv.get('pv', 0),
+                    load=self._last_data.get('load', 0),
+                    battery=pv.get('batt', 0),
+                    grid=pv.get('grid', 0),
+                    battery_soc=pv.get('soc', 0)
+                )
+            # Buffer/Boiler Widget
+            if hasattr(self, 'buffer_view'):
+                self.buffer_view.update(
+                    top=heat.get('top', 0),
+                    mid=heat.get('mid', 0),
+                    bot=heat.get('bot', 0),
+                    warm=heat.get('warm', 0),
+                    kessel=heat.get('kessel', 0),
+                    outdoor=heat.get('outdoor', 0)
+                )
+            # Add more widget updates as needed
+        except Exception as e:
+            if self._debug_log:
+                print(f"[WIDGET-UPDATE-ERROR] {e}")
+        # Schedule next update (every 2 seconds)
+        self.root.after(2000, self._periodic_widget_update)
     def _update_footer_lamps(self):
-            # DB Status
-            try:
-                db_ts = self.datastore.get_last_ingest_datetime()
-            except Exception:
-                db_ts = None
-            db_color = "#44cc44"  # grün
-            db_text = "OK"
-            db_ts_str = "--"
-            if db_ts is None:
-                db_color = "#cccccc"
-                db_text = "--"
-            else:
-                db_ts_str = db_ts.strftime("%H:%M:%S")
-                delta = datetime.now() - db_ts
-                if delta.total_seconds() > 60:
-                    db_color = "#cc4444"  # rot
-                    db_text = "ALT"
+        # DB Status
+        try:
+            db_ts = self.datastore.get_last_ingest_datetime()
+        except Exception:
+            db_ts = None
+        db_color = "#44cc44"  # grün
+        db_text = "OK"
+        db_ts_str = "--"
+        if db_ts is None:
+            db_color = "#cccccc"
+            db_text = "--"
+        else:
+            db_ts_str = db_ts.strftime("%H:%M:%S")
+            delta = datetime.now() - db_ts
+            if delta.total_seconds() > 60:
+                db_color = "#cc4444"  # rot
+                db_text = "ALT"
 
-            # PV Status
+        # PV Status
+        try:
+            pv_rec = self.datastore.get_last_fronius_record()
+            pv_ts = pv_rec["timestamp"] if pv_rec else None
+        except Exception:
+            pv_ts = None
+        pv_color = "#44cc44"
+        pv_text = "OK"
+        pv_ts_str = "--"
+        if pv_ts is None:
+            pv_color = "#cccccc"
+            pv_text = "--"
+        else:
             try:
-                pv_rec = self.datastore.get_last_fronius_record()
-                pv_ts = pv_rec["timestamp"] if pv_rec else None
+                pv_dt = datetime.fromisoformat(pv_ts)
+                pv_ts_str = pv_dt.strftime("%H:%M:%S")
+                delta = datetime.now() - pv_dt
+                if delta.total_seconds() > 60:
+                    pv_color = "#cc4444"
+                    pv_text = "ALT"
             except Exception:
-                pv_ts = None
-            pv_color = "#44cc44"
-            pv_text = "OK"
-            pv_ts_str = "--"
-            if pv_ts is None:
                 pv_color = "#cccccc"
                 pv_text = "--"
-            else:
-                try:
-                    pv_dt = datetime.fromisoformat(pv_ts)
-                    pv_ts_str = pv_dt.strftime("%H:%M:%S")
-                    delta = datetime.now() - pv_dt
-                    if delta.total_seconds() > 60:
-                        pv_color = "#cc4444"
-                        pv_text = "ALT"
-                except Exception:
-                    pv_color = "#cccccc"
-                    pv_text = "--"
 
-            # Heizung Status
+        # Heizung Status
+        try:
+            heat_rec = self.datastore.get_last_heating_record()
+            heat_ts = heat_rec["timestamp"] if heat_rec else None
+        except Exception:
+            heat_ts = None
+        heat_color = "#44cc44"
+        heat_text = "OK"
+        heat_ts_str = "--"
+        if heat_ts is None:
+            heat_color = "#cccccc"
+            heat_text = "--"
+        else:
             try:
-                heat_rec = self.datastore.get_last_heating_record()
-                heat_ts = heat_rec["timestamp"] if heat_rec else None
+                heat_dt = datetime.fromisoformat(heat_ts)
+                heat_ts_str = heat_dt.strftime("%H:%M:%S")
+                delta = datetime.now() - heat_dt
+                if delta.total_seconds() > 60:
+                    heat_color = "#cc4444"
+                    heat_text = "ALT"
             except Exception:
-                heat_ts = None
-            heat_color = "#44cc44"
-            heat_text = "OK"
-            heat_ts_str = "--"
-            if heat_ts is None:
                 heat_color = "#cccccc"
                 heat_text = "--"
-            else:
-                try:
-                    heat_dt = datetime.fromisoformat(heat_ts)
-                    heat_ts_str = heat_dt.strftime("%H:%M:%S")
-                    delta = datetime.now() - heat_dt
-                    if delta.total_seconds() > 60:
-                        heat_color = "#cc4444"
-                        heat_text = "ALT"
-                except Exception:
-                    heat_color = "#cccccc"
-                    heat_text = "--"
 
-            self.status.update_lamps(
-                (db_color, db_text, db_ts_str),
-                (pv_color, pv_text, pv_ts_str),
-                (heat_color, heat_text, heat_ts_str)
-            )
+        self.status.update_lamps(
+            (db_color, db_text, db_ts_str),
+            (pv_color, pv_text, pv_ts_str),
+            (heat_color, heat_text, heat_ts_str)
+        )
 
     """1024x600 Dashboard mit Grid-Layout, Cards, Header und Statusbar + Tabs."""
-
     def __init__(self, root: tk.Tk, datastore: DataStore | None = None):
         self._start_time = time.time()
         self._debug_log = os.getenv("DASH_DEBUG", "0") == "1"
@@ -237,15 +267,7 @@ class MainApp:
         init_style(self.root)
         self._ensure_emoji_font()
         self._status_icon_ok, self._status_icon_warn = self._resolve_status_icons()
-        
-        if self._debug_log:
-            print(f"[DEBUG] Screen: {sw}x{sh}, Target: {target_w}x{target_h}")
-
-        # Grid Setup: Minimize fixed row sizes to maximize content area
-        self._base_header_h = 52
-        self._base_tabs_h = 30
-        self._base_status_h = 34
-        self._base_energy_w = 460
+        # ...existing code...
         self._base_energy_h = 230
         self._base_buffer_h = 180
         self.root.grid_rowconfigure(0, minsize=self._base_header_h)
@@ -262,6 +284,12 @@ class MainApp:
         )
         self.header.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 2))
 
+        # Start periodic widget update
+        self._periodic_widget_update()
+        # Bind F11 for fullscreen toggle
+        self.root.bind('<F11>', lambda e: self.toggle_fullscreen())
+        # Bind Escape to exit fullscreen
+        self.root.bind('<Escape>', lambda e: self._apply_windowed())
         # Notebook (Tabs) inside rounded container
         self.notebook_container = RoundedFrame(self.root, bg=COLOR_HEADER, border=None, radius=18, padding=0)
         self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=0)

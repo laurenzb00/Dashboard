@@ -16,15 +16,17 @@ class StatusBar(tk.Frame):
         inner = rounded.content()
 
         inner.grid_columnconfigure(0, weight=1)
-        inner.grid_columnconfigure(1, weight=1)
-        inner.grid_columnconfigure(2, weight=0)
+        inner.grid_columnconfigure(1, weight=0)
+        inner.grid_columnconfigure(2, weight=1)
         inner.grid_columnconfigure(3, weight=0)
+        inner.grid_columnconfigure(4, weight=0)
+        inner.grid_columnconfigure(5, weight=0)
 
         self.status_label = tk.Label(inner, text="Updated --:--:--", fg=COLOR_TEXT, bg=COLOR_CARD, font=("Segoe UI", 11))
         self.status_label.grid(row=0, column=0, sticky="w", padx=12)
 
         self.center_frame = tk.Frame(inner, bg=COLOR_CARD)
-        self.center_frame.grid(row=0, column=1, sticky="nsew")
+        self.center_frame.grid(row=0, column=2, sticky="nsew")
 
         self.center_label = tk.Label(self.center_frame, text="", fg=COLOR_SUBTEXT, bg=COLOR_CARD, font=("Segoe UI", 11))
         self.center_label.pack(side=tk.LEFT, padx=(6, 8))
@@ -59,7 +61,7 @@ class StatusBar(tk.Frame):
             bg=COLOR_BORDER, fg=COLOR_TEXT,
             radius=10, padding=(10, 4), font_size=11, width=44, height=26
         )
-        self.window_btn.grid(row=0, column=2, sticky="e", padx=(6, 4), pady=0)
+        self.window_btn.grid(row=0, column=4, sticky="e", padx=(6, 4), pady=0)
 
         # Kleiner Exit-Button
         self.exit_btn = RoundedButton(
@@ -67,7 +69,7 @@ class StatusBar(tk.Frame):
             bg=COLOR_DANGER, fg="#fff",
             radius=10, padding=(10, 4), font_size=11, width=44, height=26
         )
-        self.exit_btn.grid(row=0, column=3, sticky="e", padx=(4, 8), pady=0)
+        self.exit_btn.grid(row=0, column=5, sticky="e", padx=(4, 8), pady=0)
 
     def update_status(self, text: str):
         self.status_label.config(text=text)
