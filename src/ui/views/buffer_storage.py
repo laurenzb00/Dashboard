@@ -51,58 +51,57 @@ DEBUG_LOG = False
 
 class BufferStorageView(tk.Frame):
 
-        def _update_sparkline(self) -> None:
-            if not hasattr(self, "spark_ax") or not hasattr(self, "spark_canvas"):
-                return
-            pv_series = self._load_pv_series(hours=24, bin_minutes=15)
-            temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
-            self.spark_ax.clear()
-            if hasattr(self, "spark_ax2"):
-                try:
-                    self.spark_ax2.remove()
-                except Exception:
-                    pass
-            self.spark_ax2 = self.spark_ax.twinx()
-            ax2 = self.spark_ax2
-            if pv_series:
-                xs_pv, ys_pv = zip(*pv_series)
-                self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
-                self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
-                self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
-            if temp_series:
-                xs_temp, ys_temp = zip(*temp_series)
-                ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
-                ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
-            self.spark_ax.spines['top'].set_visible(False)
-            self.spark_ax.spines['right'].set_visible(False)
-            self.spark_ax.spines['left'].set_color(COLOR_BORDER)
-            self.spark_ax.spines['bottom'].set_color(COLOR_BORDER)
-            self.spark_ax.spines['left'].set_linewidth(0.5)
-            self.spark_ax.spines['bottom'].set_linewidth(0.5)
-            ax2.spines['top'].set_visible(False)
-            ax2.spines['left'].set_visible(False)
-            ax2.spines['right'].set_color(COLOR_BORDER)
-            ax2.spines['bottom'].set_color(COLOR_BORDER)
-            ax2.spines['right'].set_linewidth(0.5)
-            ax2.spines['bottom'].set_linewidth(0.5)
-            self.spark_ax.tick_params(axis='both', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
-            ax2.tick_params(axis='y', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
-            self.spark_ax.set_ylabel('kW', fontsize=7, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
-            ax2.set_ylabel('°C', fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
-            self.spark_ax.yaxis.set_major_locator(plt.MaxNLocator(4))
-            ax2.yaxis.set_major_locator(plt.MaxNLocator(4))
-            self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
-            self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    def _update_sparkline(self) -> None:
+        if not hasattr(self, "spark_ax") or not hasattr(self, "spark_canvas"):
+            return
+        pv_series = self._load_pv_series(hours=24, bin_minutes=15)
+        temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+        self.spark_ax.clear()
+        if hasattr(self, "spark_ax2"):
             try:
-                self.spark_fig.tight_layout(pad=0.3)
-            except Exception as exc:
-                print(f"[BUFFER] tight_layout warning: {exc}")
-            try:
-                self.spark_canvas.draw_idle()
-            except Exception as exc:
-                print(f"[BUFFER] Sparkline canvas draw error: {exc}")
+                self.spark_ax2.remove()
+            except Exception:
+                pass
+        self.spark_ax2 = self.spark_ax.twinx()
+        ax2 = self.spark_ax2
+        if pv_series:
+            xs_pv, ys_pv = zip(*pv_series)
+            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
+            self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
+            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+        if temp_series:
+            xs_temp, ys_temp = zip(*temp_series)
+            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
+            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
+        self.spark_ax.spines['top'].set_visible(False)
+        self.spark_ax.spines['right'].set_visible(False)
+        self.spark_ax.spines['left'].set_color(COLOR_BORDER)
+        self.spark_ax.spines['bottom'].set_color(COLOR_BORDER)
+        self.spark_ax.spines['left'].set_linewidth(0.5)
+        self.spark_ax.spines['bottom'].set_linewidth(0.5)
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['left'].set_visible(False)
+        ax2.spines['right'].set_color(COLOR_BORDER)
+        ax2.spines['bottom'].set_color(COLOR_BORDER)
+        ax2.spines['right'].set_linewidth(0.5)
+        ax2.spines['bottom'].set_linewidth(0.5)
+        self.spark_ax.tick_params(axis='both', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        ax2.tick_params(axis='y', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.spark_ax.set_ylabel('kW', fontsize=7, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
+        ax2.set_ylabel('°C', fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
+        self.spark_ax.yaxis.set_major_locator(plt.MaxNLocator(4))
+        ax2.yaxis.set_major_locator(plt.MaxNLocator(4))
+        self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
+        self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        try:
+            self.spark_fig.tight_layout(pad=0.3)
+        except Exception as exc:
+            print(f"[BUFFER] tight_layout warning: {exc}")
+        try:
+            self.spark_canvas.draw_idle()
+        except Exception as exc:
+            print(f"[BUFFER] Sparkline canvas draw error: {exc}")
 
-    """Heatmap-style visualization for buffer storage and boiler temperatures."""
 
     def _build_stratified_data(self, top, mid, bot):
         """
@@ -130,7 +129,7 @@ class BufferStorageView(tk.Frame):
         self.pack_propagate(False)
 
         self.data = np.array([[60.0], [50.0], [40.0]])
-        self._last_temps: tuple[float, float, float] | None = None
+        self._last_temps = None  # type: ignore
         self._last_spark_update = 0
 
         self.layout = tk.Frame(self, bg=COLOR_CARD)
@@ -142,7 +141,7 @@ class BufferStorageView(tk.Frame):
         self.plot_frame = tk.Frame(self.layout, bg=COLOR_CARD)
         self.plot_frame.grid(row=0, column=0, sticky="nsew")
 
-        self.val_texts: list = []
+        self.val_texts = []
 
         self.spark_frame = tk.Frame(self.layout, bg=COLOR_CARD)
         self.spark_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
