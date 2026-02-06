@@ -26,6 +26,12 @@ except ImportError:
 
 COLOR_SUCCESS = "#FFF"  # Warmwasser/Boiler: weiß
 
+
+
+import pytz
+from tkinter import StringVar, OptionMenu
+from datetime import timedelta
+
 class HistoricalTab(Frame):
     def __init__(self, parent, notebook, datastore, *args, **kwargs):
         super().__init__(notebook, *args, **kwargs)
@@ -33,33 +39,26 @@ class HistoricalTab(Frame):
         from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_KESSEL_C, BMK_WARMWASSER_C
         self.datastore = datastore
         self.root = parent.winfo_toplevel()
-        self.after_job = None
         self._last_data = None
+        self._period = StringVar(value="24h")
+        self._period_map = {"24h": 24, "7d": 168, "30d": 720}
 
-        self.grid_rowconfigure(0, minsize=60)
+        # Layout
+        self.grid_rowconfigure(0, minsize=44)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, minsize=28)
         self.grid_columnconfigure(0, weight=1)
 
-        self.stats_frame = Frame(self, bg=COLOR_CARD)
-        self.stats_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8,2))
-        self.stats_labels = {}
-        value_names = [
-            ("Puffer Oben", BUF_TOP_C, COLOR_PRIMARY),
-            ("Puffer Mitte", BUF_MID_C, COLOR_INFO),
-            ("Puffer Unten", BUF_BOTTOM_C, COLOR_WARNING),
-            ("Kessel", BMK_KESSEL_C, COLOR_DANGER),
-            ("Warmwasser", BMK_WARMWASSER_C, COLOR_SUCCESS),
-            ("Außen", "outdoor", COLOR_SUBTEXT),
-        ]
-        for i, (name, key, color) in enumerate(value_names):
-            lbl = Label(self.stats_frame, text=f"{name}: --", fg=color, bg=COLOR_CARD, font=("Segoe UI", 12, "bold"))
-            lbl.grid(row=0, column=i, sticky="nsew", padx=6, pady=2)
-            self.stats_labels[key] = lbl
+        # Zeitraum-Selector
+        topbar = Frame(self, bg=COLOR_CARD)
+        topbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8,2))
+        Label(topbar, text="Zeitraum:", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 11)).pack(side=tk.LEFT, padx=(0,4))
+        OptionMenu(topbar, self._period, *self._period_map.keys(), command=lambda _: self._update_plot()).pack(side=tk.LEFT)
 
+        # Plot
         self.plot_frame = Frame(self, bg=COLOR_CARD)
-        self.plot_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
+        self.plot_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=0)
         self.plot_frame.grid_propagate(False)
-
         self.fig = Figure(figsize=(7, 2.5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
@@ -67,8 +66,94 @@ class HistoricalTab(Frame):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        self.lines = {}
+        # Statuszeile
+        self.statusbar = Label(self, text="", anchor="w", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 9))
+        self.statusbar.grid(row=2, column=0, sticky="ew", padx=8, pady=(2,8))
+
         self._schedule_update()
+
+    def _parse_ts(self, ts):
+        # Robust, timezone-aware: returns local Europe/Vienna time
+        import re
+        from datetime import datetime, timezone
+        s = str(ts).strip().replace('T', ' ', 1)
+        s = re.sub(r"\.\d{1,6}", "", s)
+        vienna = pytz.timezone("Europe/Vienna")
+        try:
+            if s.endswith('Z'):
+                s = s[:-1]
+                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                return dt.astimezone(vienna)
+            elif re.search(r"[+-]\d{2}:\d{2}$", s):
+                dt = datetime.fromisoformat(s)
+                return dt.astimezone(vienna)
+            else:
+                # Assume naive = local time
+                return vienna.localize(datetime.strptime(s, "%Y-%m-%d %H:%M:%S"))
+        except Exception:
+            return None
+
+    def _schedule_update(self):
+        self.after_job = self.after(30000, self._update_plot)
+
+    def _update_plot(self):
+        hours = self._period_map.get(self._period.get(), 24)
+        data = self.datastore.get_recent_heating(hours=hours, limit=2000)
+        if not data:
+            self.ax.clear()
+            self.ax.text(0.5, 0.5, "Keine Daten", ha="center", va="center", color=COLOR_SUBTEXT, fontsize=14)
+            self.canvas.draw_idle()
+            self._schedule_update()
+            self.statusbar.config(text="Keine Daten gefunden.")
+            return
+        times = []
+        series = {k: [] for k in ["top", "mid", "bot", "kessel", "warm", "outdoor"]}
+        now = datetime.now(pytz.timezone("Europe/Vienna"))
+        for row in data:
+            ts = self._parse_ts(row['timestamp'])
+            if not ts or ts > now + timedelta(seconds=60):
+                continue
+            times.append(ts)
+            series["top"].append(float(row.get("top", np.nan)))
+            series["mid"].append(float(row.get("mid", np.nan)))
+            series["bot"].append(float(row.get("bot", np.nan)))
+            series["kessel"].append(float(row.get("kessel", np.nan)))
+            series["warm"].append(float(row.get("warm", np.nan)))
+            series["outdoor"].append(float(row.get("outdoor", np.nan)))
+        if not times:
+            self.ax.clear()
+            self.ax.text(0.5, 0.5, "Keine Daten", ha="center", va="center", color=COLOR_SUBTEXT, fontsize=14)
+            self.canvas.draw_idle()
+            self.statusbar.config(text="Keine gültigen Zeitstempel.")
+            self._schedule_update()
+            return
+        # Interpolate missing values as gaps (no fake values)
+        for k in series:
+            arr = np.array(series[k])
+            arr[arr == 0] = np.nan
+            series[k] = arr
+        self.ax.clear()
+        for spine in self.ax.spines.values():
+            spine.set_color(COLOR_BORDER)
+        # Plot lines
+        colors = [COLOR_PRIMARY, COLOR_INFO, COLOR_WARNING, COLOR_DANGER, COLOR_SUCCESS, COLOR_SUBTEXT]
+        labels = ["Puffer Oben", "Puffer Mitte", "Puffer Unten", "Kessel", "Warmwasser", "Außen"]
+        for i, k in enumerate(["top", "mid", "bot", "kessel", "warm", "outdoor"]):
+            self.ax.plot(times, series[k], label=labels[i], color=colors[i], linewidth=1.5, linestyle="-" if k!="outdoor" else "--")
+        self.ax.set_xlim(min(times), max(times))
+        self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m %H:%M', tz=pytz.timezone("Europe/Vienna")))
+        self.ax.set_ylabel('°C')
+        self.ax.set_xlabel('Zeit')
+        self.ax.grid(True, alpha=0.25)
+        self.ax.legend(loc='upper right', fontsize=9, frameon=False)
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
+        # Statuszeile
+        self.statusbar.config(text=f"Letztes Update: {datetime.now().strftime('%H:%M')} – Datenpunkte: {len(times)}")
+        self._schedule_update()
+
+    # Remove obsolete code referencing undefined 'parent'
 
     def _schedule_update(self):
         self.after_job = self.after(30000, self._update_plot)
