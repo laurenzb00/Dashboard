@@ -35,30 +35,30 @@ class EnergyFlowView(tk.Frame):
         c = getattr(self, "canvas", None)
         if c is None:
             return
-        # Matplotlib FigureCanvasTkAgg hat draw_idle / draw
-        if hasattr(c, "draw_idle"):
-            c.draw_idle()
+        fn = getattr(c, "draw_idle", None)
+        if callable(fn):
+            fn()
             return
-        if hasattr(c, "draw"):
-            c.draw()
+        fn = getattr(c, "draw", None)
+        if callable(fn):
+            fn()
             return
-        # tkinter fallback
-        w = getattr(c, "get_tk_widget", None)
-        if callable(w):
-            try:
-                w().update_idletasks()
-            except Exception:
-                pass
-            return
+        # tk.Canvas fallback
         try:
             c.update_idletasks()
         except Exception:
-            pass
+            try:
+                c.after_idle(lambda: None)
+            except Exception:
+                pass
+
+    def _calc_load_kw(self, pv_kw, grid_kw, batt_kw):
+        # Annahme: grid_kw > 0 = Import, < 0 = Export
+        # Hausverbrauch = PV + Batterie + Netz (Import positiv)
+        return pv_kw + batt_kw + grid_kw
 
     def update_data(self, data: dict):
         """Update für Energiefluss-View: erwartet dict mit final keys."""
-        import logging
-        logger = logging.getLogger("dashboard.energyflow")
         def as_float(x, default=0.0):
             try:
                 return float(x)
@@ -69,22 +69,34 @@ class EnergyFlowView(tk.Frame):
         grid_kw = as_float(data.get("grid_power_kw", 0.0))
         batt_kw = as_float(data.get("battery_power_kw", 0.0))
         soc     = as_float(data.get("battery_soc_pct", 0.0))
-        load_w  = pv_kw + grid_kw + batt_kw
-        print(
-            "[FLOW_IN]",
-            pv_kw, grid_kw, batt_kw, load_w, soc,
-            flush=True
-        )
-        self.update_flows(pv_kw, load_w, grid_kw, batt_kw, soc)
-        try:
-            if hasattr(self.canvas, "draw_idle"):
-                self.canvas.draw_idle()
-            elif hasattr(self.canvas, "draw"):
-                self.canvas.draw()
-            else:
-                self.canvas.update_idletasks()
-        except Exception:
-            pass
+        load_kw = self._calc_load_kw(pv_kw, grid_kw, batt_kw)
+        print("[FLOW_IN]", pv_kw, grid_kw, batt_kw, load_kw, soc, flush=True)
+        self.update_flows(pv_kw, load_kw, grid_kw, batt_kw, soc)
+
+    def update_flows(self, pv_w, load_w, grid_w, batt_w, soc):
+        """Update power flows - only re-render if values changed significantly (save CPU)."""
+        values = (pv_w, load_w, grid_w, batt_w, soc)
+        last = getattr(self, "_last_flows", None)
+        if last is not None:
+            # Nur redraw wenn Werte sich signifikant ändern
+            if all(abs(a - b) < 0.01 for a, b in zip(values, last)):
+                return
+        self._last_flows = values
+        # Check for canvas size changes
+        cw = max(200, self.canvas.winfo_width())
+        ch = max(200, self.canvas.winfo_height())
+        # Only recreate layout if size changed by more than 30px
+        if abs(cw - self.width) > 30 or abs(ch - self.height) > 30:
+            elapsed = time.time() - self._start_time
+            if DEBUG_LOG:
+                print(f"[ENERGY] update_flows detected SIGNIFICANT size change at {elapsed:.3f}s: {self.width}x{self.height} -> {cw}x{ch}")
+            self.width, self.height = cw, ch
+            self.nodes = self._define_nodes()
+            self._base_img = self._render_background()
+        frame = self.render_frame(pv_w, load_w, grid_w, batt_w, soc)
+        self._tk_img = ImageTk.PhotoImage(frame)
+        self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
+        self._request_redraw()
 
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)
@@ -532,26 +544,6 @@ class EnergyFlowView(tk.Frame):
         self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1] + 8, size=20, color=COLOR_TEXT, outline=True)
         self._text_center(draw, "SoC", bat[0], bat[1] + 28, size=12, color=COLOR_TEXT, outline=True)
         return img
-
-    def update_flows(self, pv_w, load_w, grid_w, batt_w, soc):
-        """Update power flows - only re-render if values changed significantly (save CPU)."""
-        values = (pv_w, load_w, grid_w, batt_w, soc)
-        self._last_flows = values
-        # Check for canvas size changes
-        cw = max(200, self.canvas.winfo_width())
-        ch = max(200, self.canvas.winfo_height())
-        # Only recreate layout if size changed by more than 30px
-        if abs(cw - self.width) > 30 or abs(ch - self.height) > 30:
-            elapsed = time.time() - self._start_time
-            if DEBUG_LOG:
-                print(f"[ENERGY] update_flows detected SIGNIFICANT size change at {elapsed:.3f}s: {self.width}x{self.height} -> {cw}x{ch}")
-            self.width, self.height = cw, ch
-            self.nodes = self._define_nodes()
-            self._base_img = self._render_background()
-        frame = self.render_frame(pv_w, load_w, grid_w, batt_w, soc)
-        self._tk_img = ImageTk.PhotoImage(frame)
-        self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
-        self._request_redraw()
 
     def stop(self):
         """Cleanup resources to prevent memory leaks and segfaults."""
