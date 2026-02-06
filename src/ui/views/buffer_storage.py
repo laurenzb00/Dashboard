@@ -387,6 +387,11 @@ class BufferStorageView(tk.Frame):
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
         print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (outdoor)")
+        if rows:
+            print(f"[DEBUG] Beispiel-Eintrag (outdoor): {rows[0]}")
+            print(f"[DEBUG] Keys im ersten Eintrag: {list(rows[0].keys())}")
+        else:
+            print("[DEBUG] Keine Daten von get_recent_heating (outdoor)")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-800:]:
             ts = self._parse_ts(entry.get('timestamp'))
@@ -407,6 +412,11 @@ class BufferStorageView(tk.Frame):
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
         print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (puffer)")
+        if rows:
+            print(f"[DEBUG] Beispiel-Eintrag (puffer): {rows[0]}")
+            print(f"[DEBUG] Keys im ersten Eintrag: {list(rows[0].keys())}")
+        else:
+            print("[DEBUG] Keine Daten von get_recent_heating (puffer)")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-800:]:
             ts = self._parse_ts(entry.get('timestamp'))

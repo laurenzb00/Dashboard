@@ -249,84 +249,15 @@ class MainApp:
         # Add other tabs first
         self._add_other_tabs()
 
-        # Add PV Status Tab ganz nach rechts
-        self.pv_status_tab = tk.Frame(self.notebook, bg=COLOR_ROOT)
-        self.notebook.add(self.pv_status_tab, text=emoji("🔆 PV Status", "PV Status"))
-        self._init_pv_status_tab()
+        # Add Status Tab ganz nach rechts
+        try:
+            from tabs.status import StatusTab
+            self.status_tab = StatusTab(self.root, self.notebook, datastore=self.datastore)
+        except Exception as e:
+            print(f"[STATUS-TAB-ERROR] {e}")
+            self.status_tab = None
 
-    def _init_pv_status_tab(self):
-        frame = self.pv_status_tab
-        self.pv_status_pv = tk.StringVar(value="-- kW")
-        self.pv_status_batt = tk.StringVar(value="-- %")
-        self.pv_status_grid = tk.StringVar(value="-- kW")
-        self.pv_status_recommend = tk.StringVar(value="--")
-        self.pv_status_time = tk.StringVar(value="--")
-        row = 0
-        tk.Label(frame, text="PV-Leistung", font=("Segoe UI", 16), fg="#0ea5e9", bg=COLOR_ROOT).grid(row=row, column=0, sticky="w", padx=20, pady=8)
-        tk.Label(frame, textvariable=self.pv_status_pv, font=("Segoe UI", 16, "bold"), fg="#0ea5e9", bg=COLOR_ROOT).grid(row=row, column=1, sticky="w")
-        row += 1
-        tk.Label(frame, text="Batterie", font=("Segoe UI", 14), fg="#10b981", bg=COLOR_ROOT).grid(row=row, column=0, sticky="w", padx=20, pady=4)
-        tk.Label(frame, textvariable=self.pv_status_batt, font=("Segoe UI", 14), fg="#10b981", bg=COLOR_ROOT).grid(row=row, column=1, sticky="w")
-        row += 1
-        tk.Label(frame, text="Netzbezug", font=("Segoe UI", 14), fg="#ef4444", bg=COLOR_ROOT).grid(row=row, column=0, sticky="w", padx=20, pady=4)
-        tk.Label(frame, textvariable=self.pv_status_grid, font=("Segoe UI", 14), fg="#ef4444", bg=COLOR_ROOT).grid(row=row, column=1, sticky="w")
-        row += 1
-        tk.Label(frame, text="Empfehlung", font=("Segoe UI", 16, "bold"), fg="#f87171", bg=COLOR_ROOT).grid(row=row, column=0, sticky="w", padx=20, pady=16)
-        tk.Label(frame, textvariable=self.pv_status_recommend, font=("Segoe UI", 16, "bold"), fg="#f87171", bg=COLOR_ROOT).grid(row=row, column=1, sticky="w")
-        row += 1
-        tk.Label(frame, text="Letztes Update", font=("Segoe UI", 12), fg="#a3a3a3", bg=COLOR_ROOT).grid(row=row, column=0, sticky="w", padx=20, pady=8)
-        tk.Label(frame, textvariable=self.pv_status_time, font=("Segoe UI", 12), fg="#a3a3a3", bg=COLOR_ROOT).grid(row=row, column=1, sticky="w")
-        self._update_pv_status_tab()
-
-    def _update_pv_status_tab(self):
-        record = self.datastore.get_last_fronius_record() if self.datastore else None
-        if record:
-            pv = record.get('pv') or 0.0
-            batt = record.get('soc') or 0.0
-            grid = record.get('grid') or 0.0
-            timestamp = record.get('timestamp') or "--"
-            self.pv_status_pv.set(f"{pv:.2f} kW")
-            self.pv_status_batt.set(f"{batt:.0f} %")
-            self.pv_status_grid.set(f"{grid:.2f} kW")
-            if pv < 0.2:
-                rec = "Wenig PV – Netzbezug möglich."
-            elif batt < 20:
-                rec = "Batterie fast leer."
-            elif grid > 0.5:
-                rec = "Hoher Netzbezug."
-            else:
-                rec = "Alles ok."
-            self.pv_status_recommend.set(rec)
-            self.pv_status_time.set(timestamp)
-        else:
-            self.pv_status_pv.set("-- kW")
-            self.pv_status_batt.set("-- %")
-            self.pv_status_grid.set("-- kW")
-            self.pv_status_recommend.set("--")
-            self.pv_status_time.set("--")
-        self.root.after(30000, self._update_pv_status_tab)  # Pi 5: Update every 30s
-
-        # State
-        self._tick = 0
-        self._last_data = {
-            "pv": 0,
-            "load": 0,
-            "grid": 0,
-            "batt": 0,
-            "soc": 0,
-            "out_temp": 0,
-            "puffer_top": 0,
-            "puffer_mid": 0,
-            "puffer_bot": 0,
-        }
-        self._last_fresh_update = 0
-        self._data_fresh_seconds = None
-        self._source_health = {
-            "pv": {"label": "PV", "ts": None, "count": 0},
-            "heating": {"label": "Heizung", "ts": None, "count": 0},
-        }
-        self._last_status_compact = ""
-        self._loop()
+    # PV Status Tab und zugehörige Methoden entfernt, ersetzt durch StatusTab
 
     def _add_other_tabs(self):
         """Integriert den SpotifyTab (modern, mit OAuth) sowie Tado, Hue, System und Calendar Tabs."""
