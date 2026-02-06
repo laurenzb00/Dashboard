@@ -75,7 +75,7 @@ class EnergyFlowView(tk.Frame):
             pv_kw, grid_kw, batt_kw, load_w, soc,
             flush=True
         )
-        self.update_flows(pv=pv_kw, load=load_w, batt=batt_kw, grid=grid_kw, soc=soc)
+        self.update_flows(pv_kw, load_w, grid_kw, batt_kw, soc)
         try:
             if hasattr(self.canvas, "draw_idle"):
                 self.canvas.draw_idle()
