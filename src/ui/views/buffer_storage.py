@@ -50,16 +50,16 @@ DEBUG_LOG = False
 
 
 class BufferStorageView(tk.Frame):
-
-        def _build_stratified_data(self, top, mid, bot):
-            """
-            Returns a 3x1 numpy array for buffer visualization.
-            Extend this logic for more advanced stratification if needed.
-            """
-            arr = np.array([[top], [mid], [bot]], dtype=float)
-            arr[np.isnan(arr)] = 0.0
-            return arr
     """Heatmap-style visualization for buffer storage and boiler temperatures."""
+
+    def _build_stratified_data(self, top, mid, bot):
+        """
+        Returns a 3x1 numpy array for buffer visualization.
+        Extend this logic for more advanced stratification if needed.
+        """
+        arr = np.array([[top], [mid], [bot]], dtype=float)
+        arr[np.isnan(arr)] = 0.0
+        return arr
 
     def _create_sparkline(self):
         # Minimal placeholder to prevent crash; extend as needed
