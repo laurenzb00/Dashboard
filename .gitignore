@@ -41,3 +41,22 @@ Thumbs.db
 # Environment
 .env
 .env.local
+# virtual environments
+.venv
+venv
+
+# local python builds
+Python-3.12.0/
+Python-3.12.0.tgz
+
+# runtime/generated data
+src/core/ertrag_validation.json
+src/core/ertrag_history_backup.json
+
+# secrets / tokens
+config/.spotify_cache
+config/spotify_login_url.txt
+src/tabs/.tado_refresh_token
+
+# backups
+*.bak
