@@ -204,13 +204,6 @@ class MainApp:
         self._status_icon_ok, self._status_icon_warn = self._resolve_status_icons()
         # ...existing code...
 
-        # StatusTab hinzufügen
-        if StatusTab:
-            try:
-                self.status_tab = StatusTab(self.root, self.notebook, datastore=self.datastore)
-            except Exception as e:
-                print(f"[ERROR] StatusTab init failed: {e}")
-                self.status_tab = None
         self._base_energy_h = 230
         self._base_buffer_h = 180
         self.root.grid_rowconfigure(0, minsize=self._base_header_h)
@@ -288,6 +281,13 @@ class MainApp:
 
     def _add_other_tabs(self):
         """Integriert den SpotifyTab (modern, mit OAuth) sowie Tado, Hue, System und Calendar Tabs."""
+        # StatusTab hinzufügen
+        if StatusTab:
+            try:
+                self.status_tab = StatusTab(self.root, self.notebook, datastore=self.datastore)
+            except Exception as e:
+                print(f"[ERROR] StatusTab init failed: {e}")
+                self.status_tab = None
         if SpotifyTab:
             try:
                 print("[SPOTIFY] SpotifyTab wird als Tab hinzugefügt!")
@@ -423,6 +423,22 @@ class MainApp:
             self.is_fullscreen = True
             self.root.resizable(False, False)
             self.root.geometry("1024x600+0+0")
+        except Exception:
+            pass
+
+    def _apply_windowed(self):
+        """Setzt das Fenster in den Fenstermodus (kein Vollbild)."""
+        try:
+            self.root.attributes("-fullscreen", False)
+            self.root.overrideredirect(False)
+            self.root.resizable(True, True)
+            w, h = 900, 540
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2)
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+            self.is_fullscreen = False
         except Exception:
             pass
 
