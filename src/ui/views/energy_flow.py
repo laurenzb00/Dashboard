@@ -73,9 +73,9 @@ class EnergyFlowView(tk.Frame):
         self._icons_pil = {}  # PIL Images for embedding
         self._load_icons()
 
+        self.nodes = self._define_nodes()
         self._base_img = self._render_background()
         self._canvas_img = self.canvas.create_image(0, 0, anchor="nw")
-        
         # Performance optimization: track last values to skip rendering when unchanged
         self._last_flows = None
 
