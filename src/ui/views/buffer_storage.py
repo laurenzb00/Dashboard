@@ -44,31 +44,10 @@ except ImportError:
     def get_shared_datastore():
         return None
 
-from core.schema import BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_BOILER_C
 
 class BufferStorageView(tk.Frame):
-    def update_data(self, data: dict):
-        """Update für BufferStorageView: erwartet dict mit final keys."""
-        import logging
-        logger = logging.getLogger(__name__)
-        REQUIRED = [BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C]
-        missing = [k for k in REQUIRED if k not in data]
-        if missing:
-            logger.warning("[BUFFER] missing keys: %s", missing)
-
-        top = float(data.get("buf_top_c") or 0.0)
-        mid = float(data.get("buf_mid_c") or 0.0)
-        bot = float(data.get("buf_bottom_c") or 0.0)
-        boiler = float(data.get("bmk_boiler_c") or 0.0)
-        # Debug print every 2s
-        now = time.time()
-        if not hasattr(self, '_last_heat_dbg'):
-            self._last_heat_dbg = 0.0
-        if now - self._last_heat_dbg > 2.0:
-            print("[BUFFER_PARSED]", top, mid, bot, boiler, flush=True)
-            self._last_heat_dbg = now
-        self.update_temperatures(top, mid, bot, boiler)
-    """Heatmap-style buffer storage widget backed by SQLite data."""
+    """Heatmap-style visualization for buffer storage and boiler temperatures."""
 
     def __init__(self, parent: tk.Widget, height: int = 280, datastore=None):
         super().__init__(parent, bg=COLOR_CARD)
@@ -216,73 +195,26 @@ class BufferStorageView(tk.Frame):
         r, g, b = [int(255 * c) for c in rgba[:3]]
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def update_temperatures(self, top, mid, bot, kessel=None):
-        """Update der Visualisierung mit final keys (nur noch positional)."""
-        if not self.winfo_exists() or not hasattr(self, "canvas_widget"):
-            return
-        if not self.canvas_widget.winfo_exists():
-            return
+    def update_data(self, data: dict):
+        """Update für BufferStorageView: erwartet dict mit final keys."""
+        import logging
+        logger = logging.getLogger(__name__)
+        REQUIRED = [BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C]
+        missing = [k for k in REQUIRED if k not in data]
+        if missing:
+            logger.warning("[BUFFER] missing keys: %s", missing)
 
-        temps = (top, mid, bot)
-        if self._last_temps == temps:
-            return
-
-        self._last_temps = temps
-        self.norm = Normalize(vmin=min(temps) - 3, vmax=max(temps) + 3)
-        self.data = self._build_stratified_data(top, mid, bot)
-        self.im.set_data(self.data)
-        self.im.set_norm(self.norm)
-
-        c_top = self._temp_color(top)
-        c_mid = self._temp_color(mid)
-        c_bot = self._temp_color(bot)
-
-        for text in self.val_texts:
-            text.remove()
-        self.val_texts = [
-            self.ax.text(0.04, 0.85, f"{top:.1f}°C", transform=self.ax.transAxes, color=c_top,
-                         fontsize=9, va="center", ha="right", weight="bold"),
-            self.ax.text(0.04, 0.50, f"{mid:.1f}°C", transform=self.ax.transAxes, color=c_mid,
-                         fontsize=10, va="center", ha="right", weight="bold"),
-            self.ax.text(0.04, 0.15, f"{bot:.1f}°C", transform=self.ax.transAxes, color=c_bot,
-                         fontsize=9, va="center", ha="right", weight="bold"),
-        ]
-
-        if kessel is not None:
-            self.boiler_rect.set_facecolor(self._temp_color(kessel))
-            if hasattr(self, "boiler_temp_text"):
-                self.boiler_temp_text.remove()
-            self.boiler_temp_text = self.ax.text(
-                0.69,
-                0.30,
-                f"{kessel:.1f}°C",
-                transform=self.ax.transAxes,
-                color="#FFFFFF",
-                fontsize=8,
-                va="center",
-                ha="center",
-                weight="bold",
-                zorder=100,
-            )
-
-        self._update_sparkline()
-        try:
-            self.canvas.draw_idle()
-        except Exception as exc:
-            print(f"[BUFFER] Canvas draw error: {exc}")
-
-    def _build_stratified_data(self, top: float, mid: float, bottom: float) -> np.ndarray:
-        h = 120
-        y = np.linspace(0, 1, h)
-        vals = np.zeros_like(y)
-        for idx, pos in enumerate(y):
-            if pos < 0.33:
-                vals[idx] = bottom + (mid - bottom) * (pos / 0.33)
-            elif pos < 0.66:
-                vals[idx] = mid + (top - mid) * ((pos - 0.33) / 0.33)
-            else:
-                vals[idx] = top
-        return vals.reshape(h, 1)
+        top = float(data.get(BUF_TOP_C) or 0.0)
+        mid = float(data.get(BUF_MID_C) or 0.0)
+        bot = float(data.get(BUF_BOTTOM_C) or 0.0)
+        boiler = float(data.get(BMK_BOILER_C) or 0.0)
+        now = time.time()
+        if not hasattr(self, '_last_heat_dbg'):
+            self._last_heat_dbg = 0.0
+        if now - self._last_heat_dbg > 2.0:
+            print("[BUFFER_PARSED]", top, mid, bot, boiler, flush=True)
+            self._last_heat_dbg = now
+        self.update_temperatures(top, mid, bot, boiler)
 
     def _create_sparkline(self) -> None:
         self.spark_fig = Figure(figsize=(3.4, 0.9), dpi=100)
@@ -504,22 +436,6 @@ class BufferStorageView(tk.Frame):
         except (ValueError, TypeError):
             return None
 
-    def update_temperatures(self, temp_top, temp_mid, temp_bot, temp_warmwasser=None):
-        """Aktualisiert die Visualisierung mit neuen Temperaturen."""
-        try:
-            t_top = float(temp_top)
-            t_mid = float(temp_mid)
-            t_bot = float(temp_bot)
-            t_warmwasser = float(temp_warmwasser) if temp_warmwasser is not None else None
-        except (ValueError, TypeError):
-            t_top, t_mid, t_bot = 0, 0, 0
-            t_warmwasser = None
-        # Beispiel: Heatmap/Gradient/Block-Update
-        # Hier könntest du weitere Visualisierungen einbauen
-        # Für die Sparkline gibt es keine Temperaturanzeige, aber ggf. für andere Widgets
-        # Placeholder: Du kannst hier z.B. Labels setzen oder eine eigene Methode aufrufen
-        # print(f"[BUFFER] update_temperatures: top={t_top}, mid={t_mid}, bot={t_bot}, warmwasser={t_warmwasser}")
-        pass
     def stop(self):
         """Cleanup resources to prevent memory leaks and segfaults."""
         try:
