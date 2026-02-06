@@ -35,50 +35,33 @@ class EnergyFlowView(tk.Frame):
         c = getattr(self, "canvas", None)
         if c is None:
             return
-        fn = getattr(c, "draw_idle", None)
-        if callable(fn):
-            fn()
+        if hasattr(c, "draw_idle"):
+            c.draw_idle()
             return
-        fn = getattr(c, "draw", None)
-        if callable(fn):
-            fn()
+        if hasattr(c, "draw"):
+            c.draw()
             return
-        # tk.Canvas fallback
         try:
             c.update_idletasks()
         except Exception:
-            try:
-                c.after_idle(lambda: None)
-            except Exception:
-                pass
-
-    def _calc_load_kw(self, pv_kw, grid_kw, batt_kw):
-        # Annahme: grid_kw > 0 = Import, < 0 = Export
-        # Hausverbrauch = PV + Batterie + Netz (Import positiv)
-        return pv_kw + batt_kw + grid_kw
+            pass
 
     def update_data(self, data: dict):
         """Update für Energiefluss-View: erwartet dict mit final keys."""
-        def as_float(x, default=0.0):
-            try:
-                return float(x)
-            except (TypeError, ValueError):
-                return default
-
-        pv_kw   = as_float(data.get("pv_power_kw", 0.0))
-        grid_kw = as_float(data.get("grid_power_kw", 0.0))
-        batt_kw = as_float(data.get("battery_power_kw", 0.0))
-        soc     = as_float(data.get("battery_soc_pct", 0.0))
-        load_kw = self._calc_load_kw(pv_kw, grid_kw, batt_kw)
+        pv_kw   = float(data.get("pv_power_kw") or 0.0)
+        grid_kw = float(data.get("grid_power_kw") or 0.0)
+        batt_kw = float(data.get("battery_power_kw") or 0.0)
+        soc     = float(data.get("battery_soc_pct") or 0.0)
+        # Annahme: grid_power_kw ist Import positiv
+        load_kw = pv_kw + batt_kw + grid_kw
         print("[FLOW_IN]", pv_kw, grid_kw, batt_kw, load_kw, soc, flush=True)
         self.update_flows(pv_kw, load_kw, grid_kw, batt_kw, soc)
 
-    def update_flows(self, pv_w, load_w, grid_w, batt_w, soc):
-        """Update power flows - only re-render if values changed significantly (save CPU)."""
-        values = (pv_w, load_w, grid_w, batt_w, soc)
+    def update_flows(self, pv_kw, load_kw, grid_kw, batt_kw, soc):
+        """Update power flows - nur redraw wenn Werte sich signifikant ändern."""
+        values = (pv_kw, load_kw, grid_kw, batt_kw, soc)
         last = getattr(self, "_last_flows", None)
         if last is not None:
-            # Nur redraw wenn Werte sich signifikant ändern
             if all(abs(a - b) < 0.01 for a, b in zip(values, last)):
                 return
         self._last_flows = values
@@ -93,7 +76,7 @@ class EnergyFlowView(tk.Frame):
             self.width, self.height = cw, ch
             self.nodes = self._define_nodes()
             self._base_img = self._render_background()
-        frame = self.render_frame(pv_w, load_w, grid_w, batt_w, soc)
+        frame = self.render_frame(pv_kw, load_kw, grid_kw, batt_kw, soc)
         self._tk_img = ImageTk.PhotoImage(frame)
         self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
         self._request_redraw()
