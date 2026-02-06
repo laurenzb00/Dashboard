@@ -138,14 +138,14 @@ class DataStore:
                         ts = row.get('Zeitstempel') or row.get('timestamp')
                         if not ts:
                             continue
-                        pv = _safe_float(_first_value(row,
-                            'PV-Leistung (kW)', 'PV', 'PV [kW]', 'P_PV'))
-                        grid = _safe_float(_first_value(row,
-                            'Netz-Leistung (kW)', 'Netz', 'Netz [kW]', 'P_Grid'))
-                        batt = _safe_float(_first_value(row,
-                            'Batterie-Leistung (kW)', 'Batterie', 'Batterie [kW]', 'P_Akku'))
-                        soc = _safe_float(_first_value(row,
-                            'Batterieladestand (%)', 'SOC', 'SoC', 'State of Charge'))
+                        pv = _safe_float(_first_value(
+                            row, 'PV-Leistung (kW)', 'PV', 'PV [kW]', 'P_PV'))
+                        grid = _safe_float(_first_value(
+                            row, 'Netz-Leistung (kW)', 'Netz', 'Netz [kW]', 'P_Grid'))
+                        batt = _safe_float(_first_value(
+                            row, 'Batterie-Leistung (kW)', 'Batterie', 'Batterie [kW]', 'P_Akku'))
+                        soc = _safe_float(_first_value(
+                            row, 'Batterieladestand (%)', 'SOC', 'SoC', 'State of Charge'))
 
                         cursor.execute(
                             """
@@ -325,7 +325,8 @@ class DataStore:
         cursor = self.conn.cursor()
         sql = (
             "SELECT timestamp, pv_power, grid_power, batt_power, soc "
-            "FROM fronius WHERE (? IS NULL OR timestamp >= ?) ORDER BY timestamp ASC"
+            "FROM fronius WHERE (? IS NULL OR timestamp >= ?) "
+            "ORDER BY timestamp ASC"
         )
         params: list = [cutoff, cutoff]
         if limit:
@@ -348,7 +349,8 @@ class DataStore:
         cursor = self.conn.cursor()
         sql = (
             "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
-            "FROM heating WHERE (? IS NULL OR timestamp >= ?) ORDER BY timestamp ASC"
+            "FROM heating WHERE (? IS NULL OR timestamp >= ?) "
+            "ORDER BY timestamp ASC"
         )
         params: list = [cutoff, cutoff]
         if limit:
