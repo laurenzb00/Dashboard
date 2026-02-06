@@ -139,8 +139,19 @@ class MainApp:
         db_text = "OK"
         db_ts_str = "--"
         if db_ts is None:
-            db_color = "#cccccc"
-            db_text = "--"
+            # Prüfe, ob DB leer ist (keine Daten)
+            try:
+                has_pv = self.datastore.get_last_fronius_record() is not None
+                has_heat = self.datastore.get_last_heating_record() is not None
+            except Exception:
+                has_pv = False
+                has_heat = False
+            if not has_pv and not has_heat:
+                db_color = "#ffaa00"  # orange/gelb für Warnung
+                db_text = "Keine Daten"
+            else:
+                db_color = "#cccccc"
+                db_text = "--"
         else:
             db_ts_str = db_ts.strftime("%H:%M:%S")
             delta = datetime.now() - db_ts
@@ -287,6 +298,17 @@ class MainApp:
             on_exit=self.on_exit,
         )
         self.header.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 2))
+
+        # Start periodic header update for date/time
+        self._update_header_datetime()
+    def _update_header_datetime(self):
+        now = datetime.now()
+        date_text = now.strftime("%d.%m.%Y")
+        weekday = now.strftime("%A")
+        time_text = now.strftime("%H:%M:%S")
+        out_temp = f"{self._last_data.get('out_temp', 0):.1f} °C"
+        self.header.update_header(date_text, weekday, time_text, out_temp)
+        self.root.after(1000, self._update_header_datetime)
 
         # Start periodic widget update
         self._periodic_widget_update()
