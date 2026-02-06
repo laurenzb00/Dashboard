@@ -31,6 +31,29 @@ MISSING_LOG_COOLDOWN = 60.0  # seconds
 from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT
 
 class EnergyFlowView(tk.Frame):
+        def _request_redraw(self):
+            c = getattr(self, "canvas", None)
+            if c is None:
+                return
+            # Matplotlib FigureCanvasTkAgg hat draw_idle / draw
+            if hasattr(c, "draw_idle"):
+                c.draw_idle()
+                return
+            if hasattr(c, "draw"):
+                c.draw()
+                return
+            # tkinter fallback
+            w = getattr(c, "get_tk_widget", None)
+            if callable(w):
+                try:
+                    w().update_idletasks()
+                except Exception:
+                    pass
+                return
+            try:
+                c.update_idletasks()
+            except Exception:
+                pass
     def update_data(self, data: dict):
         """Update für Energiefluss-View: erwartet dict mit final keys."""
         import logging
@@ -528,7 +551,7 @@ class EnergyFlowView(tk.Frame):
         frame = self.render_frame(pv_w, load_w, grid_w, batt_w, soc)
         self._tk_img = ImageTk.PhotoImage(frame)
         self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
-        self.canvas.draw_idle()
+        self._request_redraw()
 
     def stop(self):
         """Cleanup resources to prevent memory leaks and segfaults."""
