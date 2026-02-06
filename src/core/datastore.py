@@ -6,6 +6,7 @@ from collections import defaultdict
 import csv
 import os
 import sqlite3
+import logging
 import threading
 import time
 from datetime import datetime, timedelta
@@ -53,6 +54,20 @@ class DataStore:
         self.conn = None
         self._lock = threading.RLock()
         self._last_ingest_dt: Optional[datetime] = None
+        # Check if DB is locked by another process (try to acquire exclusive lock)
+        try:
+            test_conn = sqlite3.connect(self.db_path, timeout=2)
+            try:
+                test_conn.execute("BEGIN EXCLUSIVE")
+                test_conn.execute("ROLLBACK")
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e):
+                    logging.error(f"Die Datenbank {self.db_path} ist bereits von einem anderen Prozess gesperrt! Bitte stelle sicher, dass kein zweites Dashboard oder Import-Skript läuft.")
+                    raise SystemExit(1)
+            finally:
+                test_conn.close()
+        except Exception as e:
+            logging.error(f"Fehler beim Prüfen auf DB-Lock: {e}")
         self._init_db()
         self._hydrate_last_ingest_cache()
     

@@ -5,7 +5,7 @@ from typing import Dict, Optional
 import requests
 from core.datastore import get_shared_datastore
 
-logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
 
 # Fehler-Log Throttle: Nur alle 10 Minuten einen Timeout-Fehler loggen
