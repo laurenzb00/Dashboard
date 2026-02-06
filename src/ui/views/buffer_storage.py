@@ -216,6 +216,29 @@ class BufferStorageView(tk.Frame):
             self._last_heat_dbg = now
         self.update_temperatures(top, mid, bot, boiler)
 
+    def update_temperatures(self, top, mid, bot, kessel=None):
+        # Update heatmap values
+        if hasattr(self, 'im'):
+            self.im.set_data([top, mid, bot])
+        # Update text labels
+        if hasattr(self, 'val_texts'):
+            vals = [top, mid, bot]
+            for i, t in enumerate(self.val_texts):
+                t.set_text(f"{vals[i]:.1f}°C")
+        # Update boiler rectangle color
+        if hasattr(self, 'boiler_rect'):
+            color = self._get_boiler_color(kessel if kessel is not None else 0.0)
+            self.boiler_rect.set_facecolor(color)
+        # Redraw canvas
+        if hasattr(self, 'canvas'):
+            try:
+                self.canvas.draw_idle()
+            except Exception:
+                try:
+                    self.canvas.draw()
+                except Exception:
+                    pass
+
     def _create_sparkline(self) -> None:
         self.spark_fig = Figure(figsize=(3.4, 0.9), dpi=100)
         self.spark_fig.patch.set_alpha(0)
