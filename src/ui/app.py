@@ -177,6 +177,7 @@ class MainApp:
         self._resize_enabled = False
         self.root = root
         self.root.title("Smart Home Dashboard")
+            self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
         
         # Shared DataStore wird beim Start bereitgestellt
         self.datastore = datastore or safe_get_datastore()
@@ -407,20 +408,20 @@ class MainApp:
     def on_exit(self):
         self.status.update_status("Beende...")
         # Cleanup DataStore
-        if self.datastore:
-            try:
-                self.datastore.close()
-            except:
-                pass
-        self.root.after(100, self.root.quit)
-    
-    def _start_ertrag_validator(self):
-        """Starte wöchentliche Ertrag-Validierung im Hintergrund."""
-        def validate_loop():
-            # Beim Start validieren
-            try:
-                from core.ertrag_validator import validate_and_repair_ertrag
-                print("[ERTRAG] Validation beim Start...")
+
+            # --- Debug-Logging: Welche Keys/Werte gehen an die Views? (max alle 2s) ---
+            if not hasattr(self, '_dbg_last_dump'):
+                self._dbg_last_dump = 0.0
+            import logging
+            if now - self._dbg_last_dump > 2.0:
+                keys = [
+                    "pv_power_kw","grid_power_kw","battery_power_kw","battery_soc_pct",
+                    "bmk_boiler_c","buf_top_c","buf_mid_c","buf_bottom_c"
+                ]
+                logger = logging.getLogger(__name__)
+                logger.info("[DATA_KEYS] %s", {k: data.get(k, "MISSING") for k in keys})
+                logger.info("[DATA_ALL_KEYS] %s", sorted(list(data.keys()))[:50])
+                self._dbg_last_dump = now
                 validate_and_repair_ertrag(self.datastore)
                 print("[ERTRAG] Ertrag- und Heizungs-Tabs werden aktualisiert...")
                 # Update tabs after validation
