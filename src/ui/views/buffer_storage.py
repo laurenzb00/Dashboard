@@ -49,6 +49,10 @@ from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_BOILER_C
 DEBUG_LOG = False
 
 class BufferStorageView(tk.Frame):
+        def _create_sparkline(self):
+            # Minimal placeholder to prevent crash; extend as needed
+            # You can implement the actual sparkline drawing here
+            pass
     """Heatmap-style visualization for buffer storage and boiler temperatures."""
 
     def __init__(self, parent: tk.Widget, height: int = 280, datastore=None):
