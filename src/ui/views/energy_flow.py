@@ -69,24 +69,23 @@ class EnergyFlowView(tk.Frame):
         grid_kw = as_float(data.get("grid_power_kw", 0.0))
         batt_kw = as_float(data.get("battery_power_kw", 0.0))
         soc     = as_float(data.get("battery_soc_pct", 0.0))
-
-        self._last_flows = (pv_kw, grid_kw, batt_kw, soc)
-
-        # Rate-limitiertes Info-Logging (max 1x/2s)
-        now = time.time()
-        if not hasattr(self, '_last_energy_log_ts'):
-            self._last_energy_log_ts = 0.0
-        if now - self._last_energy_log_ts > 2.0:
-            logger.info("[ENERGY_FLOW] pv=%.2f kW grid=%.2f kW batt=%.2f kW soc=%.1f%%", pv_kw, grid_kw, batt_kw, soc)
-            self._last_energy_log_ts = now
-
-        self.update_flows(
-            pv_kw,
-            0.0,      # load_kw, falls benötigt: pv_kw + grid_kw - batt_kw
-            grid_kw,
-            batt_kw,
-            soc
+        load_w  = pv_kw + grid_kw + batt_kw
+        print(
+            "[FLOW_IN]",
+            pv_kw, grid_kw, batt_kw, load_w, soc,
+            flush=True
         )
+        self.update_flows(pv=pv_kw, load=load_w, batt=batt_kw, grid=grid_kw, soc=soc)
+        try:
+            if hasattr(self.canvas, "draw_idle"):
+                self.canvas.draw_idle()
+            elif hasattr(self.canvas, "draw"):
+                self.canvas.draw()
+            else:
+                self.canvas.update_idletasks()
+        except Exception:
+            pass
+
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)
         self._last_missing_log = {"pv": 0.0, "batt": 0.0}

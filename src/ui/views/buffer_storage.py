@@ -56,26 +56,10 @@ class BufferStorageView(tk.Frame):
         if missing:
             logger.warning("[BUFFER] missing keys: %s", missing)
 
-        def as_float(x, default=0.0):
-            try:
-                return float(x)
-            except (TypeError, ValueError):
-                return default
-
-        top = as_float(data.get(BUF_TOP_C))
-        mid = as_float(data.get(BUF_MID_C))
-        bot = as_float(data.get(BUF_BOTTOM_C))
-        kessel = as_float(data.get(BMK_BOILER_C), None)
-
-        # Rate-limitiertes Debug-Logging für 0.0-Werte (max 1x/5s)
-        if not hasattr(self, '_last_zero_log_ts'):
-            self._last_zero_log_ts = 0.0
-        now = time.time()
-        if (top == 0.0 or mid == 0.0 or bot == 0.0 or (kessel is not None and kessel == 0.0)) and (now - self._last_zero_log_ts > 5.0):
-            logger.debug("[BUFFER] values: top=%.1f mid=%.1f bot=%.1f kessel=%s", top, mid, bot, str(kessel))
-            self._last_zero_log_ts = now
-
-        # Labels/StringVars immer setzen, auch wenn 0.0
+        top = data.get("buf_top_c")
+        mid = data.get("buf_mid_c")
+        bot = data.get("buf_bottom_c")
+        kessel = data.get("bmk_boiler_c")
         self.update_temperatures(top, mid, bot, kessel)
     """Heatmap-style buffer storage widget backed by SQLite data."""
 
