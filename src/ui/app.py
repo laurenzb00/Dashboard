@@ -133,6 +133,7 @@ class MainApp:
             "kesseltemperatur": 0,
         }
         self._data_fresh_seconds = None
+        self._last_status_compact = ""
         
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
