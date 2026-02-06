@@ -49,7 +49,7 @@ def close_shared_datastore() -> None:
 class DataStore:
     def normalize_heating_record(self, record: dict, stale_minutes: int = 5) -> dict:
         """Normalize heating record for UI: parse timestamp, map keys, handle staleness."""
-        from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+        from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         ts = record.get('timestamp')
         dt = _parse_iso_timestamp(ts)
         now = datetime.now()
