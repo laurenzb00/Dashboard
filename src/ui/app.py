@@ -238,6 +238,10 @@ class MainApp:
         self._data_fresh_seconds = None
         self._last_status_compact = ""
         
+        # Define base header and status heights before using them
+        self._base_header_h = 56
+        self._base_status_h = 44
+
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
         
