@@ -132,6 +132,7 @@ class MainApp:
             "warmwasser": 0,
             "kesseltemperatur": 0,
         }
+        self._data_fresh_seconds = None
         
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
