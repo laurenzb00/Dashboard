@@ -213,7 +213,7 @@ class HistoricalTab(Frame):
             self.fig.clf()
             self.canvas.get_tk_widget().destroy()
         except Exception:
-            passimport tkinter as tk
+            pass
 from tkinter import ttk
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
