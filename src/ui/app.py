@@ -408,16 +408,6 @@ class MainApp:
     def on_exit(self):
         self.status.update_status("Beende...")
         # Cleanup DataStore
-                validate_and_repair_ertrag(self.datastore)
-                print("[ERTRAG] Ertrag- und Heizungs-Tabs werden aktualisiert...")
-                # Update tabs after validation
-                if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
-                    self.ertrag_tab._last_key = None
-                    self.ertrag_tab._update_plot()
-                if hasattr(self, 'historical_tab') and self.historical_tab:
-                    self.historical_tab._last_key = None
-                    self.historical_tab._update_plot()
-            except Exception as e:
                 print(f"[ERTRAG] Validator nicht verfügbar: {e}")
             
             # Dann jede Woche wiederholen (7 Tage = 604800 Sekunden)
