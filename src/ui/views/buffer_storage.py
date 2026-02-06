@@ -40,6 +40,14 @@ class BufferStorageView(tk.Frame):
         self._create_sparkline()
         self.after(self.SPARK_UPDATE_INTERVAL, self._schedule_sparkline_update)
 
+    def _create_sparkline(self) -> None:
+        self.spark_fig = Figure(figsize=(3.4, 0.9), dpi=100)
+        self.spark_fig.patch.set_alpha(0)
+        self.spark_ax = self.spark_fig.add_subplot(111)
+        self.spark_ax.set_facecolor("none")
+        self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
+        self.spark_canvas.get_tk_widget().pack(fill=tk.X, expand=False)
+
     def _schedule_sparkline_update(self):
         self._update_sparkline()
         self.after(self.SPARK_UPDATE_INTERVAL, self._schedule_sparkline_update)
