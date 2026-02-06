@@ -44,18 +44,13 @@ class EnergyFlowView(tk.Frame):
         for name, val in [('pv', pv), ('batt', batt)]:
             if val is None and log_this:
                 print(f"[INFO] {name} value missing/None, set to 0.0 for EnergyFlowView")
-                home = self.nodes["home"]
-                bat = self.nodes["battery"]
         self.update_flows(
             as_float(pv),
             as_float(load),
             as_float(grid),
             as_float(batt),
             as_float(soc)
-                if grid_w > 0:
-                    self._draw_arrow(draw, grid, home, COLOR_INFO, thickness(grid_w))
-                    # Always show kW for Grid->Haus arrow
-                    self._draw_flow_label(img, grid, home, grid_w if abs(grid_w) < 1000 else grid_w, offset=28, along=0, color=COLOR_INFO, force_kw=True)
+        )
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)
         self._start_time = time.time()
