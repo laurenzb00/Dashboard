@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.colors import Normalize
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse, FancyBboxPatch, Rectangle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -194,6 +194,9 @@ class BufferStorageView(tk.Frame):
         rgba = self._build_cmap()(self.norm(temp))
         r, g, b = [int(255 * c) for c in rgba[:3]]
         return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _get_boiler_color(self, temp: float) -> str:
+        return self._temp_color(temp)
 
     def update_data(self, data: dict):
         """Update für BufferStorageView: erwartet dict mit final keys."""
