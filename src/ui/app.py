@@ -140,6 +140,12 @@ class MainApp:
 
     def update_tick(self):
         """Zentrale UI-Update-Schleife: holt aktuelle Daten, aktualisiert Widgets und Status."""
+        import time
+        self._tick_count += 1
+        now = time.time()
+        if now - self._dbg_last_dump > 2.0:
+            print(f"[TICK] count={self._tick_count}", flush=True)
+            self._dbg_last_dump = now
         from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         try:
             now = time.time()
@@ -214,6 +220,7 @@ class MainApp:
         self._resize_enabled = False
         self.root = root
         self.root.title("Smart Home Dashboard")
+        self._tick_count = 0
         self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
         
         # Shared DataStore wird beim Start bereitgestellt
