@@ -37,13 +37,21 @@ class StatusTab:
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=1)
         body.grid_columnconfigure(0, weight=1)
-        # OK-Lampe
+        # Drei Status-Lampen: DB, PV, Heizung
         self.lamp_frame = tk.Frame(body, bg=COLOR_CARD)
         self.lamp_frame.grid(row=0, column=0, sticky="ew", pady=(0,8))
-        self.lamp_label = tk.Label(self.lamp_frame, text="DB Status:", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Consolas", 11))
-        self.lamp_label.pack(side=tk.LEFT, padx=(0,8))
-        self.lamp_indicator = tk.Canvas(self.lamp_frame, width=24, height=24, bg=COLOR_CARD, highlightthickness=0)
-        self.lamp_indicator.pack(side=tk.LEFT)
+        self.lamps = {}
+        for key, label in [("db", "DB"), ("pv", "PV"), ("heating", "Heizung")]:
+            lamp = tk.Canvas(self.lamp_frame, width=24, height=24, bg=COLOR_CARD, highlightthickness=0)
+            lamp.pack(side=tk.LEFT, padx=(0,8))
+            self.lamps[key] = lamp
+            lbl = tk.Label(self.lamp_frame, text=f"{label}:", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Consolas", 11))
+            lbl.pack(side=tk.LEFT, padx=(0,4))
+        self.lamp_ts_labels = {}
+        for key in ["db", "pv", "heating"]:
+            ts_lbl = tk.Label(self.lamp_frame, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Consolas", 10))
+            ts_lbl.pack(side=tk.LEFT, padx=(0,12))
+            self.lamp_ts_labels[key] = ts_lbl
         # Textbereich
         self.text = tk.Text(body, height=30, width=120, bg=COLOR_CARD, fg=COLOR_TEXT, font=("Consolas", 10))
         self.text.grid(row=1, column=0, sticky="nsew")
@@ -68,24 +76,111 @@ class StatusTab:
         if not self.datastore:
             return
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Lampen-Logik: Prüfe Zeitstempel des letzten Datensatzes
+        # DB Status: show status based on most recent of PV or Heizung
         try:
-            last_ts = self.datastore.get_last_ingest_datetime()
+            pv_rec = self.datastore.get_last_fronius_record()
+            pv_ts = pv_rec["timestamp"] if pv_rec else None
         except Exception:
-            last_ts = None
-        lamp_color = "#44cc44"  # grün
-        lamp_text = "OK"
-        if last_ts is None:
-            lamp_color = "#cccccc"
-            lamp_text = "--"
+            pv_ts = None
+        try:
+            heat_rec = self.datastore.get_last_heating_record()
+            heat_ts = heat_rec["timestamp"] if heat_rec else None
+        except Exception:
+            heat_ts = None
+        db_color = "#cccccc"
+        db_text = "--"
+        db_ts_str = "--"
+        now_dt = datetime.now()
+        latest_dt = None
+        if pv_ts and heat_ts:
+            try:
+                pv_dt = datetime.fromisoformat(pv_ts)
+                heat_dt = datetime.fromisoformat(heat_ts)
+                if pv_dt > heat_dt:
+                    latest_dt = pv_dt
+                else:
+                    latest_dt = heat_dt
+            except Exception:
+                latest_dt = None
+        elif pv_ts:
+            try:
+                latest_dt = datetime.fromisoformat(pv_ts)
+            except Exception:
+                latest_dt = None
+        elif heat_ts:
+            try:
+                latest_dt = datetime.fromisoformat(heat_ts)
+            except Exception:
+                latest_dt = None
+        if latest_dt:
+            db_ts_str = latest_dt.strftime('%H:%M:%S')
+            age = (now_dt - latest_dt).total_seconds()
+            if age <= 60:
+                db_color = "#44cc44"
+                db_text = "OK"
+            else:
+                db_color = "#cc4444"
+                db_text = "ALT"
+        self.lamps["db"].delete("all")
+        self.lamps["db"].create_oval(2,2,22,22, fill=db_color, outline="#888", width=2)
+        self.lamps["db"].create_text(12,12, text=db_text, fill="#fff", font=("Consolas", 9, "bold"))
+        self.lamp_ts_labels["db"].config(text=db_ts_str)
+
+        # PV Status
+        try:
+            pv_rec = self.datastore.get_last_fronius_record()
+            pv_ts = pv_rec["timestamp"] if pv_rec else None
+        except Exception:
+            pv_ts = None
+        pv_color = "#44cc44"
+        pv_text = "OK"
+        pv_ts_str = "--"
+        if pv_ts is None:
+            pv_color = "#cccccc"
+            pv_text = "--"
         else:
-            delta = datetime.now() - last_ts
-            if delta.total_seconds() > 60:
-                lamp_color = "#cc4444"  # rot
-                lamp_text = "ALT"
-        self.lamp_indicator.delete("all")
-        self.lamp_indicator.create_oval(2,2,22,22, fill=lamp_color, outline="#888", width=2)
-        self.lamp_indicator.create_text(12,12, text=lamp_text, fill="#fff", font=("Consolas", 9, "bold"))
+            try:
+                pv_dt = datetime.fromisoformat(pv_ts)
+                pv_ts_str = pv_dt.strftime("%H:%M:%S")
+                delta = datetime.now() - pv_dt
+                if delta.total_seconds() > 60:
+                    pv_color = "#cc4444"
+                    pv_text = "ALT"
+            except Exception:
+                pv_color = "#cccccc"
+                pv_text = "--"
+        self.lamps["pv"].delete("all")
+        self.lamps["pv"].create_oval(2,2,22,22, fill=pv_color, outline="#888", width=2)
+        self.lamps["pv"].create_text(12,12, text=pv_text, fill="#fff", font=("Consolas", 9, "bold"))
+        self.lamp_ts_labels["pv"].config(text=pv_ts_str)
+
+        # Heizung Status
+        try:
+            heat_rec = self.datastore.get_last_heating_record()
+            heat_ts = heat_rec["timestamp"] if heat_rec else None
+        except Exception:
+            heat_ts = None
+        heat_color = "#44cc44"
+        heat_text = "OK"
+        heat_ts_str = "--"
+        if heat_ts is None:
+            heat_color = "#cccccc"
+            heat_text = "--"
+        else:
+            try:
+                heat_dt = datetime.fromisoformat(heat_ts)
+                heat_ts_str = heat_dt.strftime("%H:%M:%S")
+                delta = datetime.now() - heat_dt
+                if delta.total_seconds() > 60:
+                    heat_color = "#cc4444"
+                    heat_text = "ALT"
+            except Exception:
+                heat_color = "#cccccc"
+                heat_text = "--"
+        self.lamps["heating"].delete("all")
+        self.lamps["heating"].create_oval(2,2,22,22, fill=heat_color, outline="#888", width=2)
+        self.lamps["heating"].create_text(12,12, text=heat_text, fill="#fff", font=("Consolas", 9, "bold"))
+        self.lamp_ts_labels["heating"].config(text=heat_ts_str)
         # Textbereich wie bisher
         try:
             pv = self.datastore.get_recent_fronius(hours=24, limit=10)

@@ -29,8 +29,26 @@ class StatusBar(tk.Frame):
         self.center_label = tk.Label(self.center_frame, text="", fg=COLOR_SUBTEXT, bg=COLOR_CARD, font=("Segoe UI", 11))
         self.center_label.pack(side=tk.LEFT, padx=(6, 8))
 
-        self.fresh_label = tk.Label(self.center_frame, text="Daten: --", fg=COLOR_SUBTEXT, bg=COLOR_CARD, font=("Segoe UI", 10))
-        self.fresh_label.pack(side=tk.LEFT, padx=(0, 8))
+        # Drei Lampen für DB, PV, Heizung
+        self.lamps = {}
+        self.lamp_ts_labels = {}
+        for key, label in [("db", "DB"), ("pv", "PV"), ("heating", "Heizung")]:
+            lamp = tk.Canvas(self.center_frame, width=18, height=18, bg=COLOR_CARD, highlightthickness=0)
+            lamp.pack(side=tk.LEFT, padx=(0,4))
+            self.lamps[key] = lamp
+            lbl = tk.Label(self.center_frame, text=f"{label}:", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 9))
+            lbl.pack(side=tk.LEFT, padx=(0,2))
+            ts_lbl = tk.Label(self.center_frame, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 8))
+            ts_lbl.pack(side=tk.LEFT, padx=(0,6))
+            self.lamp_ts_labels[key] = ts_lbl
+    def update_lamps(self, db_status, pv_status, heating_status):
+        """Update all three lamps and timestamps. Status: {color, text, ts}"""
+        for key, status in zip(["db", "pv", "heating"], [db_status, pv_status, heating_status]):
+            color, text, ts_str = status
+            self.lamps[key].delete("all")
+            self.lamps[key].create_oval(2,2,16,16, fill=color, outline="#888", width=1)
+            self.lamps[key].create_text(9,9, text=text, fill="#fff", font=("Segoe UI", 7, "bold"))
+            self.lamp_ts_labels[key].config(text=ts_str)
 
         self.spark_canvas = tk.Canvas(self.center_frame, width=110, height=18, bg=COLOR_CARD, highlightthickness=0)
         self.spark_canvas.pack(side=tk.LEFT, padx=(0, 6))
