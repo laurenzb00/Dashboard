@@ -339,65 +339,6 @@ class HistoricalTab(Frame):
 
 # ...existing code...
 
-class HistoricalTab(Frame):
-    def __init__(self, parent, datastore, *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
-        self.datastore = datastore
-        self.root = parent.winfo_toplevel()
-        self.after_job = None
-
-        # Layout: Stats oben, Plot unten
-        self.grid_rowconfigure(0, minsize=80)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        self.stats_frame = tk.Frame(self, bg=COLOR_CARD, height=80)
-        self.stats_frame.grid(row=0, column=0, sticky="ew")
-        self.stats_frame.grid_propagate(False)
-
-        self.plot_frame = tk.Frame(self, bg=COLOR_CARD)
-        self.plot_frame.grid(row=1, column=0, sticky="nsew")
-
-        # Stats-Labels
-        self.stats_labels = {}
-        stats_keys = [
-            ("Puffer Oben", "top", COLOR_PRIMARY),
-            ("Puffer Mitte", "mid", COLOR_INFO),
-            ("Puffer Unten", "bot", COLOR_WARNING),
-            ("Kessel", "kessel", COLOR_DANGER),
-            ("Warmwasser", "warm", COLOR_TEXT),
-            ("Außen", "outdoor", COLOR_SUBTEXT),
-        ]
-        for idx, (name, key, color) in enumerate(stats_keys):
-            lbl = Label(self.stats_frame, text=f"{name}: -- °C", fg=color, bg=COLOR_CARD,
-                        font=("Segoe UI", 13, "bold"))
-            lbl.grid(row=0, column=idx, padx=12, pady=8, sticky="w")
-            self.stats_labels[key] = lbl
-
-        self.stale_label = Label(self.stats_frame, text="", fg=COLOR_DANGER, bg=COLOR_CARD,
-                                font=("Segoe UI", 11, "bold"))
-        self.stale_label.grid(row=1, column=0, columnspan=len(stats_keys), sticky="w", padx=12)
-
-        # Matplotlib Figure
-        self.fig = Figure(figsize=(7, 3), dpi=100)
-        self.ax = self.fig.add_subplot(111)
-        self.fig.patch.set_facecolor(COLOR_CARD)
-        self.ax.set_facecolor(COLOR_CARD)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        self._debounce_resize_id = None
-        self.bind("<Configure>", self._on_resize)
-
-        self._update_plot()
-        self._schedule_update()
-
-    def _on_resize(self, event):
-        if self._debounce_resize_id:
-            self.after_cancel(self._debounce_resize_id)
-        self._debounce_resize_id = self.after(200, self._resize_plot)
-
-    def _resize_plot(self):
         self.canvas.get_tk_widget().config(width=self.plot_frame.winfo_width(),
                                            height=self.plot_frame.winfo_height())
 
