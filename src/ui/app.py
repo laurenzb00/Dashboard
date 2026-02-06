@@ -100,6 +100,33 @@ except ImportError:
 
 
 class MainApp:
+    def build_tabs(self):
+        """Robustly rebuilds all tabs, ensuring correct references after UI changes (fullscreen, etc)."""
+        # Remove all tabs from notebook
+        try:
+            for tab_id in self.notebook.tabs():
+                self.notebook.forget(tab_id)
+        except Exception as e:
+            print(f"[build_tabs] Error removing tabs: {e}")
+
+        # Re-add dashboard tab
+        try:
+            self.notebook.add(self.dashboard_tab, text=emoji("⚡ Energie", "Energie"))
+        except Exception as e:
+            print(f"[build_tabs] Error adding dashboard tab: {e}")
+
+        # Rebuild and re-add all other tabs
+        self._add_other_tabs()
+        # Ensure all tab references are up to date
+        if hasattr(self, 'historical_tab') and self.historical_tab:
+            print("[build_tabs] historical_tab is set.")
+        else:
+            print("[build_tabs] historical_tab is None!")
+        if hasattr(self, 'spotify_tab') and self.spotify_tab:
+            print("[build_tabs] spotify_tab is set.")
+        if hasattr(self, 'hue_tab') and self.hue_tab:
+            print("[build_tabs] hue_tab is set.")
+
     def _start_ertrag_validator(self):
         """Starte wöchentliche Ertrag-Validierung im Hintergrund."""
         def validate_loop():
@@ -919,7 +946,6 @@ def run():
     root = tk.Tk()
     app = MainApp(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     run()

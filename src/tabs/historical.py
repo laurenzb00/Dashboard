@@ -338,9 +338,6 @@ class HistoricalTab(Frame):
         self.fig.tight_layout()
         self.canvas.draw_idle()
         self._schedule_update()
-        # Ensure tab is added to notebook
-        if hasattr(parent, "add"):
-            parent.add(self, text="Heizung-Historie")
 
     def _schedule_update(self):
         self._cancel_update()
