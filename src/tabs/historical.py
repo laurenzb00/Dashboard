@@ -37,6 +37,7 @@ class HistoricalTab(Frame):
         self._resize_debounce_id = None
         self._last_view_size = (0, 0)
         self._stats_warn = False
+        self._latest_data = None  # Will be set from MainApp
 
         # Layout: row 0 = stats, row 1 = plot
         self.grid_rowconfigure(0, minsize=60)
@@ -48,10 +49,10 @@ class HistoricalTab(Frame):
         self.stats_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8,2))
         self.stats_labels = {}
         value_names = [
-            ("Puffer Oben", "top", COLOR_PRIMARY),
-            ("Puffer Mitte", "mid", COLOR_INFO),
-            ("Puffer Unten", "bot", COLOR_WARNING),
-            ("Kessel", "kessel", COLOR_DANGER),
+            ("Puffer Oben", "buf_top_c", COLOR_PRIMARY),
+            ("Puffer Mitte", "buf_mid_c", COLOR_INFO),
+            ("Puffer Unten", "buf_bottom_c", COLOR_WARNING),
+            ("Kessel", "bmk_boiler_c", COLOR_DANGER),
             ("Warmwasser", "warm", COLOR_SUCCESS),
             ("Außen", "outdoor", COLOR_SUBTEXT),
         ]
@@ -59,6 +60,18 @@ class HistoricalTab(Frame):
             lbl = Label(self.stats_frame, text=f"{name}: --", fg=color, bg=COLOR_CARD, font=("Segoe UI", 12, "bold"))
             lbl.grid(row=0, column=i, sticky="nsew", padx=6, pady=2)
             self.stats_labels[key] = lbl
+
+    def update_data(self, data):
+        """Update stats and plot with latest data dict (same as energy tab)."""
+        self._latest_data = data
+        # Update stats
+        for key, lbl in self.stats_labels.items():
+            val = data.get(key, '--')
+            try:
+                lbl.config(text=f"{lbl.cget('text').split(':')[0]}: {float(val):.1f}")
+            except Exception:
+                lbl.config(text=f"{lbl.cget('text').split(':')[0]}: --")
+        # Optionally update plot here (if needed)
 
         # Datenalter
         self.age_label = Label(self.stats_frame, text="Datenalter: --", fg=COLOR_TEXT, bg=COLOR_CARD, font=("Segoe UI", 11))

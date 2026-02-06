@@ -174,6 +174,11 @@ class MainApp:
                     self.buffer_view.update_data(data)
                 except Exception:
                     logging.exception("buffer_view update_data failed")
+            if hasattr(self, 'historical_tab'):
+                try:
+                    self.historical_tab.update_data(data)
+                except Exception:
+                    logging.exception("historical_tab update_data failed")
 
             # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
             last_update = datetime.now().strftime('%H:%M:%S')
