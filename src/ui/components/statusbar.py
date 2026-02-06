@@ -4,11 +4,15 @@ from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_
 from ui.components.rounded import RoundedFrame
 
 
+
 class StatusBar(tk.Frame):
-        def set_status(self, text: str):
-            """Set the status label text (API-consistent)."""
-            self.status_label.config(text=text)
-    """32px Statusbar mit Zeitstempel, Fenster- und Exit-Button."""
+    """
+    32px Statusbar mit Zeitstempel, Fenster- und Exit-Button.
+    """
+
+    def set_status(self, text: str):
+        """Set the status label text (API-consistent)."""
+        self.status_label.config(text=text)
 
     def __init__(self, parent: tk.Widget, on_exit=None, on_toggle_fullscreen=None):
         super().__init__(parent, height=32, bg=COLOR_HEADER)
