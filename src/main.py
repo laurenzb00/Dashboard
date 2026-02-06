@@ -223,7 +223,11 @@ def run_bmkdaten():
 
 def main():
     start_time = time.time()
+
     root = tk.Tk()
+    # Fullscreen state tracking
+    root._fullscreen = True
+
 
     datastore = DataStore()
     set_shared_datastore(datastore)
@@ -247,8 +251,28 @@ def main():
     except Exception:
         pass
 
+
     root.title("Smart Energy Dashboard Pro")
     app = MainApp(root)
+
+    def set_fullscreen(enable: bool):
+        root._fullscreen = enable
+        root.attributes("-fullscreen", enable)
+        if enable:
+            root.focus_force()
+
+    def toggle_fullscreen(event=None):
+        set_fullscreen(not getattr(root, '_fullscreen', False))
+
+    def end_fullscreen(event=None):
+        set_fullscreen(False)
+
+    # Bind F11 to toggle, ESC to exit fullscreen
+    root.bind('<F11>', toggle_fullscreen)
+    root.bind('<Escape>', end_fullscreen)
+
+    # Set fullscreen after UI is built
+    root.after(200, lambda: set_fullscreen(True))
 
     def _start_collectors() -> list[threading.Thread]:
         threads: list[threading.Thread] = []
@@ -296,6 +320,7 @@ def main():
         except queue.Empty:
             pass
         root.after(500, poll_queue)
+
 
     poll_queue()
     root.mainloop()

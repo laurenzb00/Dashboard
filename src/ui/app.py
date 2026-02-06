@@ -101,6 +101,60 @@ except ImportError:
 
 
 class MainApp:
+        def update_tick(self):
+            """Zentrale UI-Update-Schleife: holt aktuelle Daten, aktualisiert Widgets und Status."""
+            try:
+                now = time.time()
+                # --- Datenquellen: Letzte Timestamps holen ---
+                pv = self.datastore.get_last_fronius_record() or {}
+                heat = self.datastore.get_last_heating_record() or {}
+                pv_ts = pv.get('timestamp')
+                heat_ts = heat.get('timestamp')
+                pv_age = int(now - self._parse_ts(pv_ts)) if pv_ts else None
+                heat_age = int(now - self._parse_ts(heat_ts)) if heat_ts else None
+                # --- Widgets/Diagramme updaten (nur im MainThread!) ---
+                if hasattr(self, 'energy_view'):
+                    self.energy_view.update(
+                        pv=pv.get('pv', 0),
+                        load=self._last_data.get('load', 0),
+                        battery=pv.get('batt', 0),
+                        grid=pv.get('grid', 0),
+                        battery_soc=pv.get('soc', 0)
+                    )
+                if hasattr(self, 'buffer_view'):
+                    self.buffer_view.update(
+                        top=heat.get('top', 0),
+                        mid=heat.get('mid', 0),
+                        bot=heat.get('bot', 0),
+                        warm=heat.get('warm', 0),
+                        kessel=heat.get('kessel', 0),
+                        outdoor=heat.get('outdoor', 0)
+                    )
+                # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
+                last_update = datetime.now().strftime('%H:%M:%S')
+                status_str = f"BMK age: {heat_age if heat_age is not None else '-'}s | Fronius age: {pv_age if pv_age is not None else '-'}s | last update: {last_update}"
+                if hasattr(self, 'status'):
+                    self.status.set_status(status_str)
+                # --- Rate-limitiertes Logging (alle 10s) ---
+                if not hasattr(self, '_last_log_tick'):
+                    self._last_log_tick = 0
+                if now - self._last_log_tick > 10:
+                    logging.info(f"latest values: PV {pv.get('pv', 0)}kW, Grid {pv.get('grid', 0)}kW, Batt {pv.get('batt', 0)}kW, SOC {pv.get('soc', 0)}%, Kessel {heat.get('kessel', 0)}°C, PufferTop {heat.get('top', 0)}°C")
+                    self._last_log_tick = now
+            except Exception:
+                logging.exception("update_tick failed")
+            # Tick erneut einplanen
+            self.root.after(500, self.update_tick)
+
+        @staticmethod
+        def _parse_ts(ts):
+            if not ts:
+                return 0
+            try:
+                # Versuche ISO-Format
+                return time.mktime(datetime.fromisoformat(ts).timetuple())
+            except Exception:
+                return 0
     def _periodic_widget_update(self):
         """Update all main widgets with live data from the datastore."""
         try:
@@ -268,6 +322,8 @@ class MainApp:
 
         # Nach komplettem Aufbau: garantiert Vollbild
         self._apply_fullscreen()
+        # Starte zentralen Update-Tick
+        self.root.after(500, self.update_tick)
     def _update_header_datetime(self):
         now = datetime.now()
         date_text = now.strftime("%d.%m.%Y")
