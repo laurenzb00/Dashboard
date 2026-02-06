@@ -177,7 +177,7 @@ class MainApp:
         self._resize_enabled = False
         self.root = root
         self.root.title("Smart Home Dashboard")
-            self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
+        self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
         
         # Shared DataStore wird beim Start bereitgestellt
         self.datastore = datastore or safe_get_datastore()
