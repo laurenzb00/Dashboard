@@ -208,72 +208,72 @@ class BufferStorageView(tk.Frame):
         r, g, b = [int(255 * c) for c in rgba[:3]]
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def update_temperatures(self, *args, **kwargs):
+    def update_temperatures(
+        self,
+        *,
+        kessel_c=None,
+        puffer_top=None,
+        puffer_mid=None,
+        puffer_bottom=None,
+        top=None,
+        middle=None,
+        bottom=None,
+        **kwargs
+    ):
         """
         Robustly update buffer storage temperatures.
-        Accepts either positional (top, mid, bottom, kessel_c) or keyword arguments (top=, mid=, bottom=, kessel_c=).
+        Accepts multiple keyword names for compatibility (kessel_c, puffer_top, top, etc.).
         """
-        # Accept both positional and keyword arguments for compatibility
-        # Priority: kwargs > args
         def as_float(x, default=0.0):
             try:
-                if x is None:
-                    return default
                 return float(x)
             except (TypeError, ValueError):
                 return default
 
-        # Extract values
-        if kwargs:
-            top = as_float(kwargs.get("top"))
-            mid = as_float(kwargs.get("mid"))
-            bottom = as_float(kwargs.get("bottom"))
-            kessel_c = as_float(kwargs.get("kessel_c"), None)
-        else:
-            # Support legacy signature: (top, mid, bottom, kessel_c=None)
-            top = as_float(args[0]) if len(args) > 0 else 0.0
-            mid = as_float(args[1]) if len(args) > 1 else 0.0
-            bottom = as_float(args[2]) if len(args) > 2 else 0.0
-            kessel_c = as_float(args[3], None) if len(args) > 3 else None
+        # Prefer puffer_* over top/middle/bottom if present
+        top_v = as_float(puffer_top if puffer_top is not None else top)
+        mid_v = as_float(puffer_mid if puffer_mid is not None else middle)
+        bot_v = as_float(puffer_bottom if puffer_bottom is not None else bottom)
+        kessel_v = as_float(kessel_c, None)
 
         if not self.winfo_exists() or not hasattr(self, "canvas_widget"):
             return
         if not self.canvas_widget.winfo_exists():
             return
 
-        temps = (top, mid, bottom)
+        temps = (top_v, mid_v, bot_v)
         if self._last_temps == temps:
             return
 
         self._last_temps = temps
         self.norm = Normalize(vmin=min(temps) - 3, vmax=max(temps) + 3)
-        self.data = self._build_stratified_data(top, mid, bottom)
+        self.data = self._build_stratified_data(top_v, mid_v, bot_v)
         self.im.set_data(self.data)
         self.im.set_norm(self.norm)
 
-        c_top = self._temp_color(top)
-        c_mid = self._temp_color(mid)
-        c_bot = self._temp_color(bottom)
+        c_top = self._temp_color(top_v)
+        c_mid = self._temp_color(mid_v)
+        c_bot = self._temp_color(bot_v)
 
         for text in self.val_texts:
             text.remove()
         self.val_texts = [
-            self.ax.text(0.04, 0.85, f"{top:.1f}°C", transform=self.ax.transAxes, color=c_top,
+            self.ax.text(0.04, 0.85, f"{top_v:.1f}°C", transform=self.ax.transAxes, color=c_top,
                          fontsize=9, va="center", ha="right", weight="bold"),
-            self.ax.text(0.04, 0.50, f"{mid:.1f}°C", transform=self.ax.transAxes, color=c_mid,
+            self.ax.text(0.04, 0.50, f"{mid_v:.1f}°C", transform=self.ax.transAxes, color=c_mid,
                          fontsize=10, va="center", ha="right", weight="bold"),
-            self.ax.text(0.04, 0.15, f"{bottom:.1f}°C", transform=self.ax.transAxes, color=c_bot,
+            self.ax.text(0.04, 0.15, f"{bot_v:.1f}°C", transform=self.ax.transAxes, color=c_bot,
                          fontsize=9, va="center", ha="right", weight="bold"),
         ]
 
-        if kessel_c is not None:
-            self.boiler_rect.set_facecolor(self._temp_color(kessel_c))
+        if kessel_v is not None:
+            self.boiler_rect.set_facecolor(self._temp_color(kessel_v))
             if hasattr(self, "boiler_temp_text"):
                 self.boiler_temp_text.remove()
             self.boiler_temp_text = self.ax.text(
                 0.69,
                 0.30,
-                f"{kessel_c:.1f}°C",
+                f"{kessel_v:.1f}°C",
                 transform=self.ax.transAxes,
                 color="#FFFFFF",
                 fontsize=8,

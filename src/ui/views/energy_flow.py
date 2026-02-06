@@ -23,7 +23,8 @@ def _s(val: float) -> int:
     return int(round(val * _EF_SCALE))
 
 
-DEBUG_LOG = os.getenv("DASH_DEBUG", "0") == "1"
+
+MISSING_LOG_COOLDOWN = 60.0  # seconds
 
 class EnergyFlowView(tk.Frame):
     def update_data(self, pv=None, load=None, batt=None, grid=None, soc=None):
@@ -36,14 +37,17 @@ class EnergyFlowView(tk.Frame):
             except (TypeError, ValueError):
                 return default
 
-        # Rate-limitiertes Logging für fehlende Werte
+        # Rate-limitiertes Logging für fehlende Werte (pv/batt)
         now = time.time()
         if not hasattr(self, '_last_missing_log'):
-            self._last_missing_log = 0
-        log_this = now - self._last_missing_log > 60
-        for name, val in [('pv', pv), ('batt', batt)]:
-            if val is None and log_this:
-                print(f"[INFO] {name} value missing/None, set to 0.0 for EnergyFlowView")
+            self._last_missing_log = {"pv": 0.0, "batt": 0.0}
+        for name, val in [("pv", pv), ("batt", batt)]:
+            if val is None:
+                if now - self._last_missing_log[name] > MISSING_LOG_COOLDOWN:
+                    import logging
+                    logger = logging.getLogger("dashboard.energyflow")
+                    logger.debug(f"{name} value missing/None, set to 0.0 for EnergyFlowView")
+                    self._last_missing_log[name] = now
         self.update_flows(
             as_float(pv),
             as_float(load),
@@ -53,6 +57,7 @@ class EnergyFlowView(tk.Frame):
         )
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)
+        self._last_missing_log = {"pv": 0.0, "batt": 0.0}
         self._start_time = time.time()
         self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_CARD)
         self.canvas.pack(fill=tk.BOTH, expand=True)
