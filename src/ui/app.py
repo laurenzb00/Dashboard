@@ -146,17 +146,16 @@ class MainApp:
             # Tick erneut einplanen
             self.root.after(500, self.update_tick)
 
-        @staticmethod
-        def _parse_ts(ts):
-            if not ts:
-                return 0
-            try:
-                # Versuche ISO-Format
-                return time.mktime(datetime.fromisoformat(ts).timetuple())
-            except Exception:
-                return 0
+    @staticmethod
+    def _parse_ts(ts):
+        if not ts:
+            return 0
+        try:
+            # Versuche ISO-Format
+            return time.mktime(datetime.fromisoformat(ts).timetuple())
+        except Exception:
+            return 0
 
-    """1024x600 Dashboard mit Grid-Layout, Cards, Header und Statusbar + Tabs."""
     def __init__(self, root: tk.Tk, datastore: DataStore | None = None):
         self._start_time = time.time()
         self._debug_log = os.getenv("DASH_DEBUG", "0") == "1"
