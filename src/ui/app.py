@@ -91,6 +91,12 @@ try:
 except ImportError:
     AnalyseTab = None
 
+# StatusTab importieren
+try:
+    from tabs.status import StatusTab
+except ImportError:
+    StatusTab = None
+
 
 
 
@@ -187,7 +193,6 @@ class MainApp:
         offset_y = 0
         usable_h = max(200, target_h - offset_y)
         self.is_fullscreen = True
-        self._apply_fullscreen()
         self.root.resizable(False, False)
         try:
             self.root.attributes("-fullscreen", True)
@@ -198,6 +203,14 @@ class MainApp:
         self._ensure_emoji_font()
         self._status_icon_ok, self._status_icon_warn = self._resolve_status_icons()
         # ...existing code...
+
+        # StatusTab hinzufügen
+        if StatusTab:
+            try:
+                self.status_tab = StatusTab(self.root, self.notebook, datastore=self.datastore)
+            except Exception as e:
+                print(f"[ERROR] StatusTab init failed: {e}")
+                self.status_tab = None
         self._base_energy_h = 230
         self._base_buffer_h = 180
         self.root.grid_rowconfigure(0, minsize=self._base_header_h)
@@ -259,6 +272,9 @@ class MainApp:
         # Statusbar
         self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
         self.status.grid(row=2, column=0, sticky="nsew", padx=8, pady=(2, 4))
+
+        # Nach komplettem Aufbau: garantiert Vollbild
+        self._apply_fullscreen()
     def _update_header_datetime(self):
         now = datetime.now()
         date_text = now.strftime("%d.%m.%Y")
