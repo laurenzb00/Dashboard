@@ -165,6 +165,23 @@ class MainApp:
             data = {}
             data.update(pv)
             data.update(heat)
+
+            # --- Altersberechnung für Statusanzeige ---
+            pv_ts = pv.get("ts")
+            heat_ts = heat.get("ts")
+            pv_age = None
+            heat_age = None
+            if pv_ts:
+                try:
+                    pv_age = round(now - self._parse_ts(pv_ts))
+                except Exception:
+                    pv_age = None
+            if heat_ts:
+                try:
+                    heat_age = round(now - self._parse_ts(heat_ts))
+                except Exception:
+                    heat_age = None
+
             # --- Rate-limitiertes Debug-Logging aller Daten (max alle 2s) ---
             if not hasattr(self, '_last_data_dump_ts'):
                 self._last_data_dump_ts = 0.0
@@ -174,8 +191,8 @@ class MainApp:
                 logger.info("[DATA] %s", {k: data.get(k) for k in sorted(data.keys())})
                 # Logge explizit die wichtigsten Finalkeys (auch wenn sie fehlen)
                 keys = [
-                    "pv_power_kw","grid_power_kw","battery_power_kw","battery_soc_pct",
-                    "bmk_boiler_c","buf_top_c","buf_mid_c","buf_bottom_c"
+                    "pv_power_kw", "grid_power_kw", "battery_power_kw", "battery_soc_pct",
+                    "bmk_boiler_c", "buf_top_c", "buf_mid_c", "buf_bottom_c"
                 ]
                 logger.info("[DATA_KEYS] %s", {k: data.get(k, "MISSING") for k in keys})
                 self._last_data_dump_ts = now
@@ -188,11 +205,13 @@ class MainApp:
                     self.buffer_view.update_data(data)
                 except Exception:
                     logging.exception("buffer_view update_data failed")
+
             # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
             last_update = datetime.now().strftime('%H:%M:%S')
             status_str = f"BMK age: {heat_age if heat_age is not None else '-'}s | Fronius age: {pv_age if pv_age is not None else '-'}s | last update: {last_update}"
             if hasattr(self, 'status'):
                 self.status.set_status(status_str)
+
             # --- Rate-limitiertes Logging (alle 10s) ---
             if not hasattr(self, '_last_log_tick'):
                 self._last_log_tick = 0
