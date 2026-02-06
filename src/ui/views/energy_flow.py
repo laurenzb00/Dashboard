@@ -16,6 +16,8 @@ from ui.styles import (
     COLOR_DANGER,
 )
 
+DEBUG_LOG = False  # Enable for verbose energy-flow debugging
+
 # Feste Größe ohne UI-Scaling: alles bleibt konstant
 _EF_SCALE = 1.0
 
