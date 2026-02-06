@@ -408,27 +408,6 @@ class MainApp:
     def on_exit(self):
         self.status.update_status("Beende...")
         # Cleanup DataStore
-                print(f"[ERTRAG] Validator nicht verfügbar: {e}")
-            
-            # Dann jede Woche wiederholen (7 Tage = 604800 Sekunden)
-            while True:
-                time.sleep(7 * 24 * 3600)  # 1 Woche
-                try:
-                    from core.ertrag_validator import validate_and_repair_ertrag
-                    print("[ERTRAG] Wöchentliche Validierung...")
-                    validate_and_repair_ertrag(self.datastore)
-                    # Update tabs after validation
-                    if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
-                        self.ertrag_tab._last_key = None
-                        self.ertrag_tab._update_plot()
-                    if hasattr(self, 'historical_tab') and self.historical_tab:
-                        self.historical_tab._last_key = None
-                        self.historical_tab._update_plot()
-                except Exception as e:
-                    print(f"[ERTRAG] Fehler bei wöchentlicher Validierung: {e}")
-        
-        validator_thread = threading.Thread(target=validate_loop, daemon=True)
-        validator_thread.start()
 
     def _apply_fullscreen(self):
         """Setzt echtes Vollbild (ohne overrideredirect) und zentriert das Fenster."""
