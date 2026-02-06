@@ -100,16 +100,32 @@ except ImportError:
 
 
 
-class MainApp:
 
-        def _start_ertrag_validator(self):
-            """Starte wöchentliche Ertrag-Validierung im Hintergrund."""
-            def validate_loop():
+class MainApp:
+    def _start_ertrag_validator(self):
+        """Starte wöchentliche Ertrag-Validierung im Hintergrund."""
+        def validate_loop():
+            try:
+                from core.ertrag_validator import validate_and_repair_ertrag
+                print("[ERTRAG] Validation beim Start...")
+                validate_and_repair_ertrag(self.datastore)
+                print("[ERTRAG] Ertrag- und Heizungs-Tabs werden aktualisiert...")
+                # Update tabs after validation
+                if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
+                    self.ertrag_tab._last_key = None
+                    self.ertrag_tab._update_plot()
+                if hasattr(self, 'historical_tab') and self.historical_tab:
+                    self.historical_tab._last_key = None
+                    self.historical_tab._update_plot()
+            except Exception as e:
+                print(f"[ERTRAG] Validator nicht verfügbar: {e}")
+            # Dann jede Woche wiederholen (7 Tage = 604800 Sekunden)
+            while True:
+                time.sleep(7 * 24 * 3600)  # 1 Woche
                 try:
                     from core.ertrag_validator import validate_and_repair_ertrag
-                    print("[ERTRAG] Validation beim Start...")
+                    print("[ERTRAG] Wöchentliche Validierung...")
                     validate_and_repair_ertrag(self.datastore)
-                    print("[ERTRAG] Ertrag- und Heizungs-Tabs werden aktualisiert...")
                     # Update tabs after validation
                     if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
                         self.ertrag_tab._last_key = None
@@ -118,25 +134,10 @@ class MainApp:
                         self.historical_tab._last_key = None
                         self.historical_tab._update_plot()
                 except Exception as e:
-                    print(f"[ERTRAG] Validator nicht verfügbar: {e}")
-                # Dann jede Woche wiederholen (7 Tage = 604800 Sekunden)
-                while True:
-                    time.sleep(7 * 24 * 3600)  # 1 Woche
-                    try:
-                        from core.ertrag_validator import validate_and_repair_ertrag
-                        print("[ERTRAG] Wöchentliche Validierung...")
-                        validate_and_repair_ertrag(self.datastore)
-                        # Update tabs after validation
-                        if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
-                            self.ertrag_tab._last_key = None
-                            self.ertrag_tab._update_plot()
-                        if hasattr(self, 'historical_tab') and self.historical_tab:
-                            self.historical_tab._last_key = None
-                            self.historical_tab._update_plot()
-                    except Exception as e:
-                        print(f"[ERTRAG] Fehler bei wöchentlicher Validierung: {e}")
-            validator_thread = threading.Thread(target=validate_loop, daemon=True)
-            validator_thread.start()
+                    print(f"[ERTRAG] Fehler bei wöchentlicher Validierung: {e}")
+        validator_thread = threading.Thread(target=validate_loop, daemon=True)
+        validator_thread.start()
+
     def update_tick(self):
         """Zentrale UI-Update-Schleife: holt aktuelle Daten, aktualisiert Widgets und Status."""
         from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
