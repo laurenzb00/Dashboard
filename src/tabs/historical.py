@@ -37,6 +37,11 @@ class HistoricalTab(Frame):
         super().__init__(notebook, *args, **kwargs)
         notebook.add(self, text="Heizung-Historie")
         from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_KESSEL_C, BMK_WARMWASSER_C
+        self.BUF_TOP_C = BUF_TOP_C
+        self.BUF_MID_C = BUF_MID_C
+        self.BUF_BOTTOM_C = BUF_BOTTOM_C
+        self.BMK_KESSEL_C = BMK_KESSEL_C
+        self.BMK_WARMWASSER_C = BMK_WARMWASSER_C
         self.datastore = datastore
         self.root = parent.winfo_toplevel()
         self._last_data = None
@@ -107,18 +112,18 @@ class HistoricalTab(Frame):
             self.statusbar.config(text="Keine Daten gefunden.")
             return
         times = []
-        series = {k: [] for k in ["top", "mid", "bot", "kessel", "warm", "outdoor"]}
+        series = {k: [] for k in [self.BUF_TOP_C, self.BUF_MID_C, self.BUF_BOTTOM_C, self.BMK_KESSEL_C, self.BMK_WARMWASSER_C, "outdoor"]}
         now = datetime.now(pytz.timezone("Europe/Vienna"))
         for row in data:
             ts = self._parse_ts(row['timestamp'])
             if not ts or ts > now + timedelta(seconds=60):
                 continue
             times.append(ts)
-            series["top"].append(float(row.get("top", np.nan)))
-            series["mid"].append(float(row.get("mid", np.nan)))
-            series["bot"].append(float(row.get("bot", np.nan)))
-            series["kessel"].append(float(row.get("kessel", np.nan)))
-            series["warm"].append(float(row.get("warm", np.nan)))
+            series[self.BUF_TOP_C].append(float(row.get(self.BUF_TOP_C, np.nan)))
+            series[self.BUF_MID_C].append(float(row.get(self.BUF_MID_C, np.nan)))
+            series[self.BUF_BOTTOM_C].append(float(row.get(self.BUF_BOTTOM_C, np.nan)))
+            series[self.BMK_KESSEL_C].append(float(row.get(self.BMK_KESSEL_C, np.nan)))
+            series[self.BMK_WARMWASSER_C].append(float(row.get(self.BMK_WARMWASSER_C, np.nan)))
             series["outdoor"].append(float(row.get("outdoor", np.nan)))
         if not times:
             self.ax.clear()
@@ -138,7 +143,7 @@ class HistoricalTab(Frame):
         # Plot lines
         colors = [COLOR_PRIMARY, COLOR_INFO, COLOR_WARNING, COLOR_DANGER, COLOR_SUCCESS, COLOR_SUBTEXT]
         labels = ["Puffer Oben", "Puffer Mitte", "Puffer Unten", "Kessel", "Warmwasser", "Außen"]
-        for i, k in enumerate(["top", "mid", "bot", "kessel", "warm", "outdoor"]):
+        for i, k in enumerate([self.BUF_TOP_C, self.BUF_MID_C, self.BUF_BOTTOM_C, self.BMK_KESSEL_C, self.BMK_WARMWASSER_C, "outdoor"]):
             self.ax.plot(times, series[k], label=labels[i], color=colors[i], linewidth=1.5, linestyle="-" if k!="outdoor" else "--")
         self.ax.set_xlim(min(times), max(times))
         self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
