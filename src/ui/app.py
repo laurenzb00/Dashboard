@@ -198,7 +198,7 @@ class MainApp:
         # Update title to 'Warmwasser' with appropriate icon
         self.buffer_card.add_title("Warmwasser", icon="🔥")
         # LAYOUT FIX: Start with minimal height, will resize after layout settles
-        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180)
+        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True)
 
         # Statusbar

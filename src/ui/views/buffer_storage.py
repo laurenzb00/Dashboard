@@ -38,14 +38,23 @@ except ImportError:
     COLOR_SUBTEXT = "#9AA3B2"
     COLOR_TITLE = "#AAB3C5"
 
+try:
+    from core.datastore import get_shared_datastore
+except ImportError:
+    def get_shared_datastore():
+        return None
+
 class BufferStorageView(tk.Frame):
     """Heatmap-style buffer storage widget backed by SQLite data."""
 
-    def __init__(self, parent: tk.Widget, height: int = 280):
+    def __init__(self, parent: tk.Widget, height: int = 280, datastore=None):
         super().__init__(parent, bg=COLOR_CARD)
         self._start_time = time.time()
         self.height = height
-        self.datastore = get_shared_datastore()
+        if datastore is not None:
+            self.datastore = datastore
+        else:
+            self.datastore = get_shared_datastore()
         self.configure(height=self.height)
         self.pack_propagate(False)
 
