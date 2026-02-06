@@ -34,10 +34,19 @@ class StatusTab:
         self.card.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         self.card.add_title("Live-Daten Status", icon="🔎")
         body = self.card.content()
-        body.grid_rowconfigure(0, weight=1)
+        body.grid_rowconfigure(0, weight=0)
+        body.grid_rowconfigure(1, weight=1)
         body.grid_columnconfigure(0, weight=1)
+        # OK-Lampe
+        self.lamp_frame = tk.Frame(body, bg=COLOR_CARD)
+        self.lamp_frame.grid(row=0, column=0, sticky="ew", pady=(0,8))
+        self.lamp_label = tk.Label(self.lamp_frame, text="DB Status:", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Consolas", 11))
+        self.lamp_label.pack(side=tk.LEFT, padx=(0,8))
+        self.lamp_indicator = tk.Canvas(self.lamp_frame, width=24, height=24, bg=COLOR_CARD, highlightthickness=0)
+        self.lamp_indicator.pack(side=tk.LEFT)
+        # Textbereich
         self.text = tk.Text(body, height=30, width=120, bg=COLOR_CARD, fg=COLOR_TEXT, font=("Consolas", 10))
-        self.text.grid(row=0, column=0, sticky="nsew")
+        self.text.grid(row=1, column=0, sticky="nsew")
         self.text.insert(tk.END, "Status-Tab initialisiert...\n")
         self.text.config(state=tk.DISABLED)
 
@@ -59,6 +68,25 @@ class StatusTab:
         if not self.datastore:
             return
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Lampen-Logik: Prüfe Zeitstempel des letzten Datensatzes
+        try:
+            last_ts = self.datastore.get_last_ingest_datetime()
+        except Exception:
+            last_ts = None
+        lamp_color = "#44cc44"  # grün
+        lamp_text = "OK"
+        if last_ts is None:
+            lamp_color = "#cccccc"
+            lamp_text = "--"
+        else:
+            delta = datetime.now() - last_ts
+            if delta.total_seconds() > 60:
+                lamp_color = "#cc4444"  # rot
+                lamp_text = "ALT"
+        self.lamp_indicator.delete("all")
+        self.lamp_indicator.create_oval(2,2,22,22, fill=lamp_color, outline="#888", width=2)
+        self.lamp_indicator.create_text(12,12, text=lamp_text, fill="#fff", font=("Consolas", 9, "bold"))
+        # Textbereich wie bisher
         try:
             pv = self.datastore.get_recent_fronius(hours=24, limit=10)
             heating = self.datastore.get_recent_heating(hours=24, limit=10)

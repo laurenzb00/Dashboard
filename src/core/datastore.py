@@ -155,6 +155,8 @@ class DataStore:
                             """,
                             (ts, pv, grid, batt, soc),
                         )
+                        # Update ingest cache after each insert
+                        self._update_last_ingest_locked(ts)
                         count += 1
 
                         if count % 2000 == 0:
@@ -181,13 +183,14 @@ class DataStore:
         )
         row = cursor.fetchone()
         if row:
-            return {
-                'timestamp': row[0],
-                'pv': row[1],
-                'grid': row[2],
-                'batt': row[3],
-                'soc': row[4]
-            }
+                self._update_last_ingest_locked(row[0])
+                return {
+                    'timestamp': row[0],
+                    'pv': row[1],
+                    'grid': row[2],
+                    'batt': row[3],
+                    'soc': row[4]
+                }
         return None
     
     def get_hourly_averages(self, hours=24):
@@ -375,15 +378,16 @@ class DataStore:
         )
         row = cursor.fetchone()
         if row:
-            return {
-                'timestamp': row[0],
-                'kessel': row[1],
-                'outdoor': row[2],
-                'top': row[3],
-                'mid': row[4],
-                'bot': row[5],
-                'warm': row[6],
-            }
+                self._update_last_ingest_locked(row[0])
+                return {
+                    'timestamp': row[0],
+                    'kessel': row[1],
+                    'outdoor': row[2],
+                    'top': row[3],
+                    'mid': row[4],
+                    'bot': row[5],
+                    'warm': row[6],
+                }
         return None
 
     def get_latest_timestamp(self) -> Optional[str]:
