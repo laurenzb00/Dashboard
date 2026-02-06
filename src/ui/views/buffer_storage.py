@@ -249,6 +249,7 @@ class BufferStorageView(tk.Frame):
             self._last_heat_dbg = now
         self.update_temperatures(top, mid, bot, boiler)
 
+
     def update_temperatures(self, top, mid, bot, boiler):
         # Update heatmap with stratified 2D array
         self.data = self._build_stratified_data(top, mid, bot)
@@ -256,104 +257,14 @@ class BufferStorageView(tk.Frame):
             self.im.set_data(self.data)
             self.im.set_norm(self.norm)
         # Update left temperature texts
-        def _parse_ts(self, value):
-            # Robust, always returns UTC datetime (timezone-aware)
-            import re
-            import pytz
-            from datetime import datetime, timezone
-            if not value:
-                return None
-            s = str(value).strip()
-            s = re.sub(r"\.\d{1,6}", "", s)
-            s = s.replace('T', ' ', 1)
-            dt = None
-            try:
-                if s.endswith('Z'):
-                    s = s[:-1]
-                    dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                elif re.search(r"[+-]\d{2}:\d{2}$", s):
-                    dt = datetime.fromisoformat(s)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                else:
-                    # Assume naive = local time, localize to Europe/Vienna
-                    vienna = pytz.timezone("Europe/Vienna")
-                    dt = vienna.localize(datetime.strptime(s, "%Y-%m-%d %H:%M:%S"))
-                # Always return UTC for internal use
-                return dt.astimezone(timezone.utc)
-            except Exception:
-                return None
-            return
-        self._last_spark_update = datetime.now().timestamp()
-
-        pv_series = self._load_pv_series(hours=24, bin_minutes=15)
-        temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
-
-        self.spark_ax.clear()
-        if hasattr(self, "spark_ax2"):
-            try:
-                self.spark_ax2.remove()
-            except Exception:
-                pass
-        self.spark_ax2 = self.spark_ax.twinx()
-        ax2 = self.spark_ax2
-
-        now = datetime.now()
-        if pv_series:
-            xs_pv, ys_pv = zip(*pv_series)
-            xmax = min(max(xs_pv), now)
-            xs_pv = [x if x <= now else now for x in xs_pv]
-            if any(x > now for x in xs_pv):
-                print(f"[DEBUG] Sparkline PV: Zeit in Zukunft gefunden, korrigiert.")
-            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
-            self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
-            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
-            self.spark_ax.set_xlim(xs_pv[0], xmax)
-
-        if temp_series:
-            xs_temp, ys_temp = zip(*temp_series)
-            xmax = min(max(xs_temp), now)
-            xs_temp = [x if x <= now else now for x in xs_temp]
-            if any(x > now for x in xs_temp):
-                print(f"[DEBUG] Sparkline Temp: Zeit in Zukunft gefunden, korrigiert.")
-            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
-            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
-            ax2.set_xlim(xs_temp[0], xmax)
-
-        self.spark_ax.spines['top'].set_visible(False)
-        self.spark_ax.spines['right'].set_visible(False)
-        self.spark_ax.spines['left'].set_color(COLOR_BORDER)
-        self.spark_ax.spines['bottom'].set_color(COLOR_BORDER)
-        self.spark_ax.spines['left'].set_linewidth(0.5)
-        self.spark_ax.spines['bottom'].set_linewidth(0.5)
-
-        ax2.spines['top'].set_visible(False)
-        ax2.spines['left'].set_visible(False)
-        ax2.spines['right'].set_color(COLOR_BORDER)
-        ax2.spines['bottom'].set_color(COLOR_BORDER)
-        ax2.spines['right'].set_linewidth(0.5)
-        ax2.spines['bottom'].set_linewidth(0.5)
-
-        self.spark_ax.tick_params(axis='both', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        ax2.tick_params(axis='y', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
-
-        self.spark_ax.set_ylabel('kW', fontsize=7, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
-        ax2.set_ylabel('°C', fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
-
-        self.spark_ax.yaxis.set_major_locator(plt.MaxNLocator(4))
-        ax2.yaxis.set_major_locator(plt.MaxNLocator(4))
-        self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
-        self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-
-        try:
-            self.spark_fig.tight_layout(pad=0.3)
-        except Exception as exc:
-            print(f"[BUFFER] tight_layout warning: {exc}")
-
-        try:
-            self.spark_canvas.draw_idle()
-        except Exception as exc:
-            print(f"[BUFFER] Sparkline canvas draw error: {exc}")
+        if hasattr(self, 'val_texts') and len(self.val_texts) == 3:
+            self.val_texts[0].set_text(f"{top:.1f}°C")
+            self.val_texts[1].set_text(f"{mid:.1f}°C")
+            self.val_texts[2].set_text(f"{bot:.1f}°C")
+        if hasattr(self, 'boiler_text'):
+            self.boiler_text.set_text(f"{boiler:.1f}°C")
+        if hasattr(self, 'boiler_rect'):
+            self.boiler_rect.set_facecolor(self._temp_color(boiler))
 
         self.spark_ax.set_ylabel('kW', fontsize=7, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
         ax2.set_ylabel('°C', fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
