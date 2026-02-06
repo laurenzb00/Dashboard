@@ -296,21 +296,24 @@ class BufferStorageView(tk.Frame):
         now = datetime.now()
         if pv_series:
             xs_pv, ys_pv = zip(*pv_series)
-            # Korrigiere Zukunftszeiten
+            xmax = min(max(xs_pv), now)
             xs_pv = [x if x <= now else now for x in xs_pv]
             if any(x > now for x in xs_pv):
                 print(f"[DEBUG] Sparkline PV: Zeit in Zukunft gefunden, korrigiert.")
             self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
             self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
             self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+            self.spark_ax.set_xlim(xs_pv[0], xmax)
 
         if temp_series:
             xs_temp, ys_temp = zip(*temp_series)
+            xmax = min(max(xs_temp), now)
             xs_temp = [x if x <= now else now for x in xs_temp]
             if any(x > now for x in xs_temp):
                 print(f"[DEBUG] Sparkline Temp: Zeit in Zukunft gefunden, korrigiert.")
             ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
             ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
+            ax2.set_xlim(xs_temp[0], xmax)
 
         self.spark_ax.spines['top'].set_visible(False)
         self.spark_ax.spines['right'].set_visible(False)

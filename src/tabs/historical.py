@@ -30,37 +30,102 @@ class HistoricalTab(Frame):
     def __init__(self, parent, notebook, datastore, *args, **kwargs):
         super().__init__(notebook, *args, **kwargs)
         notebook.add(self, text="Heizung-Historie")
+        from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_KESSEL_C, BMK_WARMWASSER_C
         self.datastore = datastore
         self.root = parent.winfo_toplevel()
         self.after_job = None
-        self.last_data_len = 0
-        self.last_timestamp = None
-        self._resize_debounce_id = None
-        self._last_view_size = (0, 0)
-        self._stats_warn = False
-        self._latest_data = None  # Will be set from MainApp
+        self._last_data = None
 
-        # Layout: row 0 = stats, row 1 = plot
         self.grid_rowconfigure(0, minsize=60)
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Stats grid
         self.stats_frame = Frame(self, bg=COLOR_CARD)
         self.stats_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8,2))
         self.stats_labels = {}
         value_names = [
-            ("Puffer Oben", "buf_top_c", COLOR_PRIMARY),
-            ("Puffer Mitte", "buf_mid_c", COLOR_INFO),
-            ("Puffer Unten", "buf_bottom_c", COLOR_WARNING),
-            ("Kessel", "bmk_boiler_c", COLOR_DANGER),
-            ("Warmwasser", "warm", COLOR_SUCCESS),
+            ("Puffer Oben", BUF_TOP_C, COLOR_PRIMARY),
+            ("Puffer Mitte", BUF_MID_C, COLOR_INFO),
+            ("Puffer Unten", BUF_BOTTOM_C, COLOR_WARNING),
+            ("Kessel", BMK_KESSEL_C, COLOR_DANGER),
+            ("Warmwasser", BMK_WARMWASSER_C, COLOR_SUCCESS),
             ("Außen", "outdoor", COLOR_SUBTEXT),
         ]
         for i, (name, key, color) in enumerate(value_names):
             lbl = Label(self.stats_frame, text=f"{name}: --", fg=color, bg=COLOR_CARD, font=("Segoe UI", 12, "bold"))
             lbl.grid(row=0, column=i, sticky="nsew", padx=6, pady=2)
             self.stats_labels[key] = lbl
+
+        self.plot_frame = Frame(self, bg=COLOR_CARD)
+        self.plot_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
+        self.plot_frame.grid_propagate(False)
+
+        self.fig = Figure(figsize=(7, 2.5), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.fig.patch.set_facecolor(COLOR_CARD)
+        self.ax.set_facecolor(COLOR_CARD)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        self.lines = {}
+        self._schedule_update()
+
+    def _schedule_update(self):
+        self.after_job = self.after(30000, self._update_plot)
+
+    def _update_plot(self):
+        data = self.datastore.get_recent_heating(hours=168, limit=2000)
+        if not data:
+            self._schedule_update()
+            return
+        times = []
+        values = {k: [] for k in self.stats_labels}
+        for row in data:
+            ts = self._parse_ts(row['timestamp'])
+            if not ts:
+                continue
+            times.append(ts)
+            for k in values:
+                values[k].append(float(row.get(k, 0.0)))
+        if not times:
+            self._schedule_update()
+            return
+        xmax = max(times)
+        xmin = min(times)
+        # Stats
+        for k, lbl in self.stats_labels.items():
+            v = values[k][-1] if values[k] else 0.0
+            lbl.config(text=f"{lbl.cget('text').split(':')[0]}: {v:.1f}")
+        # Plot
+        self.ax.clear()
+        for spine in self.ax.spines.values():
+            spine.set_color(COLOR_BORDER)
+        for k, color in zip(values, [COLOR_PRIMARY, COLOR_INFO, COLOR_WARNING, COLOR_DANGER, COLOR_SUCCESS, COLOR_SUBTEXT]):
+            if values[k]:
+                style = "--" if k == "outdoor" else "-"
+                self.lines[k] = self.ax.plot(times, values[k], label=k.capitalize(), color=color, linewidth=2, linestyle=style)[0]
+        self.ax.set_xlim(xmin, xmax)
+        self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m %H:%M'))
+        self.ax.legend(loc='upper left', fontsize=9)
+        self.ax.set_ylabel('°C')
+        self.ax.set_xlabel('Zeit')
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
+        self._schedule_update()
+
+    def _parse_ts(self, ts):
+        import re
+        s = str(ts).strip().replace('T', ' ', 1)
+        s = re.sub(r"\.\d{1,6}", "", s)
+        if '+' in s:
+            s = s.split('+')[0]
+        if 'Z' in s:
+            s = s.replace('Z', '')
+        try:
+            return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
 
     def update_data(self, data):
         """Update stats and plot with latest data dict (same as energy tab)."""
@@ -73,43 +138,6 @@ class HistoricalTab(Frame):
             except Exception:
                 lbl.config(text=f"{lbl.cget('text').split(':')[0]}: --")
         # Optionally update plot here (if needed)
-
-        # Datenalter
-        self.age_label = Label(self.stats_frame, text="Datenalter: --", fg=COLOR_TEXT, bg=COLOR_CARD, font=("Segoe UI", 11))
-        self.age_label.grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=(0,2))
-
-        # Warnhinweis
-        self.warn_label = Label(self.stats_frame, text="", fg=COLOR_WARNING, bg=COLOR_CARD, font=("Segoe UI", 11, "bold"))
-        self.warn_label.grid(row=1, column=3, columnspan=4, sticky="e", padx=6, pady=(0,2))
-
-        # Plot
-        self.fig = Figure(figsize=(7, 2.5), dpi=100)
-        self.ax = self.fig.add_subplot(111)
-        self.fig.patch.set_facecolor(COLOR_CARD)
-        self.ax.set_facecolor(COLOR_CARD)
-        for spine in self.ax.spines.values():
-            spine.set_color(COLOR_BORDER)
-        self.ax.tick_params(axis='x', colors=COLOR_SUBTEXT)
-        self.ax.tick_params(axis='y', colors=COLOR_SUBTEXT)
-        self.ax.yaxis.label.set_color(COLOR_TEXT)
-        self.ax.xaxis.label.set_color(COLOR_TEXT)
-        self.ax.title.set_color(COLOR_TEXT)
-
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
-        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
-
-        # Plot lines
-        self.lines = {}
-        self.legend = None
-
-        # Add tab to notebook
-        notebook.add(self, text="Heizung-Historie")
-
-        # Bind resize
-        self.bind("<Configure>", self._on_resize)
-
-        self._update_plot()
-        self._schedule_update()
 
     def _on_resize(self, event):
         if self._resize_debounce_id:

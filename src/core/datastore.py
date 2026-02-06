@@ -409,6 +409,29 @@ class DataStore:
                 'outdoor': row[2] or 0.0,      # Außentemperatur
             }
         return None
+        def get_last_heating_record(self) -> Optional[dict]:
+            """Hole letzten Heizungs-Record als dict mit final keys (schema.py)."""
+            from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT timestamp, kesseltemp, warmwasser, außentemp, puffer_top, puffer_mid, puffer_bot
+                FROM heating ORDER BY timestamp DESC LIMIT 1
+                """
+            )
+            row = cursor.fetchone()
+            if row:
+                self._update_last_ingest_locked(row[0])
+                return {
+                    'timestamp': row[0],
+                    BMK_KESSEL_C: row[1] or 0.0,
+                    BMK_WARMWASSER_C: row[2] or 0.0,
+                    'outdoor': row[3] or 0.0,
+                    BUF_TOP_C: row[4] or 0.0,
+                    BUF_MID_C: row[5] or 0.0,
+                    BUF_BOTTOM_C: row[6] or 0.0,
+                }
+            return None
 
     def get_latest_timestamp(self) -> Optional[str]:
         with self._lock:
