@@ -358,16 +358,14 @@ class MainApp:
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True)
 
-        # Add all other tabs (Spotify, Tado, Hue, System, Calendar, Historical, Ertrag)
+        # Alle weiteren Tabs
         self._add_other_tabs()
 
         # Statusbar
         self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
         self.status.grid(row=2, column=0, sticky="nsew", padx=8, pady=(2, 4))
-
-        # Nach komplettem Aufbau: garantiert Vollbild
         self._apply_fullscreen()
-        # Starte zentralen Update-Tick
+        self.build_tabs()
         self.root.after(500, self.update_tick)
 
     def _update_header_datetime(self):
