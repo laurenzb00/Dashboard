@@ -46,6 +46,8 @@ except ImportError:
 
 from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_BOILER_C
 
+DEBUG_LOG = False
+
 class BufferStorageView(tk.Frame):
     """Heatmap-style visualization for buffer storage and boiler temperatures."""
 
@@ -155,6 +157,13 @@ class BufferStorageView(tk.Frame):
         self.ax.text(0.20, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
                  color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
 
+        # Temperatur-Textfelder links
+        self.val_texts = [
+            self.ax.text(0.05, 0.85, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.05, 0.50, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.05, 0.15, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+        ]
+
         self.boiler_rect = FancyBboxPatch(
             (0.58, 0.08),
             0.22,
@@ -175,7 +184,8 @@ class BufferStorageView(tk.Frame):
                                     facecolor="#ffffff", alpha=0.06, linewidth=0))
         self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes,
                      color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
-        # Keine dynamische Rotation oder tight_layout nötig bei festen Größen
+        # Boiler-Temperaturtext
+        self.boiler_text = self.ax.text(0.69, 0.32, "--°C", color="#FFFFFF", fontsize=14, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)
@@ -218,8 +228,7 @@ class BufferStorageView(tk.Frame):
         self.data = self._build_stratified_data(top, mid, bot)
         if hasattr(self, 'im'):
             self.im.set_data(self.data)
-            # Fixed Normalize scale for consistent colors
-            self.im.set_norm(Normalize(vmin=45, vmax=75))
+            self.im.set_norm(self.norm)
         # Update left temperature texts
         if hasattr(self, 'val_texts'):
             vals = [top, mid, bot]
@@ -231,8 +240,8 @@ class BufferStorageView(tk.Frame):
             self.boiler_rect.set_facecolor(color)
         if hasattr(self, 'boiler_text'):
             self.boiler_text.set_text(f"{boiler:.1f}°C")
-        # Redraw canvas
-        if hasattr(self, 'canvas'):
+        # Redraw canvas only if widget exists
+        if hasattr(self, 'canvas') and hasattr(self, 'canvas_widget') and self.canvas_widget.winfo_exists():
             try:
                 self.canvas.draw_idle()
             except Exception:
@@ -240,6 +249,21 @@ class BufferStorageView(tk.Frame):
                     self.canvas.draw()
                 except Exception:
                     pass
+        # Sparkline regelmäßig aktualisieren
+        self._update_sparkline()
+
+    def _build_stratified_data(self, top: float, mid: float, bottom: float) -> np.ndarray:
+        h = 120
+        y = np.linspace(0, 1, h)
+        vals = np.zeros_like(y, dtype=float)
+        for i, pos in enumerate(y):
+            if pos < 0.33:
+                vals[i] = bottom + (mid - bottom) * (pos / 0.33)
+            elif pos < 0.66:
+                vals[i] = mid + (top - mid) * ((pos - 0.33) / 0.33)
+            else:
+                vals[i] = top
+        return vals.reshape(h, 1)
 
     def _create_sparkline(self) -> None:
         self.spark_fig = Figure(figsize=(3.4, 0.9), dpi=100)
