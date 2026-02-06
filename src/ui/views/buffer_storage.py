@@ -239,13 +239,12 @@ class BufferStorageView(tk.Frame):
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
-        boiler = float(data.get('warm') or 0.0)  # Boiler = Warmwasser
-        kessel = float(data.get(BMK_BOILER_C) or 0.0)  # Kessel
+        boiler = float(data.get(BMK_BOILER_C) or 0.0)
         now = time.time()
         if not hasattr(self, '_last_heat_dbg'):
             self._last_heat_dbg = 0.0
         if now - self._last_heat_dbg > 2.0:
-            print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler} kessel={kessel}", flush=True)
+            print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler}", flush=True)
             self._last_heat_dbg = now
         self.update_temperatures(top, mid, bot, boiler)
 
@@ -265,19 +264,17 @@ class BufferStorageView(tk.Frame):
             self.boiler_text.set_text(f"{boiler:.1f}°C")
         if hasattr(self, 'boiler_rect'):
             self.boiler_rect.set_facecolor(self._temp_color(boiler))
-
-        self.spark_ax.set_ylabel('kW', fontsize=7, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
-        ax2.set_ylabel('°C', fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
-
-        self.spark_ax.yaxis.set_major_locator(plt.MaxNLocator(4))
-        ax2.yaxis.set_major_locator(plt.MaxNLocator(4))
-        self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
-        self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-
-        try:
-            self.spark_fig.tight_layout(pad=0.3)
-        except Exception as exc:
-            print(f"[BUFFER] tight_layout warning: {exc}")
+        # Redraw canvas only if widget exists
+        if hasattr(self, 'canvas') and hasattr(self, 'canvas_widget') and self.canvas_widget.winfo_exists():
+            try:
+                self.canvas.draw_idle()
+            except Exception:
+                try:
+                    self.canvas.draw()
+                except Exception:
+                    pass
+        # Sparkline regelmäßig aktualisieren
+        self._update_sparkline()
 
         try:
             self.spark_canvas.draw_idle()
