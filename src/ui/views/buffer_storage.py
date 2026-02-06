@@ -45,22 +45,21 @@ except ImportError:
         return None
 
 class BufferStorageView(tk.Frame):
-
-        def update_data(self, top=None, mid=None, bot=None, kessel=None):
-            """Robustes Update für BufferStorageView: float-Konvertierung, None->0.0, ruft update_temperatures."""
-            def as_float(x, default=0.0):
-                try:
-                    if x is None:
-                        return default
-                    return float(x)
-                except (TypeError, ValueError):
+    def update_data(self, top=None, mid=None, bot=None, kessel=None):
+        """Robustes Update für BufferStorageView: float-Konvertierung, None->0.0, ruft update_temperatures."""
+        def as_float(x, default=0.0):
+            try:
+                if x is None:
                     return default
-            self.update_temperatures(
-                as_float(top),
-                as_float(mid),
-                as_float(bot),
-                kessel_c=as_float(kessel) if kessel is not None else None
-            )
+                return float(x)
+            except (TypeError, ValueError):
+                return default
+        self.update_temperatures(
+            as_float(top),
+            as_float(mid),
+            as_float(bot),
+            kessel_c=as_float(kessel) if kessel is not None else None
+        )
     """Heatmap-style buffer storage widget backed by SQLite data."""
 
     def __init__(self, parent: tk.Widget, height: int = 280, datastore=None):
