@@ -52,10 +52,12 @@ class EnergyFlowView(tk.Frame):
         grid_kw = float(data.get("grid_power_kw") or 0.0)
         batt_kw = float(data.get("battery_power_kw") or 0.0)
         soc     = float(data.get("battery_soc_pct") or 0.0)
-        # Annahme: grid_power_kw ist Import positiv
-        load_kw = pv_kw + batt_kw + grid_kw
-        print("[FLOW_IN]", pv_kw, grid_kw, batt_kw, load_kw, soc, flush=True)
-        self.update_flows(pv_kw, load_kw, grid_kw, batt_kw, soc)
+        load_w  = pv_kw + grid_kw + batt_kw
+        print("[FLOW_IN]", pv_kw, grid_kw, batt_kw, load_w, soc, flush=True)
+        try:
+            self.update_flows(pv_kw, load_w, grid_kw, batt_kw, soc)
+        except Exception as e:
+            print("[ENERGY_FLOW ERROR]", e, flush=True)
 
     def update_flows(self, pv_kw, load_kw, grid_kw, batt_kw, soc):
         """Update power flows - nur redraw wenn Werte sich signifikant ändern."""
