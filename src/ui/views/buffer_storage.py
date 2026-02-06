@@ -12,6 +12,32 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse, FancyBboxPatch, Rectangle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+try:
+    from ui.styles import (
+        COLOR_CARD,
+        COLOR_BORDER,
+        COLOR_DANGER,
+        COLOR_INFO,
+        COLOR_PRIMARY,
+        COLOR_SUBTEXT,
+        COLOR_SUCCESS,
+        COLOR_TEXT,
+        COLOR_TITLE,
+        COLOR_WARNING,
+    )
+except ImportError:
+    # Fallback Farben, falls Import fehlschlägt
+    COLOR_CARD = "#232F41"
+    COLOR_BORDER = "#1F2A3A"
+    COLOR_PRIMARY = "#3B82F6"
+    COLOR_SUCCESS = "#10B981"
+    COLOR_WARNING = "#F59E0B"
+    COLOR_INFO = "#38BDF8"
+    COLOR_DANGER = "#EF4444"
+    COLOR_TEXT = "#E6ECF5"
+    COLOR_SUBTEXT = "#9AA3B2"
+    COLOR_TITLE = "#AAB3C5"
+
 class BufferStorageView(tk.Frame):
     """Heatmap-style buffer storage widget backed by SQLite data."""
 
