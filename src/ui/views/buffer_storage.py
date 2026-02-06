@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.colors import LinearSegmentedColormap, Normalize
+from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse, FancyBboxPatch, Rectangle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -197,13 +197,7 @@ class BufferStorageView(tk.Frame):
 
     def update_data(self, data: dict):
         """Update für BufferStorageView: erwartet dict mit final keys."""
-        import logging
-        logger = logging.getLogger(__name__)
-        REQUIRED = [BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C]
-        missing = [k for k in REQUIRED if k not in data]
-        if missing:
-            logger.warning("[BUFFER] missing keys: %s", missing)
-
+        import time
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
@@ -216,30 +210,24 @@ class BufferStorageView(tk.Frame):
             self._last_heat_dbg = now
         self.update_temperatures(top, mid, bot, boiler)
 
-    def update_temperatures(self, top, mid, bot, kessel=None):
-        # Build stratified 2D array for heatmap
-        if hasattr(self, '_build_stratified_data'):
-            self.data = self._build_stratified_data(top, mid, bot)
-        else:
-            self.data = [[top], [mid], [bot]]  # fallback
-        # Update heatmap values
+    def update_temperatures(self, top, mid, bot, boiler):
+        # Update heatmap with stratified 2D array
+        self.data = self._build_stratified_data(top, mid, bot)
         if hasattr(self, 'im'):
             self.im.set_data(self.data)
-            # Ensure colormap scaling
-            if hasattr(self, 'norm'):
-                self.im.set_norm(self.norm)
-            # Update colorbar if present
-            if hasattr(self, 'colorbar') and self.colorbar:
-                self.colorbar.update_normal(self.im)
-        # Update text labels
+            # Fixed Normalize scale for consistent colors
+            self.im.set_norm(Normalize(vmin=45, vmax=75))
+        # Update left temperature texts
         if hasattr(self, 'val_texts'):
             vals = [top, mid, bot]
             for i, t in enumerate(self.val_texts):
                 t.set_text(f"{vals[i]:.1f}°C")
-        # Update boiler rectangle color
+        # Update boiler rectangle color and text
         if hasattr(self, 'boiler_rect'):
-            color = self._get_boiler_color(kessel if kessel is not None else 0.0)
+            color = self._get_boiler_color(boiler)
             self.boiler_rect.set_facecolor(color)
+        if hasattr(self, 'boiler_text'):
+            self.boiler_text.set_text(f"{boiler:.1f}°C")
         # Redraw canvas
         if hasattr(self, 'canvas'):
             try:
