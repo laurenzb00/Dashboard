@@ -122,14 +122,15 @@ class MainApp:
                     soc=pv.get('soc', 0)
                 )
             if hasattr(self, 'buffer_view'):
-                self.buffer_view.update(
-                    top=heat.get('top', 0),
-                    mid=heat.get('mid', 0),
-                    bot=heat.get('bot', 0),
-                    warm=heat.get('warm', 0),
-                    kessel=heat.get('kessel', 0),
-                    outdoor=heat.get('outdoor', 0)
-                )
+                try:
+                    self.buffer_view.update_data(
+                        top=heat.get('top', 0),
+                        mid=heat.get('mid', 0),
+                        bot=heat.get('bot', 0),
+                        kessel=heat.get('kessel', 0)
+                    )
+                except Exception:
+                    logging.exception("buffer_view update_data failed")
             # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
             last_update = datetime.now().strftime('%H:%M:%S')
             status_str = f"BMK age: {heat_age if heat_age is not None else '-'}s | Fronius age: {pv_age if pv_age is not None else '-'}s | last update: {last_update}"

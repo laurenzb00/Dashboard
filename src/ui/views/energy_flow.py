@@ -44,17 +44,18 @@ class EnergyFlowView(tk.Frame):
         for name, val in [('pv', pv), ('batt', batt)]:
             if val is None and log_this:
                 print(f"[INFO] {name} value missing/None, set to 0.0 for EnergyFlowView")
-                self._last_missing_log = now
-
+                home = self.nodes["home"]
+                bat = self.nodes["battery"]
         self.update_flows(
             as_float(pv),
             as_float(load),
             as_float(grid),
             as_float(batt),
             as_float(soc)
-        )
-
-    """PIL-basierter, flimmerfreier Energiefluss. Ein Canvas-Image pro Update."""
+                if grid_w > 0:
+                    self._draw_arrow(draw, grid, home, COLOR_INFO, thickness(grid_w))
+                    # Always show kW for Grid->Haus arrow
+                    self._draw_flow_label(img, grid, home, grid_w if abs(grid_w) < 1000 else grid_w, offset=28, along=0, color=COLOR_INFO, force_kw=True)
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)
         self._start_time = time.time()
@@ -77,7 +78,17 @@ class EnergyFlowView(tk.Frame):
         self._icons_pil = {}  # PIL Images for embedding
         self._load_icons()
 
-        self.nodes = self._define_nodes()
+                # Support force_kw for Grid->Haus arrow
+                force_kw = False
+                import inspect
+                frame = inspect.currentframe().f_back
+                if 'force_kw' in frame.f_locals:
+                    force_kw = frame.f_locals['force_kw']
+                if force_kw:
+                    value_text = f"{abs(watts)/1000:.2f}"
+                    unit_text = "kW"
+                else:
+                    value_text, unit_text = self._format_power_parts(abs(watts))
         self._base_img = self._render_background()
         self._canvas_img = self.canvas.create_image(0, 0, anchor="nw")
         
