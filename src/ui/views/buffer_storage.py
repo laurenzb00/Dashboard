@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse, FancyBboxPatch, Rectangle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
