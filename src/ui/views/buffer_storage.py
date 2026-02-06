@@ -258,6 +258,15 @@ class BufferStorageView(tk.Frame):
         self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
         self.spark_canvas.get_tk_widget().pack(fill=tk.X, expand=False)
 
+    def _floor_to_bin(self, dt: datetime, bin_minutes: int) -> datetime:
+        return dt.replace(second=0, microsecond=0) - timedelta(minutes=dt.minute % bin_minutes)
+
+    def _ceil_to_bin(self, dt: datetime, bin_minutes: int) -> datetime:
+        floored = self._floor_to_bin(dt, bin_minutes)
+        if floored == dt.replace(second=0, microsecond=0) and (dt.minute % bin_minutes) == 0:
+            return floored
+        return floored + timedelta(minutes=bin_minutes)
+
     def _update_sparkline(self) -> None:
         if (datetime.now().timestamp() - self._last_spark_update) < 30:
             return
@@ -265,19 +274,25 @@ class BufferStorageView(tk.Frame):
             return
         self._last_spark_update = datetime.now().timestamp()
 
-        # Feste 24h-Raster erzeugen (alle 15 Minuten)
+        bin_minutes = 15
         now = datetime.now()
-        x_min = now - timedelta(hours=24)
-        x_max = now
-        time_bins = [x_min + timedelta(minutes=15 * i) for i in range(0, 97)]  # 24h * 4 bins/h + 1
+        x_max = self._ceil_to_bin(now, bin_minutes)
+        x_min = x_max - timedelta(hours=24)
+        steps = int((x_max - x_min).total_seconds() // (bin_minutes * 60))
+        time_bins = [x_min + timedelta(minutes=bin_minutes * i) for i in range(steps + 1)]
 
         def fill_series(series):
-            # Map vorhandene Werte auf Raster, fehlende mit 0 auffüllen
             value_map = {dt: val for dt, val in series}
-            return [value_map.get(bin, 0.0) for bin in time_bins]
+            return [value_map.get(b, np.nan) for b in time_bins]
 
-        pv_series = self._load_pv_series(hours=24, bin_minutes=15)
-        temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+        pv_series = self._load_pv_series(hours=24, bin_minutes=bin_minutes)
+        temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=bin_minutes)
+
+        # Debug-Ausgabe
+        print("[SPARK] pv:", len(pv_series), "temp:", len(temp_series),
+              "pv_last:", pv_series[-1] if pv_series else None,
+              "temp_last:", temp_series[-1] if temp_series else None)
+
         pv_values = fill_series(pv_series)
         temp_values = fill_series(temp_series)
 
@@ -291,17 +306,19 @@ class BufferStorageView(tk.Frame):
         ax2 = self.spark_ax2
 
         self.spark_ax.set_xlim(x_min, x_max)
-        self.spark_ax.figure.autofmt_xdate()
         self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
 
         self.spark_ax.plot(time_bins, pv_values, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
         self.spark_ax.fill_between(time_bins, pv_values, color=COLOR_SUCCESS, alpha=0.15)
-        self.spark_ax.scatter([time_bins[-1]], [pv_values[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+        if not np.isnan(pv_values[-1]):
+            self.spark_ax.scatter([time_bins[-1]], [pv_values[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
 
         ax2.plot(time_bins, temp_values, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
-        ax2.scatter([time_bins[-1]], [temp_values[-1]], color=COLOR_INFO, s=12, zorder=10)
+        if not np.isnan(temp_values[-1]):
+            ax2.scatter([time_bins[-1]], [temp_values[-1]], color=COLOR_INFO, s=12, zorder=10)
 
+        # Styling wie gehabt
         self.spark_ax.spines['top'].set_visible(False)
         self.spark_ax.spines['right'].set_visible(False)
         self.spark_ax.spines['left'].set_color(COLOR_BORDER)
@@ -339,9 +356,13 @@ class BufferStorageView(tk.Frame):
 
     def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
+            if DEBUG_LOG:
+                print("[SPARKLINE] Kein Datastore verfügbar!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_fronius(hours=hours + 4, limit=2000)
+        if DEBUG_LOG:
+            print(f"[SPARKLINE] get_recent_fronius liefert {len(rows)} Zeilen")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-1000:]:
             ts = self._parse_ts(entry.get('timestamp'))
@@ -352,23 +373,34 @@ class BufferStorageView(tk.Frame):
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, pv_kw))
+        if DEBUG_LOG:
+            print(f"[SPARKLINE] PV-Samples: {samples[:5]} ... (insg. {len(samples)})")
         return self._aggregate_series(samples)
 
     def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
+            if DEBUG_LOG:
+                print("[SPARKLINE] Kein Datastore verfügbar (outdoor)!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
         rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
+        if DEBUG_LOG:
+            print(f"[SPARKLINE] get_recent_heating liefert {len(rows)} Zeilen")
         samples: list[tuple[datetime, float]] = []
         for entry in rows[-800:]:
             ts = self._parse_ts(entry.get('timestamp'))
+            # Fallback: falls 'outdoor' nicht im Dict, versuche 'außentemp'
             val = self._safe_float(entry.get('outdoor'))
+            if val is None and 'außentemp' in entry:
+                val = self._safe_float(entry.get('außentemp'))
             if ts is None or val is None or ts < cutoff:
                 continue
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, val))
+        if DEBUG_LOG:
+            print(f"[SPARKLINE] Outdoor-Samples: {samples[:5]} ... (insg. {len(samples)})")
         return self._aggregate_series(samples)
 
     def _load_puffer_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
