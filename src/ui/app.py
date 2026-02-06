@@ -116,6 +116,21 @@ class MainApp:
             "pv": {"label": "PV", "ts": None, "count": 0},
             "heating": {"label": "Heizung", "ts": None, "count": 0},
         }
+
+        # Letzte Datenpunkte für schnellen Zugriff
+        self._last_data = {
+            "pv": 0,
+            "load": 0,
+            "grid": 0,
+            "batt": 0,
+            "soc": 0,
+            "out_temp": 0,
+            "puffer_top": 0,
+            "puffer_mid": 0,
+            "puffer_bot": 0,
+            "warmwasser": 0,
+            "kesseltemperatur": 0,
+        }
         
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
