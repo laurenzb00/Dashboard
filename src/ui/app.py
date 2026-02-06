@@ -257,6 +257,18 @@ class MainApp:
         self._last_status_compact = ""
         self._last_data_dump_ts = 0.0  # Für rate-limitiertes Daten-Logging
 
+        # Fix: Initialisiere self._last_data mit final keys
+        self._last_data = {
+            "pv_power_kw": 0,
+            "grid_power_kw": 0,
+            "battery_power_kw": 0,
+            "battery_soc_pct": 0,
+            "bmk_boiler_c": 0,
+            "buf_top_c": 0,
+            "buf_mid_c": 0,
+            "buf_bottom_c": 0,
+        }
+
         # Define base header and status heights before using them
         self._base_header_h = 56
         self._base_status_h = 44
@@ -356,6 +368,7 @@ class MainApp:
         self._apply_fullscreen()
         # Starte zentralen Update-Tick
         self.root.after(500, self.update_tick)
+
     def _update_header_datetime(self):
         now = datetime.now()
         date_text = now.strftime("%d.%m.%Y")
