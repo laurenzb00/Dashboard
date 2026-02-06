@@ -211,10 +211,6 @@ class MainApp:
     def _loop(self):
         pass
 
-    # DEPRECATED: handle_wechselrichter_data() is no longer used.
-    def handle_wechselrichter_data(self, data: dict):
-        pass
-
     # DEPRECATED: handle_bmkdaten_data() is no longer used.
     def handle_bmkdaten_data(self, data: dict):
         pass
@@ -757,36 +753,6 @@ class MainApp:
 
         if soc is not None:
             self._last_data["soc"] = soc
-
-        self._update_status_summary()
-
-    def handle_bmkdaten_data(self, data: dict):
-        """Heizungs-/Pufferdaten aus dem Worker-Thread übernehmen."""
-        ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
-        source = self._source_health.get("heating")
-        if source:
-            source["ts"] = ts
-            source["count"] += 1
-
-        out_temp = _safe_float(data.get("Außentemperatur") or data.get("Aussentemperatur"))
-        top = _safe_float(data.get("Pufferspeicher Oben") or data.get("Puffer_Oben"))
-        mid = _safe_float(data.get("Pufferspeicher Mitte") or data.get("Puffer_Mitte"))
-        bot = _safe_float(data.get("Pufferspeicher Unten") or data.get("Puffer_Unten"))
-        warm = _safe_float(data.get("Warmwasser") or data.get("Warmwassertemperatur"))
-        kessel = _safe_float(data.get("Kesseltemperatur"))
-
-        if out_temp is not None:
-            self._last_data["out_temp"] = out_temp
-        if top is not None:
-            self._last_data["puffer_top"] = top
-        if mid is not None:
-            self._last_data["puffer_mid"] = mid
-        if bot is not None:
-            self._last_data["puffer_bot"] = bot
-        if warm is not None:
-            self._last_data["warmwasser"] = warm
-        if kessel is not None:
-            self._last_data["kesseltemperatur"] = kessel
 
         self._update_status_summary()
 
