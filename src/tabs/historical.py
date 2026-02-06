@@ -214,193 +214,207 @@ class HistoricalTab(Frame):
             self.canvas.get_tk_widget().destroy()
         except Exception:
             pass
-from tkinter import ttk
-from datetime import datetime, timedelta
-import matplotlib.dates as mdates
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-from ui.styles import (
-    COLOR_ROOT,
-    COLOR_CARD,
-    COLOR_BORDER,
-    COLOR_TEXT,
-    COLOR_SUBTEXT,
-    COLOR_PRIMARY,
-    COLOR_INFO,
-    COLOR_WARNING,
-    COLOR_DANGER,
-    emoji,
-)
-from ui.components.card import Card
 
+# ...existing code...
 
-class HistoricalTab:
-    """Historie der Heizung/Puffer/Außen + aktuelle Werte."""
+class HistoricalTab(Frame):
+    def __init__(self, parent, datastore, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.datastore = datastore
+        self.root = parent.winfo_toplevel()
+        self.after_job = None
 
-    def __init__(self, root: tk.Tk, notebook: ttk.Notebook, datastore=None):
-        self.root = root
-        self.notebook = notebook
-        self.alive = True
-        self._last_temps_cache = None  # Cache um Segfault zu vermeiden
-        self._last_cache_time = 0
-        self._update_task_id = None  # Track scheduled update to prevent stacking
+        # Layout: Stats oben, Plot unten
+        self.grid_rowconfigure(0, minsize=80)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
-        self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
-        self.notebook.add(self.tab_frame, text=emoji("📈 Heizung-Historie", "Heizung-Historie"))
-        if datastore is not None:
-            self.datastore = datastore
-        else:
-            from core.datastore import get_shared_datastore
-            self.datastore = get_shared_datastore()
+        self.stats_frame = tk.Frame(self, bg=COLOR_CARD, height=80)
+        self.stats_frame.grid(row=0, column=0, sticky="ew")
+        self.stats_frame.grid_propagate(False)
 
-        self.tab_frame.grid_columnconfigure(0, weight=1)
-        self.tab_frame.grid_rowconfigure(0, weight=0)
-        self.tab_frame.grid_rowconfigure(1, weight=1)
+        self.plot_frame = tk.Frame(self, bg=COLOR_CARD)
+        self.plot_frame.grid(row=1, column=0, sticky="nsew")
 
-        # Main Card
-        self.card = Card(self.tab_frame)
-        self.card.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=12, pady=12)
-        self.card.add_title("Heizungsdaten (letzte 7 Tage)", icon="🌡️")
-
-        body = self.card.content()
-        body.grid_rowconfigure(1, weight=1)
-        body.grid_columnconfigure(0, weight=1)
-
-        stats_frame = tk.Frame(body, bg=COLOR_CARD)
-        stats_frame.grid(row=0, column=0, sticky="ew", pady=(8, 0))
-        
-        self.var_top = tk.StringVar(value="-- °C")
-        self.var_mid = tk.StringVar(value="-- °C")
-        self.var_bot = tk.StringVar(value="-- °C")
-        self.var_boiler = tk.StringVar(value="-- °C")
-        self.var_out = tk.StringVar(value="-- °C")
-        
-        stats_grid = [
-            ("Puffer oben", self.var_top, COLOR_PRIMARY),
-            ("Puffer mitte", self.var_mid, COLOR_INFO),
-            ("Puffer unten", self.var_bot, COLOR_SUBTEXT),
-            ("Kessel", self.var_boiler, COLOR_WARNING),
-            ("Außen", self.var_out, COLOR_TEXT),
+        # Stats-Labels
+        self.stats_labels = {}
+        stats_keys = [
+            ("Puffer Oben", "top", COLOR_PRIMARY),
+            ("Puffer Mitte", "mid", COLOR_INFO),
+            ("Puffer Unten", "bot", COLOR_WARNING),
+            ("Kessel", "kessel", COLOR_DANGER),
+            ("Warmwasser", "warm", COLOR_TEXT),
+            ("Außen", "outdoor", COLOR_SUBTEXT),
         ]
-        
-        for idx, (label, var, color) in enumerate(stats_grid):
-            stat_card = tk.Frame(stats_frame, bg=COLOR_CARD)
-            stat_card.grid(row=0, column=idx, sticky="nsew", padx=8, pady=2)
-            stats_frame.grid_columnconfigure(idx, weight=1)
-            ttk.Label(stat_card, text=label, font=("Arial", 9), foreground=color).grid(
-                row=0, column=0, sticky="w", padx=6, pady=(4, 2)
-            )
-            ttk.Label(stat_card, textvariable=var, font=("Arial", 14, "bold")).grid(
-                row=1, column=0, sticky="w", padx=6, pady=(0, 4)
-            )
+        for idx, (name, key, color) in enumerate(stats_keys):
+            lbl = Label(self.stats_frame, text=f"{name}: -- °C", fg=color, bg=COLOR_CARD,
+                        font=("Segoe UI", 13, "bold"))
+            lbl.grid(row=0, column=idx, padx=12, pady=8, sticky="w")
+            self.stats_labels[key] = lbl
 
-        # Plot
-        plot_frame = tk.Frame(body, bg=COLOR_CARD)
-        plot_frame.grid(row=1, column=0, sticky="nsew", padx=(16,16), pady=(8,12))
-        body.grid_rowconfigure(1, weight=1)
-        self.fig = Figure(figsize=(8, 3.5), dpi=100)
+        self.stale_label = Label(self.stats_frame, text="", fg=COLOR_DANGER, bg=COLOR_CARD,
+                                font=("Segoe UI", 11, "bold"))
+        self.stale_label.grid(row=1, column=0, columnspan=len(stats_keys), sticky="w", padx=12)
+
+        # Matplotlib Figure
+        self.fig = Figure(figsize=(7, 3), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax.set_facecolor(COLOR_CARD)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
-        plot_frame.grid_rowconfigure(0, weight=1)
-        plot_frame.grid_columnconfigure(0, weight=1)
-        self._last_canvas_size = None
-        # Dynamische Größenanpassung: Passe Figure-Größe an Frame an
-        def on_resize(event):
-            w = max(4, event.width / 100)
-            h = max(2, event.height / 100)
-            self.fig.set_size_inches(w, h)
-            self.canvas.draw_idle()
-        plot_frame.bind("<Configure>", on_resize)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        self._last_key = None
-        self._resize_pending = False  # Prevent Configure event loop
-        self.root.after(100, self._update_plot)
+        self._debounce_resize_id = None
+        self.bind("<Configure>", self._on_resize)
+
+        self._update_plot()
+        self._schedule_update()
+
+    def _on_resize(self, event):
+        if self._debounce_resize_id:
+            self.after_cancel(self._debounce_resize_id)
+        self._debounce_resize_id = self.after(200, self._resize_plot)
+
+    def _resize_plot(self):
+        self.canvas.get_tk_widget().config(width=self.plot_frame.winfo_width(),
+                                           height=self.plot_frame.winfo_height())
+
+    def _schedule_update(self):
+        if self.after_job:
+            self.after_cancel(self.after_job)
+        self.after_job = self.after(30000, self._update_plot)
+
+    def _parse_ts(self, ts):
+        import re
+        from datetime import datetime, timezone
+        import pytz
+        if not ts:
+            return None
+        s = str(ts).strip()
+        s = re.sub(r"\.\d{1,6}", "", s)
+        s = s.replace('T', ' ', 1)
+        if s.endswith('Z'):
+            s = s[:-1]
+            try:
+                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+                dt = dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+        elif re.search(r"[+-]\d{2}:\d{2}$", s):
+            try:
+                dt = datetime.fromisoformat(s)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+        else:
+            try:
+                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+                dt = dt.replace(tzinfo=None)
+            except Exception:
+                return None
+        try:
+            vienna = pytz.timezone("Europe/Vienna")
+            if dt.tzinfo is not None:
+                local_dt = dt.astimezone(vienna)
+                naive_local = local_dt.replace(tzinfo=None)
+            else:
+                naive_local = dt
+        except Exception:
+            naive_local = dt
+        if naive_local > datetime.now():
+            print(f"[DEBUG] Parsed timestamp in future: {ts} -> {naive_local}")
+        return naive_local
+
+    def _update_plot(self):
+        # Daten holen
+        data = self.datastore.get_recent_heating(hours=6, limit=400)
+        if not data:
+            for key, lbl in self.stats_labels.items():
+                lbl.config(text=f"{lbl.cget('text').split(':')[0]}: -- °C")
+            self.stale_label.config(text="Keine Daten")
+            self._schedule_update()
+            return
+
+        # Letzter Wert
+        latest = data[-1]
+        ts = self._parse_ts(latest.get('timestamp'))
+        now = datetime.now()
+        stale_minutes = (now - ts).total_seconds() / 60 if ts else None
+
+        # Stats aktualisieren
+        for key, lbl in self.stats_labels.items():
+            val = latest.get(key)
+            if val is not None:
+                lbl.config(text=f"{lbl.cget('text').split(':')[0]}: {val:.1f} °C")
+            else:
+                lbl.config(text=f"{lbl.cget('text').split(':')[0]}: -- °C")
+
+        # Stale-Status
+        if stale_minutes is not None and stale_minutes > 5:
+            self.stale_label.config(text=f"STALE ({int(stale_minutes)} min alt)", fg=COLOR_DANGER)
+        else:
+            self.stale_label.config(text="", fg=COLOR_DANGER)
+
+        # Plot-Daten
+        times = []
+        values = {k: [] for k in ['top', 'mid', 'bot', 'kessel', 'warm', 'outdoor']}
+        for row in data:
+            t = self._parse_ts(row.get('timestamp'))
+            if not t:
+                continue
+            for k in values:
+                v = row.get(k)
+                values[k].append(v if v is not None else np.nan)
+            times.append(t)
+
+        # Plot
+        self.ax.clear()
+        line_cfg = [
+            ("Puffer Oben", "top", COLOR_PRIMARY),
+            ("Puffer Mitte", "mid", COLOR_INFO),
+            ("Puffer Unten", "bot", COLOR_WARNING),
+            ("Kessel", "kessel", COLOR_DANGER),
+            ("Warmwasser", "warm", COLOR_TEXT),
+            ("Außen", "outdoor", COLOR_SUBTEXT),
+        ]
+        for name, key, color in line_cfg:
+            y = np.array(values[key])
+            if np.all(np.isnan(y)):
+                continue
+            self.ax.plot(times, y, label=name, color=color, linewidth=2)
+
+        self.ax.set_xlabel("Zeit", color=COLOR_TEXT)
+        self.ax.set_ylabel("Temperatur [°C]", color=COLOR_TEXT)
+        self.ax.set_title("Heizungs-/Pufferhistorie", color=COLOR_TEXT)
+        self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m %H:%M'))
+        self.fig.autofmt_xdate(rotation=30)
+        self.ax.tick_params(axis='x', colors=COLOR_SUBTEXT, labelsize=9)
+        self.ax.tick_params(axis='y', colors=COLOR_SUBTEXT, labelsize=9)
+
+        # y-limits dynamisch, clamp auf 0–95
+        all_y = np.concatenate([np.array(values[k]) for k in values if len(values[k])])
+        all_y = all_y[~np.isnan(all_y)]
+        if len(all_y):
+            ymin = max(0, np.min(all_y) - 2)
+            ymax = min(95, np.max(all_y) + 2)
+            self.ax.set_ylim(ymin, ymax)
+
+        self.ax.legend(loc="upper left", fontsize=9, facecolor=COLOR_CARD, edgecolor=COLOR_BORDER)
+        self.ax.grid(True, color=COLOR_BORDER, alpha=0.2)
+
+        self.canvas.draw_idle()
+        self._schedule_update()
 
     def stop(self):
-        self.alive = False
-        if self._update_task_id:
-            try:
-                self.root.after_cancel(self._update_task_id)
-            except Exception:
-                pass
-        # Explicitly close matplotlib figure and destroy canvas to prevent memory leaks
+        if self.after_job:
+            self.after_cancel(self.after_job)
         try:
-            import matplotlib.pyplot as plt
-            if hasattr(self, 'fig') and self.fig:
-                plt.close(self.fig)
-                self.fig = None
-            if hasattr(self, 'canvas') and self.canvas:
-                widget = self.canvas.get_tk_widget()
-                if widget:
-                    widget.destroy()
+            self.fig.clf()
+            self.canvas.get_tk_widget().destroy()
         except Exception:
             pass
-
-    def _load_temps(self):
-        import time
-        # Cache: Nur alle 120s neu laden um Segfault zu vermeiden
-        now = time.time()
-        if self._last_temps_cache and (now - self._last_cache_time) < 120:
-            return self._last_temps_cache
-        
-        if not self.datastore:
-            return []
-
-        rows = self.datastore.get_recent_heating(hours=168, limit=2000)
-        cutoff = datetime.now() - timedelta(days=4)
-        parsed = []
-        fallback = []
-        for entry in rows:
-            ts = self._parse_ts(entry.get('timestamp'))
-            top = self._safe_float(entry.get('top'))
-            mid = self._safe_float(entry.get('mid'))
-            bot = self._safe_float(entry.get('bot'))
-            # Kessel = entry.get('kessel')
-            boiler = self._safe_float(entry.get('kessel'))
-            outside = self._safe_float(entry.get('outdoor'))
-            if None in (ts, top, mid, bot, boiler, outside):
-                continue
-            fallback.append((ts, top, mid, bot, boiler, outside))
-            if ts >= cutoff:
-                parsed.append((ts, top, mid, bot, boiler, outside))
-
-        parsed.sort(key=lambda r: r[0])
-        if parsed:
-            self._last_temps_cache = parsed
-            self._last_cache_time = now
-            return parsed
-
-        fallback.sort(key=lambda r: r[0])
-        if fallback:
-            result = fallback[-500:]
-            self._last_temps_cache = result
-            self._last_cache_time = now
-            return result
-
-        self._last_temps_cache = []
-        self._last_cache_time = now
-        return []
-
-    @staticmethod
-    def _safe_float(value) -> float | None:
-        if value is None:
-            return None
-        try:
-            return float(str(value).replace(",", "."))
-        except Exception:
-            return None
-
-    def _style_axes(self):
-        self.ax.set_facecolor(COLOR_CARD)
-        for spine in ["top", "right"]:
-            self.ax.spines[spine].set_visible(False)
-        for spine in ["left", "bottom"]:
-            self.ax.spines[spine].set_color(COLOR_BORDER)
-            self.ax.spines[spine].set_linewidth(1)
-
     def _update_plot(self):
         if not self.alive:
             return
