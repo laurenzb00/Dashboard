@@ -208,13 +208,34 @@ class BufferStorageView(tk.Frame):
         r, g, b = [int(255 * c) for c in rgba[:3]]
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def update_temperatures(
-        self,
-        top: float,
-        mid: float,
-        bottom: float,
-        kessel_c: float | None = None,
-    ) -> None:
+    def update_temperatures(self, *args, **kwargs):
+        """
+        Robustly update buffer storage temperatures.
+        Accepts either positional (top, mid, bottom, kessel_c) or keyword arguments (top=, mid=, bottom=, kessel_c=).
+        """
+        # Accept both positional and keyword arguments for compatibility
+        # Priority: kwargs > args
+        def as_float(x, default=0.0):
+            try:
+                if x is None:
+                    return default
+                return float(x)
+            except (TypeError, ValueError):
+                return default
+
+        # Extract values
+        if kwargs:
+            top = as_float(kwargs.get("top"))
+            mid = as_float(kwargs.get("mid"))
+            bottom = as_float(kwargs.get("bottom"))
+            kessel_c = as_float(kwargs.get("kessel_c"), None)
+        else:
+            # Support legacy signature: (top, mid, bottom, kessel_c=None)
+            top = as_float(args[0]) if len(args) > 0 else 0.0
+            mid = as_float(args[1]) if len(args) > 1 else 0.0
+            bottom = as_float(args[2]) if len(args) > 2 else 0.0
+            kessel_c = as_float(args[3], None) if len(args) > 3 else None
+
         if not self.winfo_exists() or not hasattr(self, "canvas_widget"):
             return
         if not self.canvas_widget.winfo_exists():

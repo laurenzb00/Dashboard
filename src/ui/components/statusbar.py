@@ -5,6 +5,9 @@ from ui.components.rounded import RoundedFrame
 
 
 class StatusBar(tk.Frame):
+        def set_status(self, text: str):
+            """Set the status label text (API-consistent)."""
+            self.status_label.config(text=text)
     """32px Statusbar mit Zeitstempel, Fenster- und Exit-Button."""
 
     def __init__(self, parent: tk.Widget, on_exit=None, on_toggle_fullscreen=None):
