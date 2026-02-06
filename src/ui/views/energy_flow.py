@@ -33,30 +33,35 @@ from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SO
 class EnergyFlowView(tk.Frame):
     def update_data(self, data: dict):
         """Update für Energiefluss-View: erwartet dict mit final keys."""
+        import logging
+        logger = logging.getLogger("dashboard.energyflow")
         def as_float(x, default=0.0):
             try:
                 return float(x)
             except (TypeError, ValueError):
                 return default
 
+        pv_kw   = as_float(data.get("pv_power_kw", 0.0))
+        grid_kw = as_float(data.get("grid_power_kw", 0.0))
+        batt_kw = as_float(data.get("battery_power_kw", 0.0))
+        soc     = as_float(data.get("battery_soc_pct", 0.0))
+
+        self._last_flows = (pv_kw, grid_kw, batt_kw, soc)
+
+        # Rate-limitiertes Info-Logging (max 1x/2s)
         now = time.time()
-        if not hasattr(self, '_last_missing_log'):
-            self._last_missing_log = {PV_POWER_KW: 0.0, BATTERY_POWER_KW: 0.0}
-        # Rate-limitiertes Logging für fehlende Werte (pv_power_kw, battery_power_kw)
-        for key in (PV_POWER_KW, BATTERY_POWER_KW):
-            val = data.get(key)
-            if val is None:
-                if now - self._last_missing_log[key] > MISSING_LOG_COOLDOWN:
-                    import logging
-                    logger = logging.getLogger("dashboard.energyflow")
-                    logger.debug(f"{key} value missing/None, set to 0.0 for EnergyFlowView")
-                    self._last_missing_log[key] = now
+        if not hasattr(self, '_last_energy_log_ts'):
+            self._last_energy_log_ts = 0.0
+        if now - self._last_energy_log_ts > 2.0:
+            logger.info("[ENERGY_FLOW] pv=%.2f kW grid=%.2f kW batt=%.2f kW soc=%.1f%%", pv_kw, grid_kw, batt_kw, soc)
+            self._last_energy_log_ts = now
+
         self.update_flows(
-            as_float(data.get(PV_POWER_KW)),
-            0.0,  # load wird nicht mehr verwendet
-            as_float(data.get(GRID_POWER_KW)),
-            as_float(data.get(BATTERY_POWER_KW)),
-            as_float(data.get(BATTERY_SOC_PCT)),
+            pv_kw,
+            0.0,      # load_kw, falls benötigt: pv_kw + grid_kw - batt_kw
+            grid_kw,
+            batt_kw,
+            soc
         )
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)
@@ -523,6 +528,7 @@ class EnergyFlowView(tk.Frame):
         frame = self.render_frame(pv_w, load_w, grid_w, batt_w, soc)
         self._tk_img = ImageTk.PhotoImage(frame)
         self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
+        self.canvas.draw_idle()
 
     def stop(self):
         """Cleanup resources to prevent memory leaks and segfaults."""

@@ -119,6 +119,22 @@ class MainApp:
                 for k, v in d.items():
                     if k != 'timestamp':
                         data[k] = v
+
+            # --- Rate-limitiertes Debug-Logging aller Daten (max alle 2s) ---
+            if not hasattr(self, '_last_data_dump_ts'):
+                self._last_data_dump_ts = 0.0
+            if now - self._last_data_dump_ts > 2.0:
+                logger = logging.getLogger(__name__)
+                # Logge alle final keys sortiert
+                logger.info("[DATA] %s", {k: data.get(k) for k in sorted(data.keys())})
+                # Logge explizit die wichtigsten Finalkeys (auch wenn sie fehlen)
+                keys = [
+                    "pv_power_kw","grid_power_kw","battery_power_kw","battery_soc_pct",
+                    "bmk_boiler_c","buf_top_c","buf_mid_c","buf_bottom_c"
+                ]
+                logger.info("[DATA_KEYS] %s", {k: data.get(k, "MISSING") for k in keys})
+                self._last_data_dump_ts = now
+
             # --- Widgets/Diagramme updaten (nur im MainThread!) ---
             if hasattr(self, 'energy_view'):
                 self.energy_view.update_data(data)
@@ -187,6 +203,7 @@ class MainApp:
         }
         self._data_fresh_seconds = None
         self._last_status_compact = ""
+        self._last_data_dump_ts = 0.0  # Für rate-limitiertes Daten-Logging
         
         # Define base header and status heights before using them
         self._base_header_h = 56
