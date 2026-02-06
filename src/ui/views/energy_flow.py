@@ -26,36 +26,35 @@ def _s(val: float) -> int:
 DEBUG_LOG = os.getenv("DASH_DEBUG", "0") == "1"
 
 class EnergyFlowView(tk.Frame):
-
-        def update_data(self, pv=None, load=None, batt=None, grid=None, soc=None):
-            """Robustes Update für Energieflussdaten. Alle Werte werden als float gesetzt, None wird zu 0.0."""
-            def as_float(x, default=0.0):
-                try:
-                    if x is None:
-                        return default
-                    return float(x)
-                except (TypeError, ValueError):
+    def update_data(self, pv=None, load=None, batt=None, grid=None, soc=None):
+        """Robustes Update für Energieflussdaten. Alle Werte werden als float gesetzt, None wird zu 0.0."""
+        def as_float(x, default=0.0):
+            try:
+                if x is None:
                     return default
+                return float(x)
+            except (TypeError, ValueError):
+                return default
 
-            # Rate-limitiertes Logging für fehlende Werte
-            now = time.time()
-            if not hasattr(self, '_last_missing_log'):
-                self._last_missing_log = 0
-            log_this = now - self._last_missing_log > 60
-            for name, val in [('pv', pv), ('batt', batt)]:
-                if val is None and log_this:
-                    print(f"[INFO] {name} value missing/None, set to 0.0 for EnergyFlowView")
-                    self._last_missing_log = now
+        # Rate-limitiertes Logging für fehlende Werte
+        now = time.time()
+        if not hasattr(self, '_last_missing_log'):
+            self._last_missing_log = 0
+        log_this = now - self._last_missing_log > 60
+        for name, val in [('pv', pv), ('batt', batt)]:
+            if val is None and log_this:
+                print(f"[INFO] {name} value missing/None, set to 0.0 for EnergyFlowView")
+                self._last_missing_log = now
 
-            self.update_flows(
-                as_float(pv),
-                as_float(load),
-                as_float(grid),
-                as_float(batt),
-                as_float(soc)
-            )
+        self.update_flows(
+            as_float(pv),
+            as_float(load),
+            as_float(grid),
+            as_float(batt),
+            as_float(soc)
+        )
+
     """PIL-basierter, flimmerfreier Energiefluss. Ein Canvas-Image pro Update."""
-
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
         super().__init__(parent, bg=COLOR_CARD)
         self._start_time = time.time()
@@ -74,7 +73,6 @@ class EnergyFlowView(tk.Frame):
         self._font_tiny = ImageFont.truetype("arial.ttf", _s(17)) if self._has_font("arial.ttf") else None
         # Emoji font support with multiple fallbacks
         self._font_emoji = self._find_emoji_font(_s(36))
-        
         # Load PNG icons - will be pasted onto PIL image
         self._icons_pil = {}  # PIL Images for embedding
         self._load_icons()
