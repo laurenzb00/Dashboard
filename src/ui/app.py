@@ -110,6 +110,12 @@ class MainApp:
         
         # Shared DataStore wird beim Start bereitgestellt
         self.datastore = datastore or safe_get_datastore()
+
+        # Health-Status für Datenquellen (PV, Heizung)
+        self._source_health = {
+            "pv": {"label": "PV", "ts": None, "count": 0},
+            "heating": {"label": "Heizung", "ts": None, "count": 0},
+        }
         
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
