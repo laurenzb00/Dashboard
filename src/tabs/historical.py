@@ -29,6 +29,7 @@ COLOR_SUCCESS = "#FFF"  # Warmwasser/Boiler: weiß
 class HistoricalTab(Frame):
     def __init__(self, parent, notebook, datastore, *args, **kwargs):
         super().__init__(notebook, *args, **kwargs)
+        notebook.add(self, text="Heizung-Historie")
         self.datastore = datastore
         self.root = parent.winfo_toplevel()
         self.after_job = None
