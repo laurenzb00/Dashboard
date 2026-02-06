@@ -37,6 +37,8 @@ class BufferStorageView(tk.Frame):
     def __init__(self, parent: tk.Widget, height: int = 280):
         super().__init__(parent, bg=COLOR_CARD)
         self._start_time = time.time()
+        self.spark_frame = tk.Frame(self, bg=COLOR_CARD)
+        self.spark_frame.pack(fill=tk.X, expand=False)
         self._create_sparkline()
         self.after(self.SPARK_UPDATE_INTERVAL, self._schedule_sparkline_update)
 
