@@ -37,6 +37,7 @@ class HueTab:
         self.master_bright_var = tk.IntVar(value=100)
         self.status_var = tk.StringVar(value="🔌 Verbinde...")
         self.last_refresh_var = tk.StringVar(value="")
+        self._bridge_lock = threading.Lock()
         
         # UI-Komponenten speichern
         self.status_label = None
@@ -392,7 +393,7 @@ class HueTab:
             btn = tk.Button(
                 card, text="Aktivieren", font=("Segoe UI", 9),
                 bg=COLOR_PRIMARY, fg=COLOR_ROOT, activebackground=COLOR_SUCCESS,
-                command=lambda gid=group_id, sid=scene_id: self._activate_scene(gid, sid),
+                command=lambda gid=group_id, sid=scene_id, nm=name: self._threaded_activate_scene(gid, sid, nm),
                 relief="flat", padx=15, pady=8
             )
             btn.pack(pady=(5, 10), padx=10, fill="x")
@@ -400,21 +401,37 @@ class HueTab:
         except Exception as e:
             print(f"[HUE] Scene card error: {e}")
 
-    def _activate_scene(self, group_id, scene_id):
-        """Aktiviere eine Szene."""
-        if not self.bridge:
-            return
+    def _threaded_activate_scene(self, group_id, scene_id, scene_name=""):
+        """Aktiviere eine Szene (nicht-blockierend, mit UI-Feedback)."""
+        # Quick UI feedback
         try:
+            label = scene_name.strip() or "Szene"
+            self.status_var.set(f"⏱ Aktiviere: {label}...")
+        except Exception:
+            pass
+
+        def worker():
+            if not self.bridge:
+                self._ui_call(self.status_var.set, "⚠ Hue: Keine Verbindung")
+                return
+
             gid = 0
             if group_id is not None:
                 try:
                     gid = int(group_id)
                 except Exception:
                     gid = 0
-            self.bridge.activate_scene(group=gid, scene=scene_id)
-            print(f"[HUE] Activated scene {scene_id} (group={gid})")
-        except Exception as e:
-            print(f"[HUE] Scene activation error: {e}")
+
+            try:
+                with self._bridge_lock:
+                    resp = self.bridge.activate_scene(group_id=gid, scene_id=scene_id)
+                print(f"[HUE] Activated scene {scene_id} (group={gid}) -> {resp}")
+                self._ui_call(self.status_var.set, "✓ Szene aktiviert")
+            except Exception as e:
+                print(f"[HUE] Scene activation error: {e}")
+                self._ui_call(self.status_var.set, f"⚠ Szene Fehler: {str(e)[:40]}")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_lights(self):
         """Zeige einzelne Lichter mit Helligkeitsreglern."""
