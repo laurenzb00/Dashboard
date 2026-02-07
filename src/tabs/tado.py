@@ -246,7 +246,7 @@ class TadoTab:
         logging.info("[TADO] Loop gestartet")
         # Login
         try:
-            from PyTado.interface import Tado
+            from pytado.interface import Tado
 
             # OAuth Device Flow (seit 2025) + Token-Cache
             self.api = Tado(token_file_path=TADO_TOKEN_FILE)

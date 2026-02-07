@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
+import traceback
 
 from core.datastore import get_shared_datastore
 from ui.styles import (
@@ -219,45 +220,56 @@ class StatusTab:
         self._update_task_id = self.root.after(3000, self._schedule_update)
 
     def _update_status(self):
-        if not self.datastore:
-            return
-
-        now = datetime.now()
-
-        # --- fetch last records (existing API) ---
-        pv_rec = None
-        heat_rec = None
-        latest_ts = None
-
         try:
-            latest_ts = self.datastore.get_latest_timestamp()
-        except Exception as exc:
-            self._last_err_db = f"get_latest_timestamp() failed: {exc}"
+            if not self.datastore:
+                return
 
-        try:
-            pv_rec = self.datastore.get_last_fronius_record()
-            self._last_err_pv = None
-        except Exception as exc:
-            self._last_err_pv = f"get_last_fronius_record() failed: {exc}"
+            now = datetime.now()
 
-        try:
-            heat_rec = self.datastore.get_last_heating_record()
-            self._last_err_heat = None
-        except Exception as exc:
-            self._last_err_heat = f"get_last_heating_record() failed: {exc}"
+            # --- fetch last records (existing API) ---
+            pv_rec = None
+            heat_rec = None
+            latest_ts = None
 
-        # parse timestamps
-        pv_dt = _safe_iso_to_dt(pv_rec.get("timestamp") if pv_rec else None)
-        heat_dt = _safe_iso_to_dt(heat_rec.get("timestamp") if heat_rec else None)
-        db_dt = _safe_iso_to_dt(latest_ts)
+            try:
+                latest_ts = self.datastore.get_latest_timestamp()
+            except Exception as exc:
+                self._last_err_db = f"get_latest_timestamp() failed: {exc}"
 
-        pv_age = _age_seconds(now, pv_dt)
-        heat_age = _age_seconds(now, heat_dt)
-        db_age = _age_seconds(now, db_dt)
+            try:
+                pv_rec = self.datastore.get_last_fronius_record()
+                self._last_err_pv = None
+            except Exception as exc:
+                self._last_err_pv = f"get_last_fronius_record() failed: {exc}"
 
-        # lamps
-        db_color, db_text = _lamp_style(db_age, stale_s=60, future_s=60)
-        pv_color, pv_text = _lamp_style(pv_age, stale_s=60, future_s=60)
+            try:
+                heat_rec = self.datastore.get_last_heating_record()
+                self._last_err_heat = None
+            except Exception as exc:
+                self._last_err_heat = f"get_last_heating_record() failed: {exc}"
+
+            # parse timestamps
+            pv_dt = _safe_iso_to_dt(pv_rec.get("timestamp") if pv_rec else None)
+            heat_dt = _safe_iso_to_dt(heat_rec.get("timestamp") if heat_rec else None)
+            db_dt = _safe_iso_to_dt(latest_ts)
+
+            pv_age = _age_seconds(now, pv_dt)
+            heat_age = _age_seconds(now, heat_dt)
+            db_age = _age_seconds(now, db_dt)
+
+            # lamps
+            db_color, db_text = _lamp_style(db_age, stale_s=60, future_s=60)
+            pv_color, pv_text = _lamp_style(pv_age, stale_s=60, future_s=60)
+            # ...existing code...
+        except Exception:
+            try:
+                tb = traceback.format_exc()
+                if hasattr(self, 'raw_err') and hasattr(self, '_set_text'):
+                    self._set_text(self.raw_err, "[StatusTab CRASH]\n\n" + tb)
+                if hasattr(self, 'card_warn') and hasattr(self, '_set_health'):
+                    self._set_health(self.card_warn, "#cc4444", "ERR", "StatusTab crashed", "siehe Errors-Tab", "")
+            except Exception:
+                pass
         ht_color, ht_text = _lamp_style(heat_age, stale_s=60, future_s=60)
 
         # --- Cards content (minimal + useful) ---
