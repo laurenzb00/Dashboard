@@ -70,7 +70,9 @@ class StatusTab(ttk.Frame):
         self.errors_text.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
         self.errors_text.config(state="disabled")
 
-        # Snapshot-Labels
+        # Snapshot-Labels: bessere Spaltenaufteilung
+        self.snapshot_frame.grid_columnconfigure(0, weight=3, minsize=120)
+        self.snapshot_frame.grid_columnconfigure(1, weight=1, minsize=60, uniform="snapval")
         self.snapshot_labels = {}
         row = 0
         for key, label in [
@@ -116,6 +118,15 @@ class StatusTab(ttk.Frame):
             card.line2.config(text=line1 if line1 else "")
         except Exception:
             pass
+        def _set_health(self, card, color, status_text, line1, line2):
+            # title wird nicht genutzt, daher entfernt
+            try:
+                card.lamp.delete("all")
+                card.lamp.create_oval(4, 4, 22, 22, fill=color, outline="#222")
+                card.line1.config(text=status_text)
+                card.line2.config(text=line2 if line2 else "")
+            except Exception:
+                pass
 
     def _schedule_update(self):
         if self.after_job is not None:
@@ -133,21 +144,21 @@ class StatusTab(ttk.Frame):
         for lbl in self.snapshot_labels.values():
             lbl.config(text="--")
         # Health-Card Defaults
-        self._set_health(self.card_db, "#9a9a9a", "--", "DB", "", "")
-        self._set_health(self.card_pv, "#9a9a9a", "--", "PV", "", "")
-        self._set_health(self.card_heat, "#9a9a9a", "--", "Heizung", "", "")
-        self._set_health(self.card_warn, "#9a9a9a", "--", "OK", "", "")
+            self._set_health(self.card_db, "#9a9a9a", "--", "", "")
+            self._set_health(self.card_pv, "#9a9a9a", "--", "", "")
+            self._set_health(self.card_heat, "#9a9a9a", "--", "", "")
+            self._set_health(self.card_warn, "#9a9a9a", "OK", "", "")
 
         # DB
         try:
             latest_ts = self.datastore.get_latest_timestamp()
             db_dt = self._safe_iso_to_dt(latest_ts)
             db_age = self._age_seconds(now, db_dt)
-            db_color, db_text = self._lamp_style(db_age)
-            self._set_health(self.card_db, db_color, db_text, "DB", "", "")
+            db_color, db_status, db_line2 = self._lamp_style_ext(db_age, db_dt, now)
+            self._set_health(self.card_db, db_color, db_status, "", db_line2)
         except Exception:
             err = "[DB] " + traceback.format_exc().splitlines()[-1]
-            errors.append(err)
+            errors.append("DB: Fehler beim Lesen")
             tb_full += traceback.format_exc() + "\n"
 
         # PV
@@ -156,14 +167,17 @@ class StatusTab(ttk.Frame):
             if pv_rec:
                 for key in [PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT]:
                     val = pv_rec.get(key)
-                    self.snapshot_labels[key].config(text=f"{val:.2f}" if val is not None else "--")
+                    if key == PV_POWER_KW or key == GRID_POWER_KW or key == BATTERY_POWER_KW:
+                        self.snapshot_labels[key].config(text=f"{val:.2f}" if val is not None else "--")
+                    elif key == BATTERY_SOC_PCT:
+                        self.snapshot_labels[key].config(text=f"{val:.1f}" if val is not None else "--")
             pv_dt = self._safe_iso_to_dt(pv_rec.get("timestamp") if pv_rec else None)
             pv_age = self._age_seconds(now, pv_dt)
-            pv_color, pv_text = self._lamp_style(pv_age)
-            self._set_health(self.card_pv, pv_color, pv_text, "PV", "", "")
+            pv_color, pv_status, pv_line2 = self._lamp_style_ext(pv_age, pv_dt, now)
+            self._set_health(self.card_pv, pv_color, pv_status, "", pv_line2)
         except Exception:
             err = "[PV] " + traceback.format_exc().splitlines()[-1]
-            errors.append(err)
+            errors.append("PV: Fehler beim Lesen")
             tb_full += traceback.format_exc() + "\n"
 
         # Heating
@@ -175,27 +189,33 @@ class StatusTab(ttk.Frame):
                     self.snapshot_labels[key].config(text=f"{val:.1f}" if val is not None else "--")
             heat_dt = self._safe_iso_to_dt(heat_rec.get("timestamp") if heat_rec else None)
             heat_age = self._age_seconds(now, heat_dt)
-            heat_color, heat_text = self._lamp_style(heat_age)
-            self._set_health(self.card_heat, heat_color, heat_text, "Heizung", "", "")
+            heat_color, heat_status, heat_line2 = self._lamp_style_ext(heat_age, heat_dt, now)
+            self._set_health(self.card_heat, heat_color, heat_status, "", heat_line2)
         except Exception:
             err = "[Heizung] " + traceback.format_exc().splitlines()[-1]
-            errors.append(err)
+            errors.append("Heizung: Fehler beim Lesen")
             tb_full += traceback.format_exc() + "\n"
 
         # Warnings
         if errors:
-            self._set_health(self.card_warn, "#cc4444", "ERR", "Fehler", "\n".join(errors[:2]), "")
+            self._set_health(self.card_warn, "#cc4444", "Fehler", "", errors[0] if errors else "Fehler")
         else:
-            self._set_health(self.card_warn, "#44cc44", "OK", "Alles gut", "", "")
+            self._set_health(self.card_warn, "#44cc44", "OK", "", "Alles gut")
 
         # Fehlertextfeld immer aktualisieren
         self.errors_text.config(state="normal")
+        self.errors_text.delete("1.0", "end")
         if tb_full:
-            self.errors_text.delete("1.0", "end")
-            self.errors_text.insert("1.0", "[StatusTab Errors]\n\n" + tb_full)
+            self.errors_text.insert("1.0", "Fehler/Details:\n" + tb_full)
         else:
-            self.errors_text.delete("1.0", "end")
-            self.errors_text.insert("1.0", "Keine Fehler.")
+            # Kontext-Infos, wenn keine Fehler
+            info = [
+                f"Letztes Update: {now.strftime('%H:%M:%S')}",
+                f"DB-Alter: {self._format_age(self._age_seconds(now, self._safe_iso_to_dt(self.datastore.get_latest_timestamp())))}",
+                f"PV-Alter: {self._format_age(self._age_seconds(now, self._safe_iso_to_dt((self.datastore.get_last_fronius_record() or {}).get('timestamp'))))}",
+                f"Heizung-Alter: {self._format_age(self._age_seconds(now, self._safe_iso_to_dt((self.datastore.get_last_heating_record() or {}).get('timestamp'))))}"
+            ]
+            self.errors_text.insert("1.0", "\n".join(info))
         self.errors_text.config(state="disabled")
 
         self._schedule_update()
@@ -221,11 +241,29 @@ class StatusTab(ttk.Frame):
         return (now - dt).total_seconds()
 
     @staticmethod
-    def _lamp_style(age_s, stale_s=60, future_s=60):
+    def _lamp_style_ext(age_s, dt, now, stale_s=60, future_s=60):
+        # Liefert (Farbe, Status, Kontextzeile)
+        if dt is None:
+            return ("#9a9a9a", "Keine Daten", "--")
         if age_s is None:
-            return "#9a9a9a", "--"
+            return ("#9a9a9a", "Keine Daten", "--")
         if age_s < -future_s:
-            return "#d2a106", "FUT"
+            return ("#d2a106", "Zeitfehler", f"+{abs(int(age_s))//60}m")
         if age_s <= stale_s:
-            return "#44cc44", "OK"
-        return "#cc4444", "ALT"
+            return ("#44cc44", "OK", f"vor {StatusTab._format_age(age_s)}")
+        if age_s <= 10*stale_s:
+            return ("#d2a106", "Veraltet", f"vor {StatusTab._format_age(age_s)}")
+        return ("#cc4444", "Stark veraltet", f"vor {StatusTab._format_age(age_s)}")
+
+    @staticmethod
+    def _format_age(age_s):
+        if age_s is None:
+            return "--"
+        age_s = int(abs(age_s))
+        if age_s < 60:
+            return f"{age_s}s"
+        m, s = divmod(age_s, 60)
+        if m < 60:
+            return f"{m}m {s}s"
+        h, m = divmod(m, 60)
+        return f"{h}h {m}m"
