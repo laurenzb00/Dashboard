@@ -1,7 +1,7 @@
+
 from __future__ import annotations
 """Central SQLite datastore for PV and heating metrics."""
 from .time_utils import ensure_utc
-
 from collections import defaultdict
 import csv
 import os
@@ -9,8 +9,7 @@ import sqlite3
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
-from src.core.time_utils import ensure_utc
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -49,19 +48,23 @@ def close_shared_datastore() -> None:
 
 class DataStore:
     def normalize_heating_record(self, record: dict, stale_minutes: int = 5) -> dict:
-        """Normalize heating record for UI: parse timestamp, map keys, handle staleness."""
-        from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+        """
+        Normalize heating record for UI: parse timestamp, map keys, handle staleness.
+        Zeitstrategie: UTC everywhere. Alle Datetimes werden als UTC interpretiert.
+        Mapping: Kessel = BMK_KESSEL_C, Warmwasser = BMK_WARMWASSER_C (Boiler), keine Fallbacks.
+        """
+        from .schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         ts = record.get('timestamp')
         dt = _parse_iso_timestamp(ts)
-        now = ensure_utc(datetime.now())
         dt = ensure_utc(dt) if dt else None
+        now = datetime.now(timezone.utc)
         age_min = (now - dt).total_seconds() / 60 if dt else None
-        outdoor = _safe_float(record.get('outdoor') or record.get('außentemp'))
-        kessel = record.get(BMK_KESSEL_C) or record.get('kessel') or record.get(BMK_BOILER_C)
-        warm = record.get(BMK_WARMWASSER_C) or record.get('warm') or record.get('warmwasser')
-        top = record.get(BUF_TOP_C) or record.get('top')
-        mid = record.get(BUF_MID_C) or record.get('mid')
-        bot = record.get(BUF_BOTTOM_C) or record.get('bot')
+        outdoor = _safe_float(record.get('outdoor'))
+        kessel = _safe_float(record.get(BMK_KESSEL_C))
+        warmwasser = _safe_float(record.get(BMK_WARMWASSER_C))
+        top = _safe_float(record.get(BUF_TOP_C))
+        mid = _safe_float(record.get(BUF_MID_C))
+        bot = _safe_float(record.get(BUF_BOTTOM_C))
         is_stale = age_min is not None and age_min > stale_minutes
         return {
             'timestamp': ts,
@@ -70,7 +73,7 @@ class DataStore:
             'is_stale': is_stale,
             'outdoor': outdoor,
             BMK_KESSEL_C: kessel,
-            BMK_WARMWASSER_C: warm,
+            BMK_WARMWASSER_C: warmwasser,
             BUF_TOP_C: top,
             BUF_MID_C: mid,
             BUF_BOTTOM_C: bot,
@@ -415,12 +418,16 @@ class DataStore:
         ]
 
     def get_last_heating_record(self) -> Optional[dict]:
-        """Hole letzten Heizungs-Record als dict mit final keys (schema.py)."""
-        from core.schema import BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+        """
+        Hole letzten Heizungs-Record als dict mit final keys (schema.py).
+        Zeitstrategie: UTC everywhere. Mapping: Kessel = BMK_KESSEL_C, Warmwasser = BMK_WARMWASSER_C.
+        Keine Fallbacks, keine Verschachtelung.
+        """
+        from .schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser
+            SELECT timestamp, kesseltemp, warmwasser, außentemp, puffer_top, puffer_mid, puffer_bot
             FROM heating ORDER BY timestamp DESC LIMIT 1
             """
         )
@@ -429,37 +436,14 @@ class DataStore:
             self._update_last_ingest_locked(row[0])
             return {
                 'timestamp': row[0],
-                BMK_BOILER_C: row[1] or 0.0,  # Kessel
-                BUF_TOP_C: row[3] or 0.0,
-                BUF_MID_C: row[4] or 0.0,
-                BUF_BOTTOM_C: row[5] or 0.0,
-                'warm': row[6] or 0.0,         # Warmwasser/Boiler
-                'outdoor': row[2] or 0.0,      # Außentemperatur
+                BMK_KESSEL_C: _safe_float(row[1]),
+                BMK_WARMWASSER_C: _safe_float(row[2]),
+                'outdoor': _safe_float(row[3]),
+                BUF_TOP_C: _safe_float(row[4]),
+                BUF_MID_C: _safe_float(row[5]),
+                BUF_BOTTOM_C: _safe_float(row[6]),
             }
         return None
-        def get_last_heating_record(self) -> Optional[dict]:
-            """Hole letzten Heizungs-Record als dict mit final keys (schema.py)."""
-            from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                SELECT timestamp, kesseltemp, warmwasser, außentemp, puffer_top, puffer_mid, puffer_bot
-                FROM heating ORDER BY timestamp DESC LIMIT 1
-                """
-            )
-            row = cursor.fetchone()
-            if row:
-                self._update_last_ingest_locked(row[0])
-                return {
-                    'timestamp': row[0],
-                    BMK_KESSEL_C: row[1] or 0.0,
-                    BMK_WARMWASSER_C: row[2] or 0.0,
-                    'outdoor': row[3] or 0.0,
-                    BUF_TOP_C: row[4] or 0.0,
-                    BUF_MID_C: row[5] or 0.0,
-                    BUF_BOTTOM_C: row[6] or 0.0,
-                }
-            return None
 
     def get_latest_timestamp(self) -> Optional[str]:
         with self._lock:
@@ -521,6 +505,7 @@ class DataStore:
         dt = _parse_iso_timestamp(ts)
         if not dt:
             return
+        dt = ensure_utc(dt)
         if self._last_ingest_dt is None or dt > self._last_ingest_dt:
             self._last_ingest_dt = dt
 
@@ -678,7 +663,8 @@ def _distribute_segment_energy(
 def _hours_ago_iso(hours: int | None) -> Optional[str]:
     if hours is None:
         return None
-    return (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+    # UTC everywhere: Cutoff immer UTC
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
