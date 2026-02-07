@@ -110,8 +110,12 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
         return None
 
     try:
+        import pytz
         values = [line.strip() for line in response.text.splitlines() if line.strip()]
-        zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Lokale Zeit (Europe/Vienna) als ISO-8601-String mit expliziter Zeitzone
+        vienna = pytz.timezone("Europe/Vienna")
+        now_local = datetime.now(vienna)
+        zeitstempel = now_local.isoformat()
         # logger.debug(f"BMK Response hat {len(values)} Werte")
 
         daten_heizung = _extrahiere_alle_daten(values, zeitstempel)

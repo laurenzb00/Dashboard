@@ -461,52 +461,14 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _parse_ts(value):
-        import re
-        import pytz
-        from datetime import datetime, timezone
+        # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
+        from datetime import datetime
         if not value:
             return None
-        s = str(value).strip()
-        # Remove milliseconds for easier parsing
-        s = re.sub(r"\.\d{1,6}", "", s)
-        s = s.replace('T', ' ', 1)
-        # Handle Z (UTC)
-        if s.endswith('Z'):
-            s = s[:-1]
-            try:
-                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-                dt = dt.replace(tzinfo=timezone.utc)
-            except Exception:
-                return None
-        # Handle explicit offset (e.g. +01:00)
-        elif re.search(r"[+-]\d{2}:\d{2}$", s):
-            try:
-                dt = datetime.fromisoformat(s)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-            except Exception:
-                return None
-        else:
-            # Assume naive local time
-            try:
-                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-                dt = dt.replace(tzinfo=None)
-            except Exception:
-                return None
-        # Convert to Europe/Vienna local time (naive)
         try:
-            vienna = pytz.timezone("Europe/Vienna")
-            if dt.tzinfo is not None:
-                local_dt = dt.astimezone(vienna)
-                naive_local = local_dt.replace(tzinfo=None)
-            else:
-                naive_local = dt
+            return datetime.fromisoformat(str(value))
         except Exception:
-            naive_local = dt
-        # Debug: print conversion
-        if naive_local > datetime.now():
-            print(f"[DEBUG] Parsed timestamp in future: {value} -> {naive_local}")
-        return naive_local
+            return None
 
     @staticmethod
     def _safe_float(value):

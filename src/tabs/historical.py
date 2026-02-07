@@ -80,23 +80,12 @@ class HistoricalTab(Frame):
         self._schedule_update()
 
     def _parse_ts(self, ts):
-        # Robust, timezone-aware: returns local Europe/Vienna time
-        import re
-        from datetime import datetime, timezone
-        s = str(ts).strip().replace('T', ' ', 1)
-        s = re.sub(r"\.\d{1,6}", "", s)
-        vienna = pytz.timezone("Europe/Vienna")
+        # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
+        from datetime import datetime
+        if not ts:
+            return None
         try:
-            if s.endswith('Z'):
-                s = s[:-1]
-                dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                return dt.astimezone(vienna)
-            elif re.search(r"[+-]\d{2}:\d{2}$", s):
-                dt = datetime.fromisoformat(s)
-                return dt.astimezone(vienna)
-            else:
-                # Assume naive = local time
-                return vienna.localize(datetime.strptime(s, "%Y-%m-%d %H:%M:%S"))
+            return datetime.fromisoformat(str(ts))
         except Exception:
             return None
 

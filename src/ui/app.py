@@ -253,11 +253,12 @@ class MainApp:
 
     @staticmethod
     def _parse_ts(ts):
+        # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
+        from datetime import datetime
         if not ts:
             return 0
         try:
-            # Versuche ISO-Format
-            return time.mktime(datetime.fromisoformat(ts).timetuple())
+            return datetime.fromisoformat(str(ts)).timestamp()
         except Exception:
             return 0
 
@@ -793,6 +794,8 @@ class MainApp:
 
     @staticmethod
     def _parse_timestamp_value(value):
+        # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
+        from datetime import datetime
         if isinstance(value, datetime):
             return value
         if not value:

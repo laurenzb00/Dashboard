@@ -682,17 +682,8 @@ def _hours_ago_iso(hours: int | None) -> Optional[str]:
 def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
-    s = str(value).strip().replace('T', ' ', 1)
-    # Remove milliseconds if present
-    if '.' in s:
-        s = s.split('.')[0]
-    # Remove timezone if present
-    if '+' in s:
-        s = s.split('+')[0]
-    if 'Z' in s:
-        s = s.replace('Z', '')
     try:
-        return datetime.fromisoformat(s)
+        return datetime.fromisoformat(str(value))
     except Exception:
         return None
 
