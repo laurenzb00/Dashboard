@@ -19,12 +19,12 @@ from ui.styles import (
 )
 from ui.components.card import Card
 
-# --- Robust: PyTado-Import mit Fallback ---
+# --- Robust: python-tado-Import mit Fallback ---
 try:
-    from PyTado import Tado
+    from python_tado import Tado
 except ImportError:
     Tado = None
-    logging.warning("[TADO] PyTado konnte nicht importiert werden! Sparkline und API werden nicht funktionieren.")
+    logging.warning("[TADO] python-tado konnte nicht importiert werden! Sparkline und API werden nicht funktionieren.")
 
 # --- KONFIGURATION ---
 TADO_USER = os.getenv("TADO_USER")
@@ -300,7 +300,7 @@ class TadoTab:
             
             self._ui_set(self.var_status, "Verbunden")
         except ImportError:
-            self._ui_set(self.var_status, "PyTado nicht installiert! Bitte im Terminal ausführen: 'pip install pytado' (im .venv falls vorhanden). Dann Dashboard neu starten.")
+            self._ui_set(self.var_status, "python-tado nicht installiert! Bitte im Terminal ausführen: 'pip install python-tado' (im .venv falls vorhanden). Dann Dashboard neu starten.")
             self._ui_set(self.var_temp_ist, "N/A")
             self._ui_set(self.var_humidity, "N/A")
             while self.alive:
