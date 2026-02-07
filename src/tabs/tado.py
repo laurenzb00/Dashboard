@@ -26,12 +26,24 @@ try:
     Tado = _PythonTado
 except ImportError as exc:
     logging.warning("[TADO] python-tado Import fehlgeschlagen: %s", exc)
+
+if Tado is None:
+    # Aktuelles `python-tado` (0.19.x) installiert i.d.R. als Paket `PyTado`
+    # und exportiert die Klasse über `PyTado.interface`.
     try:
-        from PyTado import Tado as _LegacyTado
-        Tado = _LegacyTado
-        logging.info("[TADO] Legacy PyTado Import erfolgreich, bitte python-tado nachinstallieren.")
-    except ImportError as exc_legacy:
-        logging.warning("[TADO] PyTado Import ebenfalls fehlgeschlagen: %s", exc_legacy)
+        from PyTado.interface import Tado as _PyTado
+
+        Tado = _PyTado
+        logging.info("[TADO] Import via PyTado.interface erfolgreich.")
+    except ImportError as exc_pytado:
+        try:
+            from PyTado.interface.interface import Tado as _PyTado2
+
+            Tado = _PyTado2
+            logging.info("[TADO] Import via PyTado.interface.interface erfolgreich.")
+        except ImportError as exc_pytado2:
+            logging.warning("[TADO] PyTado Import fehlgeschlagen: %s", exc_pytado)
+            logging.warning("[TADO] PyTado (alt) Import ebenfalls fehlgeschlagen: %s", exc_pytado2)
 
 # --- KONFIGURATION ---
 TADO_USER = os.getenv("TADO_USER")
