@@ -19,6 +19,13 @@ from ui.styles import (
 )
 from ui.components.card import Card
 
+# --- Robust: PyTado-Import mit Fallback ---
+try:
+    from PyTado import Tado
+except ImportError:
+    Tado = None
+    logging.warning("[TADO] PyTado konnte nicht importiert werden! Sparkline und API werden nicht funktionieren.")
+
 # --- KONFIGURATION ---
 TADO_USER = os.getenv("TADO_USER")
 TADO_PASS = os.getenv("TADO_PASS")
@@ -300,7 +307,13 @@ class TadoTab:
                 time.sleep(5)
             return
         except Exception as e:
-            self._ui_set(self.var_status, f"Login fehlgeschlagen: {type(e).__name__}")
+            # Zeige Fehlername und ggf. Message für bessere Diagnose
+            err_type = type(e).__name__
+            err_msg = str(e)
+            msg = f"Login fehlgeschlagen: {err_type}"
+            if err_msg:
+                msg += f" – {err_msg}"
+            self._ui_set(self.var_status, msg)
             self._ui_set(self.var_temp_ist, "N/A")
             self._ui_set(self.var_humidity, "N/A")
             while self.alive:
@@ -399,6 +412,7 @@ class TadoTab:
         """Update 24h temperature chart."""
         try:
             if not hasattr(self, 'history_canvas') or not self.history_canvas:
+                logging.warning("[TADO] history_canvas fehlt, Sparkline kann nicht gezeichnet werden.")
                 return
             self.history_ax.clear()
             self.history_fig.patch.set_alpha(0)
@@ -416,16 +430,19 @@ class TadoTab:
                 self.history_ax.set_ylim(min(temps) - 2, max(temps) + 2)
                 self.history_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
                 self.history_ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+                logging.debug(f"[TADO] Sparkline: {len(temps)} Werte, min={min(temps)}, max={max(temps)}")
             else:
                 self.history_ax.text(0.5, 0.5, "Keine Historie", ha="center", va="center",
                                    transform=self.history_ax.transAxes, color=COLOR_SUBTEXT)
+                logging.info("[TADO] Sparkline: Keine Historie-Daten vorhanden.")
             self.history_fig.tight_layout(pad=0.4)
             try:
                 self.history_canvas.draw_idle()
-            except:
-                pass
+                logging.debug("[TADO] Sparkline: draw_idle() erfolgreich.")
+            except Exception as e:
+                logging.error(f"[TADO] Sparkline draw_idle() Fehler: {e}")
         except Exception as e:
-            logging.debug("[TADO] Chart update error: %s", e)
+            logging.error(f"[TADO] Chart update error: {e}")
 
     def _on_history_resize(self, event):
         if getattr(self, "_history_resize_pending", False):

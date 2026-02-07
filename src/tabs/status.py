@@ -21,6 +21,15 @@ from ui.components.card import Card
 from ui.components.rounded import RoundedFrame
 
 class StatusTab(ttk.Frame):
+    def _on_light_on(self):
+        # TODO: Hier Logik für Licht AN einfügen
+        self.light_icon.config(fg=COLOR_PRIMARY)
+        print("Licht AN")
+
+    def _on_light_off(self):
+        # TODO: Hier Logik für Licht AUS einfügen
+        self.light_icon.config(fg=COLOR_SUBTEXT)
+        print("Licht AUS")
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
         self.datastore = get_shared_datastore()
@@ -39,48 +48,60 @@ class StatusTab(ttk.Frame):
         self._schedule_update()
 
 
+
     def _build_layout(self):
         self.configure(style="TFrame")
         main = tk.Frame(self, bg=COLOR_ROOT)
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        # --- UI: System-Gesundheit (oben) ---
-        main.grid_rowconfigure(0, weight=0)
-        main.grid_rowconfigure(1, weight=0)
-        main.grid_rowconfigure(2, weight=0)
-        main.grid_rowconfigure(3, weight=1)
-        for i in range(4):
-            main.grid_columnconfigure(i, weight=1)
+        # --- Neuer Header: Großes Licht-Icon + An/Aus-Buttons ---
+        header = tk.Frame(main, bg=COLOR_ROOT)
+        header.pack(fill=tk.X, padx=0, pady=(0, 12))
+        # Großes Licht-Icon
+        self.light_icon = tk.Label(header, text="💡", font=("Segoe UI", 48), bg=COLOR_ROOT, fg=COLOR_PRIMARY)
+        self.light_icon.pack(side=tk.LEFT, padx=(8, 24), pady=0)
+        # Titel
+        tk.Label(header, text="Status", font=("Segoe UI", 22, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(side=tk.LEFT, pady=0)
+        # Spacer
+        header_spacer = tk.Frame(header, bg=COLOR_ROOT)
+        header_spacer.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        # An/Aus-Buttons
+        btn_frame = tk.Frame(header, bg=COLOR_ROOT)
+        btn_frame.pack(side=tk.RIGHT, padx=(0, 16))
+        self.btn_on = ttk.Button(btn_frame, text="An", width=6, command=self._on_light_on)
+        self.btn_on.pack(side=tk.LEFT, padx=(0, 8))
+        self.btn_off = ttk.Button(btn_frame, text="Aus", width=6, command=self._on_light_off)
+        self.btn_off.pack(side=tk.LEFT)
 
-        # Klare, ausgeschriebene Titel und Statusanzeige
-        self.card_db = Card(main, padding=14)
-        self.card_db.add_title("Datenbank", icon="🗄️")
-        self.card_db.grid(row=0, column=0, sticky="nsew", padx=4, pady=2)
+        # --- Ampel-Statuskarten (minimal, groß, 4 Stück) ---
+        ampel_frame = tk.Frame(main, bg=COLOR_ROOT)
+        ampel_frame.pack(fill=tk.X, padx=0, pady=(0, 12))
+        ampel_frame.grid_columnconfigure(0, weight=1)
+        ampel_frame.grid_columnconfigure(1, weight=1)
+        ampel_frame.grid_columnconfigure(2, weight=1)
+        ampel_frame.grid_columnconfigure(3, weight=1)
+        self.ampel_cards = []
+        ampel_labels = [
+            ("DB", "🗄️"),
+            ("PV", "☀️"),
+            ("Heizung", "🔥"),
+            ("Warnung", "⚠️"),
+        ]
+        for i, (label, icon) in enumerate(ampel_labels):
+            card = tk.Frame(ampel_frame, bg=COLOR_CARD, bd=0, highlightthickness=0)
+            card.grid(row=0, column=i, sticky="nsew", padx=8, pady=0)
+            card.grid_propagate(False)
+            card.config(width=120, height=120)
+            # Icon
+            tk.Label(card, text=icon, font=("Segoe UI", 32), bg=COLOR_CARD, fg=COLOR_PRIMARY).pack(pady=(12, 0))
+            # Label
+            tk.Label(card, text=label, font=("Segoe UI", 16, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT).pack(pady=(4, 0))
+            # Status (Ampel)
+            lamp = tk.Canvas(card, width=32, height=32, bg=COLOR_CARD, highlightthickness=0)
+            lamp.pack(pady=(8, 8))
+            self.ampel_cards.append({"frame": card, "lamp": lamp, "label": label})
 
-        self.card_pv = Card(main, padding=14)
-        self.card_pv.add_title("PV-Anlage", icon="☀️")
-        self.card_pv.grid(row=0, column=1, sticky="nsew", padx=4, pady=2)
-
-        self.card_heat = Card(main, padding=14)
-        self.card_heat.add_title("Heizung", icon="🔥")
-        self.card_heat.grid(row=0, column=2, sticky="nsew", padx=4, pady=2)
-
-        self.card_warn = Card(main, padding=14)
-        self.card_warn.add_title("Warnungen", icon="⚠️")
-        self.card_warn.grid(row=0, column=3, sticky="nsew", padx=4, pady=2)
-
-        # Health-Card Inhalte (Statusanzeige, Klartext)
-        self._health_cards = []
-        for card in [self.card_db, self.card_pv, self.card_heat, self.card_warn]:
-            frame = card.content()
-            frame.configure(bg=COLOR_CARD)
-            card.lamp = tk.Canvas(frame, width=18, height=18, bg=COLOR_CARD, highlightthickness=0)
-            card.lamp.grid(row=0, column=0, sticky="w", padx=(2, 8), pady=(2, 2))
-            card.line1 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 14, "bold"))
-            card.line1.grid(row=0, column=1, sticky="w", pady=(2, 0), padx=(0, 4))
-            card.line2 = tk.Label(frame, text="", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10))
-            card.line2.grid(row=1, column=1, sticky="w", pady=(0, 6), padx=(0, 4))
-            self._health_cards.append(card)
+        # ...Restliches Layout (Live-Systemstatus, Diagnose, Details) bleibt wie gehabt...
 
         # --- UI: Live-Systemstatus (Mitte) ---
         self.values_card = Card(main, padding=18)
