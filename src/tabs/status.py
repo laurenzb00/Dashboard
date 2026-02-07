@@ -104,15 +104,13 @@ class StatusTab(ttk.Frame):
         # ...Restliches Layout (Live-Systemstatus, Diagnose, Details) bleibt wie gehabt...
 
         # --- UI: Live-Systemstatus (Mitte) ---
+
         self.values_card = Card(main, padding=18)
         self.values_card.add_title("Live-Systemstatus", icon="📊")
-        self.values_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=(10, 6))
+        self.values_card.pack(fill=tk.X, padx=4, pady=(10, 6))
         self.values_frame = self.values_card.content()
         self.values_frame.configure(bg=COLOR_CARD)
-        for i in range(6):
-            self.values_frame.grid_columnconfigure(i, weight=1)
-
-        # Einheitliche Kacheln mit Icon, Wert, Label
+        # Kacheln horizontal mit pack (side=LEFT)
         value_items = [
             (PV_POWER_KW, "PV-Leistung", "☀️", "kW"),
             (GRID_POWER_KW, "Netzbezug", "🔌", "kW"),
@@ -124,26 +122,23 @@ class StatusTab(ttk.Frame):
             (BUF_MID_C, "Puffer Mitte", "⬜", "°C"),
             (BUF_BOTTOM_C, "Puffer unten", "⬇️", "°C"),
         ]
-        col = 0
         for key, label, icon, unit in value_items:
             frame = tk.Frame(self.values_frame, bg=COLOR_CARD)
-            frame.grid(row=0, column=col, sticky="nsew", padx=8, pady=8)
+            frame.pack(side=tk.LEFT, fill=tk.Y, expand=True, padx=8, pady=8)
             tk.Label(frame, text=icon, font=("Segoe UI", 18), bg=COLOR_CARD, fg=COLOR_TEXT).pack()
             val = tk.Label(frame, text="keine Daten", font=("Segoe UI", 20, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
             val.pack()
             tk.Label(frame, text=label, font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
             tk.Label(frame, text=unit, font=("Segoe UI", 9), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
             self.snapshot_labels[key] = val
-            col += 1
 
         # --- UI: Diagnose & Alter der Daten (unten) ---
+
         self.info_card = Card(main, padding=14)
         self.info_card.add_title("Diagnose & Datenalter", icon="ℹ️")
-        self.info_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=4, pady=(0, 6))
+        self.info_card.pack(fill=tk.X, padx=4, pady=(0, 6))
         self.info_frame = self.info_card.content()
         self.info_frame.configure(bg=COLOR_CARD)
-        self.info_frame.grid_columnconfigure(0, weight=1)
-        self.info_frame.grid_columnconfigure(1, weight=1)
 
         def _make_kv(row: int, label: str):
             tk.Label(
@@ -180,14 +175,12 @@ class StatusTab(ttk.Frame):
         self.lbl_consistency.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(6, 8))
 
         # Details Card (nur bei Warnung/Fehler sichtbar)
+
         self.details_card = Card(main, padding=18)
         self.details_card.add_title("Details", icon="🧩")
-        self.details_card.grid(row=3, column=0, columnspan=4, sticky="nsew", padx=2, pady=(0, 6))
+        self.details_card.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 6))
         self.details_frame = self.details_card.content()
         self.details_frame.configure(bg=COLOR_CARD)
-        self.details_frame.grid_rowconfigure(0, weight=1)
-        self.details_frame.grid_columnconfigure(0, weight=1)
-        self.details_frame.grid_columnconfigure(1, weight=0)
 
         self.errors_text = tk.Text(
             self.details_frame,
