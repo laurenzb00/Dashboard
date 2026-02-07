@@ -226,7 +226,8 @@ def main():
 
     root = tk.Tk()
     # Fullscreen state tracking
-    root._fullscreen = True
+    windowed_flag = os.getenv("DASHBOARD_WINDOWED", "0").strip().lower() in {"1", "true", "yes", "on"}
+    root._fullscreen = not windowed_flag
 
 
     datastore = DataStore()
@@ -256,6 +257,9 @@ def main():
     app = MainApp(root)
 
     def set_fullscreen(enable: bool):
+        # In windowed mode, never enable fullscreen (keeps window discoverable on multi-monitor setups)
+        if windowed_flag and enable:
+            enable = False
         root._fullscreen = enable
         root.attributes("-fullscreen", enable)
         if enable:
@@ -271,8 +275,37 @@ def main():
     root.bind('<F11>', toggle_fullscreen)
     root.bind('<Escape>', end_fullscreen)
 
-    # Set fullscreen after UI is built
-    root.after(200, lambda: set_fullscreen(True))
+    # Set fullscreen after UI is built (unless windowed mode is enabled)
+    if not windowed_flag:
+        root.after(200, lambda: set_fullscreen(True))
+    else:
+        def _bring_to_front() -> None:
+            try:
+                root.attributes("-fullscreen", False)
+            except Exception:
+                pass
+            try:
+                root.state("normal")
+            except Exception:
+                pass
+            try:
+                root.geometry("1024x600+50+50")
+            except Exception:
+                pass
+            try:
+                root.deiconify()
+                root.lift()
+                root.focus_force()
+            except Exception:
+                pass
+            # Temporary topmost to guarantee visibility, then revert
+            try:
+                root.attributes("-topmost", True)
+                root.after(600, lambda: root.attributes("-topmost", False))
+            except Exception:
+                pass
+
+        root.after(200, _bring_to_front)
 
     def _start_collectors() -> list[threading.Thread]:
         threads: list[threading.Thread] = []

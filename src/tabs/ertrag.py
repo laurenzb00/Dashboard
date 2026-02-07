@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
+from datetime import date
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.dates as mdates
+import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from core.datastore import get_shared_datastore
@@ -41,16 +43,19 @@ class ErtragTab:
         topbar = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
 
-        tk.Label(topbar, text="Zeitraum", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 8))
+        # Zeitraum-Wahl: immer ganz rechts.
+        period_frame = tk.Frame(topbar, bg=COLOR_ROOT)
+        period_frame.pack(side=tk.RIGHT, padx=(0, 12))
         self.period_combo = ttk.Combobox(
-            topbar,
+            period_frame,
             textvariable=self._period_var,
             values=list(self._period_map.keys()),
             state="readonly",
             width=6,
         )
-        self.period_combo.pack(side=tk.LEFT)
+        self.period_combo.pack(side=tk.RIGHT)
         self.period_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_plot())
+        tk.Label(period_frame, text="Zeitraum", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.RIGHT, padx=(0, 8))
 
         self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10, "bold"))
         self.topbar_status.pack(side=tk.RIGHT)
@@ -60,22 +65,30 @@ class ErtragTab:
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 
-        self.card = tk.Frame(plot_container, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        # Neutral dark background (avoid bluish tint).
+        self.card = tk.Frame(plot_container, bg=COLOR_ROOT, highlightthickness=1, highlightbackground=COLOR_BORDER)
         self.card.grid(row=0, column=0, sticky="nsew")
         self.card.grid_rowconfigure(0, weight=1)
         self.card.grid_columnconfigure(0, weight=1)
 
-        self.chart_frame = tk.Frame(self.card, bg=COLOR_CARD)
+        self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
         # Feste Größe und Layout für das Diagramm, da Bildschirm bekannt
         self.fig = Figure(figsize=(9.0, 4.5), dpi=100)
-        self.fig.patch.set_alpha(0)
+        # Solid background prevents redraw artifacts that can look like "two diagrams".
+        self.fig.patch.set_facecolor(COLOR_ROOT)
+        self.fig.patch.set_alpha(1.0)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor("none")
+        self.ax.set_facecolor(COLOR_ROOT)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        # Keine dynamische Resize-Events nötig
+        self.canvas_widget = self.canvas.get_tk_widget()
+        try:
+            self.canvas_widget.configure(bg=COLOR_ROOT, highlightthickness=0)
+        except Exception:
+            pass
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_widget.bind("<Configure>", self._on_canvas_resize)
 
         stats_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         stats_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
@@ -106,6 +119,23 @@ class ErtragTab:
         except Exception:
             pass
 
+    def _sync_figure_to_canvas(self) -> None:
+        """Ensure the figure render buffer matches the widget size.
+
+        Otherwise, an older larger render can remain visible and look like a second plot.
+        """
+        try:
+            if not hasattr(self, "canvas_widget"):
+                return
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
+            if w <= 2 or h <= 2:
+                return
+            dpi = float(self.fig.get_dpi() or 100.0)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+        except Exception:
+            pass
+
     def _load_pv_daily(self, days: int = 365):
         cutoff = datetime.now() - timedelta(days=days)
         series = []
@@ -121,6 +151,47 @@ class ErtragTab:
                 continue
             series.append((ts, float(pv_kwh)))
         return series
+
+    @staticmethod
+    def _date_range(start: date, end: date):
+        cur = start
+        one = timedelta(days=1)
+        while cur <= end:
+            yield cur
+            cur = cur + one
+
+    def _with_gaps_daily(self, data: list[tuple[datetime, float]], window_days: int) -> tuple[list[datetime], np.ndarray]:
+        """Return dense daily series across the selected window, inserting NaN for missing days."""
+        if not data:
+            return ([], np.array([], dtype=float))
+
+        # Ensure chronological order
+        data_sorted = sorted(data, key=lambda t: t[0])
+
+        end_day = datetime.now().date()
+        start_day = end_day - timedelta(days=max(1, int(window_days)) - 1)
+
+        by_day: dict[date, float] = {}
+        for ts, val in data_sorted:
+            by_day[ts.date()] = float(val)
+
+        xs: list[datetime] = []
+        ys: list[float] = []
+        for d in self._date_range(start_day, end_day):
+            xs.append(datetime.combine(d, datetime.min.time()))
+            ys.append(by_day.get(d, float("nan")))
+
+        return xs, np.array(ys, dtype=float)
+
+    def _on_canvas_resize(self, event) -> None:
+        try:
+            w = max(1, int(getattr(event, "width", 1)))
+            h = max(1, int(getattr(event, "height", 1)))
+            dpi = float(self.fig.get_dpi() or 100.0)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            self.canvas.draw()
+        except Exception:
+            pass
 
     def _load_pv_monthly(self, months: int = 12):
         """Lade und aggregiere PV-Ertrag nach Monaten."""
@@ -140,12 +211,15 @@ class ErtragTab:
         return series
 
     def _style_axes(self):
-        self.ax.set_facecolor("none")
+        self.ax.set_facecolor(COLOR_ROOT)
         for spine in ["top", "right"]:
             self.ax.spines[spine].set_visible(False)
         for spine in ["left", "bottom"]:
             self.ax.spines[spine].set_color(COLOR_BORDER)
-            self.ax.spines[spine].set_linewidth(1)
+            self.ax.spines[spine].set_linewidth(0.5)
+
+        self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
+        self.ax.tick_params(axis="both", which="major", labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
 
     def _update_plot(self):
         if not self.alive:
@@ -163,8 +237,18 @@ class ErtragTab:
             self._update_task_id = None
 
         window_days = self._period_map.get(self._period_var.get(), 90)
-        data = self._load_pv_daily(window_days)
-        key = (len(data), data[-1] if data else None) if data else ("empty",)
+        raw = self._load_pv_daily(window_days)
+        xs, ys = self._with_gaps_daily(raw, window_days)
+        # Stable key: length + last non-nan sample
+        last_non_nan = None
+        if len(ys) > 0:
+            try:
+                idx = np.where(~np.isnan(ys))[0]
+                if len(idx) > 0:
+                    last_non_nan = (xs[int(idx[-1])], float(ys[int(idx[-1])]))
+            except Exception:
+                last_non_nan = None
+        key = (len(xs), last_non_nan) if xs else ("empty",)
         
         # Nur redraw wenn sich Daten wirklich geändert haben
         if key == self._last_key:
@@ -176,36 +260,38 @@ class ErtragTab:
 
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
-        self.fig.patch.set_alpha(0)
-        self.ax.set_facecolor("none")
+        self.fig.patch.set_facecolor(COLOR_ROOT)
+        self.fig.patch.set_alpha(1.0)
+        self.ax.set_facecolor(COLOR_ROOT)
         self._style_axes()
 
-        if data:
+        # Ensure renderer matches widget size before drawing.
+        self._sync_figure_to_canvas()
+
+        has_data = bool(len(ys) and np.any(~np.isnan(ys)))
+        if has_data:
             if (
                 not getattr(self, "_log_once", False)
                 and __import__("os").environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
             ):
-                print(f"[ERTRAG] Matplotlib-Liniendiagramm aktiv (Tage={len(data)})")
+                print(f"[ERTRAG] Matplotlib-Liniendiagramm aktiv (Tage={window_days})")
                 self._log_once = True
-            ts, vals = zip(*data)
-            self.ax.plot(ts, vals, color=COLOR_PRIMARY, linewidth=2.0, alpha=0.9, marker="o", markersize=3)
 
-            self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=11, fontweight='bold')
-            self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=10)
-            self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=9)
+            self.ax.plot(xs, ys, color=COLOR_PRIMARY, linewidth=1.8, alpha=0.95)
+
+            self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=8, rotation=0, labelpad=16, va="center")
             locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
             self.ax.xaxis.set_major_locator(locator)
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-            for label in self.ax.get_xticklabels():
-                label.set_rotation(35)
-                label.set_horizontalalignment("right")
-            self.ax.grid(True, color=COLOR_BORDER, alpha=0.2, linewidth=0.6)
             self.ax.set_ylim(bottom=0)
 
-            total = sum(vals)
-            avg = total / max(1, len(vals))
-            last_ts = ts[-1].strftime("%d.%m.%Y")
-            last_val = vals[-1]
+            total = float(np.nansum(ys))
+            count = int(np.sum(~np.isnan(ys)))
+            avg = total / max(1, count)
+            # last non-nan
+            last_idx = int(np.where(~np.isnan(ys))[0][-1])
+            last_ts = xs[last_idx].strftime("%d.%m.%Y")
+            last_val = float(ys[last_idx])
             self.topbar_status.config(text=f"{window_days}d")
             self.var_sum.set(f"Summe ({window_days}T): {total:.0f} kWh")
             self.var_avg.set(f"Ø Tag: {avg:.1f} kWh")
@@ -221,11 +307,11 @@ class ErtragTab:
             self.topbar_status.config(text=f"{window_days}d")
 
         # Feste Ränder für optimalen Sitz
-        self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
+        self.fig.subplots_adjust(left=0.07, right=0.99, top=0.92, bottom=0.20)
         
         try:
             if self.canvas.get_tk_widget().winfo_exists():
-                self.canvas.draw_idle()
+                self.canvas.draw()
         except Exception:
             pass
         
