@@ -28,7 +28,7 @@ PLAYLIST_IMAGE_SIZE = (96, 96)
 
 
 class SpotifyTab:
-    def safe_toggle_style(style_name="round-toggle"):
+    def safe_toggle_style(self, style_name="round-toggle"):
         try:
             import ttkbootstrap as ttk
             s = ttk.Style()
