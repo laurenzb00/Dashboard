@@ -1,5 +1,6 @@
 import os
 import time
+from collections import deque
 from datetime import datetime, timedelta
 
 import matplotlib.dates as mdates
@@ -44,7 +45,14 @@ except ImportError:
     def get_shared_datastore():
         return None
 
-from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_WARMWASSER_C, BMK_BOILER_C
+from core.schema import (
+    BUF_TOP_C,
+    BUF_MID_C,
+    BUF_BOTTOM_C,
+    BMK_WARMWASSER_C,
+    BMK_BOILER_C,
+    PV_POWER_KW,
+)
 
 DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -54,13 +62,48 @@ class BufferStorageView(tk.Frame):
     def _update_sparkline(self) -> None:
         if not hasattr(self, "spark_ax") or not hasattr(self, "spark_canvas"):
             return
-        pv_series = self._load_pv_series(hours=24, bin_minutes=15)
-        temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+        refresh_needed = (time.time() - getattr(self, "_spark_cache_ts", 0.0)) > 60.0
+        if refresh_needed:
+            try:
+                pv_series_db = self._load_pv_series(hours=24, bin_minutes=15)
+            except Exception as exc:
+                if DEBUG_LOG:
+                    print(f"[BUFFER] _load_pv_series error: {exc}")
+                pv_series_db = []
+            try:
+                temp_series_db = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+            except Exception as exc:
+                if DEBUG_LOG:
+                    print(f"[BUFFER] _load_outdoor_temp_series error: {exc}")
+                temp_series_db = []
+            self._spark_cache_pv = pv_series_db
+            self._spark_cache_temp = temp_series_db
+            self._spark_cache_ts = time.time()
+        else:
+            pv_series_db = list(self._spark_cache_pv)
+            temp_series_db = list(self._spark_cache_temp)
+
+        pv_series = list(pv_series_db)
+        pv_hours = 24 if pv_series else 0
+        if not pv_series:
+            pv_series = self._history_to_series(self._spark_history_pv, hours=6, bin_minutes=5)
+            if pv_series:
+                pv_hours = 6
+
+        temp_series = list(temp_series_db)
+        temp_hours = 24 if temp_series else 0
+        if not temp_series:
+            temp_series = self._history_to_series(self._spark_history_temp, hours=6, bin_minutes=5)
+            if temp_series:
+                temp_hours = 6
+
         if DEBUG_LOG:
             print(f"[BUFFER] sparkline pv_series={len(pv_series)} temp_series={len(temp_series)}")
+
         self.spark_ax.clear()
         now = datetime.now()
-        cutoff = now - timedelta(hours=24)
+        window_hours = max(pv_hours, temp_hours, 6 if (pv_series or temp_series) else 24)
+        cutoff = now - timedelta(hours=window_hours)
         if hasattr(self, "spark_ax2"):
             try:
                 self.spark_ax2.remove()
@@ -68,21 +111,32 @@ class BufferStorageView(tk.Frame):
                 pass
         self.spark_ax2 = self.spark_ax.twinx()
         ax2 = self.spark_ax2
-        # Remove background and spines for both axes to avoid white outlines
-        self.spark_ax2.patch.set_alpha(0)
-        for ax in [self.spark_ax, ax2]:
+        ax2.patch.set_alpha(0)
+        for ax in (self.spark_ax, ax2):
             ax.set_facecolor('none')
             for spine in ax.spines.values():
                 spine.set_visible(True)
                 spine.set_edgecolor(COLOR_BORDER)
                 spine.set_linewidth(0.5)
+
+        if not pv_series and not temp_series:
+            self.spark_ax.text(0.5, 0.5, "Keine Daten (24h)", ha="center", va="center",
+                               transform=self.spark_ax.transAxes, color=COLOR_SUBTEXT, fontsize=9)
+            self.spark_ax.set_xticks([])
+            self.spark_ax.set_yticks([])
+            ax2.set_yticks([])
+            try:
+                self.spark_canvas.draw_idle()
+                self.spark_canvas.draw()
+            except Exception as exc:
+                print(f"[BUFFER] Sparkline canvas draw error: {exc}")
+            return
+
         if pv_series:
             xs_pv, ys_pv = zip(*pv_series)
             self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
             self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
             self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
-
-            # Keep PV scale sane and non-negative.
             try:
                 max_pv = max(float(v) for v in ys_pv)
             except Exception:
@@ -92,8 +146,6 @@ class BufferStorageView(tk.Frame):
             xs_temp, ys_temp = zip(*temp_series)
             ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
             ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
-
-            # Add padding so small variations are visible.
             try:
                 min_t = min(float(v) for v in ys_temp)
                 max_t = max(float(v) for v in ys_temp)
@@ -102,6 +154,7 @@ class BufferStorageView(tk.Frame):
                 ax2.set_ylim(min_t - pad, max_t + pad)
             except Exception:
                 pass
+
         self.spark_ax.spines['top'].set_visible(False)
         self.spark_ax.spines['right'].set_visible(False)
         self.spark_ax.spines['left'].set_color(COLOR_BORDER)
@@ -123,7 +176,6 @@ class BufferStorageView(tk.Frame):
         self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
         self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
 
-        # Always show the last 24h window, even if data is sparse/missing.
         try:
             self.spark_ax.set_xlim(cutoff, now)
             ax2.set_xlim(cutoff, now)
@@ -136,10 +188,37 @@ class BufferStorageView(tk.Frame):
             print(f"[BUFFER] tight_layout warning: {exc}")
         try:
             self.spark_canvas.draw_idle()
-            if DEBUG_LOG:
-                print("[BUFFER] sparkline draw_idle ok")
+            self.spark_canvas.draw()
         except Exception as exc:
             print(f"[BUFFER] Sparkline canvas draw error: {exc}")
+
+
+    def _record_spark_sample(self, data: dict) -> None:
+        now_ts = time.time()
+        if now_ts - getattr(self, "_last_spark_sample_ts", 0.0) < 60.0:
+            return
+        self._last_spark_sample_ts = now_ts
+        sample_time = datetime.now()
+        pv_kw = self._safe_float(data.get(PV_POWER_KW) or data.get('pv'))
+        if pv_kw is not None:
+            self._spark_history_pv.append((sample_time, max(0.0, pv_kw)))
+        outdoor = self._safe_float(data.get('outdoor'))
+        if outdoor is not None:
+            self._spark_history_temp.append((sample_time, outdoor))
+
+    def _history_to_series(self, history: deque[tuple[datetime, float]], hours: int, bin_minutes: int) -> list[tuple[datetime, float]]:
+        if not history:
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        samples: list[tuple[datetime, float]] = []
+        for ts, val in list(history):
+            if val is None or ts < cutoff:
+                continue
+            rounded = ts.replace(second=0, microsecond=0) - timedelta(minutes=ts.minute % bin_minutes)
+            samples.append((rounded, float(val)))
+        if not samples:
+            return []
+        return self._aggregate_series(samples)
 
 
     def _build_stratified_data(self, top, mid, bot):
@@ -170,6 +249,12 @@ class BufferStorageView(tk.Frame):
         self.data = np.array([[60.0], [50.0], [40.0]])
         self._last_temps = None  # type: ignore
         self._last_spark_update = 0
+        self._spark_history_pv = deque(maxlen=2000)
+        self._spark_history_temp = deque(maxlen=2000)
+        self._last_spark_sample_ts = 0.0
+        self._spark_cache_pv = []
+        self._spark_cache_temp = []
+        self._spark_cache_ts = 0.0
 
         self.layout = tk.Frame(self, bg=COLOR_CARD)
         self.layout.pack(fill=tk.BOTH, expand=True)
@@ -341,6 +426,7 @@ class BufferStorageView(tk.Frame):
             if DEBUG_LOG:
                 print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler}", flush=True)
             self._last_heat_dbg = now
+        self._record_spark_sample(data)
         self.update_temperatures(top, mid, bot, boiler)
 
 
