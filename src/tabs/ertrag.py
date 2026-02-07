@@ -52,7 +52,7 @@ class ErtragTab:
         self.period_combo.pack(side=tk.LEFT)
         self.period_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_plot())
 
-        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_TITLE, font=("Segoe UI", 10))
+        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10, "bold"))
         self.topbar_status.pack(side=tk.RIGHT)
 
         plot_container = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
@@ -150,6 +150,8 @@ class ErtragTab:
     def _update_plot(self):
         if not self.alive:
             return
+        if not hasattr(self, "canvas") or self.canvas is None:
+            return
         if not self.canvas.get_tk_widget().winfo_exists():
             return
 
@@ -179,7 +181,10 @@ class ErtragTab:
         self._style_axes()
 
         if data:
-            if not getattr(self, "_log_once", False):
+            if (
+                not getattr(self, "_log_once", False)
+                and __import__("os").environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+            ):
                 print(f"[ERTRAG] Matplotlib-Liniendiagramm aktiv (Tage={len(data)})")
                 self._log_once = True
             ts, vals = zip(*data)

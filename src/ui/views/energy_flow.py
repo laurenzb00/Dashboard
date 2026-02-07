@@ -1,3 +1,5 @@
+import os
+DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 import tkinter as tk
 import math
 import time
@@ -57,7 +59,8 @@ class EnergyFlowView(tk.Frame):
         batt_w = batt_kw * 1000
         load_kw = pv_kw + batt_kw + grid_kw
         load_w = load_kw * 1000
-        print("[FLOW_CALC]", pv_w, load_w, grid_w, batt_w, soc, flush=True)
+        if DEBUG_LOG:
+            print("[FLOW_CALC]", pv_w, load_w, grid_w, batt_w, soc, flush=True)
         try:
             self.update_flows(pv_w, load_w, grid_w, batt_w, soc)
         except Exception as e:
@@ -198,19 +201,23 @@ class EnergyFlowView(tk.Frame):
             try:
                 icon_path = os.path.join(icon_dir, filename)
                 if not os.path.exists(icon_path):
-                    print(f"[ICONS] WARNING: {icon_name} icon not found at {icon_path}")
+                    if DEBUG_LOG:
+                        print(f"[ICONS] WARNING: {icon_name} icon not found at {icon_path}")
                     continue
                     
                 # Load, convert to RGBA, and resize
                 img = Image.open(icon_path).convert("RGBA")
                 img = img.resize((icon_size, icon_size), Image.LANCZOS)
                 self._icons_pil[icon_name] = img
-                print(f"[ICONS] Loaded {icon_name} at {elapsed:.3f}s ({icon_size}x{icon_size})")
+                if DEBUG_LOG:
+                    print(f"[ICONS] Loaded {icon_name} at {elapsed:.3f}s ({icon_size}x{icon_size})")
             except Exception as e:
-                print(f"[ICONS] Error loading {icon_name}: {e}")
+                if DEBUG_LOG:
+                    print(f"[ICONS] Error loading {icon_name}: {e}")
         
         if not self._icons_pil:
-            print(f"[ICONS] WARNING: No icons loaded! Falling back to text labels.")
+            if DEBUG_LOG:
+                print(f"[ICONS] WARNING: No icons loaded! Falling back to text labels.")
 
     def _find_emoji_font(self, size: int):
         """Find emoji font with multiple fallback paths for cross-platform support."""

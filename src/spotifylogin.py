@@ -49,7 +49,8 @@ def _build_oauth() -> Optional["SpotifyOAuth"]:
     client_id = os.getenv("SPOTIPY_CLIENT_ID") or cfg.get("client_id")
     client_secret = os.getenv("SPOTIPY_CLIENT_SECRET") or cfg.get("client_secret")
     redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI") or cfg.get("redirect_uri") or "http://127.0.0.1:8889/callback"
-    print(f"[SPOTIFY DEBUG] Using redirect_uri: {redirect_uri}")
+    if os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
+        print(f"[SPOTIFY DEBUG] Using redirect_uri: {redirect_uri}")
 
     if not client_id or not client_secret:
         logging.error("[SPOTIFY] Missing client_id/client_secret (env or config/spotify.json)")

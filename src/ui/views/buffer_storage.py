@@ -334,7 +334,8 @@ class BufferStorageView(tk.Frame):
         if not hasattr(self, '_last_heat_dbg'):
             self._last_heat_dbg = 0.0
         if now - self._last_heat_dbg > 2.0:
-            print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler}", flush=True)
+            if DEBUG_LOG:
+                print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler}", flush=True)
             self._last_heat_dbg = now
         self.update_temperatures(top, mid, bot, boiler)
 

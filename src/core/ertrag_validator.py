@@ -96,45 +96,49 @@ def _acquire_store(store: DataStore | None) -> Tuple[DataStore, bool]:
     return DataStore(), True
 
 
-def validate_and_repair_ertrag(store: DataStore | None = None) -> bool:
+def validate_and_repair_ertrag(store: DataStore | None = None, verbose: bool = False) -> bool:
     """Rekonstruiert ErtragHistory direkt aus SQLite-Daten."""
-    print("\n" + "=" * 60)
-    print("ERTRAG-VALIDIERUNG GESTARTET")
-    print("=" * 60)
+    def _vprint(*args, **kwargs):
+        if verbose:
+            print(*args, **kwargs)
+
+    _vprint("\n" + "=" * 60)
+    _vprint("ERTRAG-VALIDIERUNG GESTARTET")
+    _vprint("=" * 60)
     store, owns_store = _acquire_store(store)
     try:
         stats = get_fronius_stats(store)
         if stats["count"] == 0:
-            print("ERROR: Keine Fronius-Daten in der Datenbank gefunden!")
+            _vprint("ERROR: Keine Fronius-Daten in der Datenbank gefunden!")
             return False
 
         current = load_current_ertrag(store)
         reconstructed = reconstruct_ertrag_from_store(store)
 
-        print(
+        _vprint(
             f"\n✓ Fronius-Datensätze: {stats['count']} "
             f"({stats['start']} bis {stats['end']})"
         )
-        print(f"✓ ErtragHistory (aktuell): {len(current)} Einträge")
-        print(f"✓ ErtragHistory (neu): {len(reconstructed)} Einträge")
+        _vprint(f"✓ ErtragHistory (aktuell): {len(current)} Einträge")
+        _vprint(f"✓ ErtragHistory (neu): {len(reconstructed)} Einträge")
 
         current_total = sum(row["daily_ertrag"] for row in current)
         reconstructed_total = sum(row["daily_ertrag"] for row in reconstructed)
-        print("\n→ Vergleich aktueller Bestand vs. Rekonstruktion")
-        print(f"  Current Total:       {current_total:.2f} kWh")
-        print(f"  Reconstructed Total: {reconstructed_total:.2f} kWh")
+        _vprint("\n→ Vergleich aktueller Bestand vs. Rekonstruktion")
+        _vprint(f"  Current Total:       {current_total:.2f} kWh")
+        _vprint(f"  Reconstructed Total: {reconstructed_total:.2f} kWh")
 
         diff_percent = 0.0
         if current_total > 0:
             diff_percent = abs(reconstructed_total - current_total) / current_total * 100
-            print(f"  Differenz:           {diff_percent:.1f}%")
+            _vprint(f"  Differenz:           {diff_percent:.1f}%")
 
         backup_current_ertrag(current)
         if current:
-            print(f"\n✓ Backup (JSON): {ERTRAG_BACKUP_JSON}")
+            _vprint(f"\n✓ Backup (JSON): {ERTRAG_BACKUP_JSON}")
 
         persist_ertrag_history(store, reconstructed)
-        print("✓ ErtragHistory-Tabelle aktualisiert")
+        _vprint("✓ ErtragHistory-Tabelle aktualisiert")
 
         report = {
             "timestamp": datetime.now().isoformat(),
@@ -150,11 +154,11 @@ def validate_and_repair_ertrag(store: DataStore | None = None) -> bool:
 
         with open(ERTRAG_VALIDATION_LOG, "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
-        print(f"✓ Validierungsbericht: {ERTRAG_VALIDATION_LOG}")
+        _vprint(f"✓ Validierungsbericht: {ERTRAG_VALIDATION_LOG}")
 
-        print("\n" + "=" * 60)
-        print("ERTRAG-VALIDIERUNG ABGESCHLOSSEN")
-        print("=" * 60 + "\n")
+        _vprint("\n" + "=" * 60)
+        _vprint("ERTRAG-VALIDIERUNG ABGESCHLOSSEN")
+        _vprint("=" * 60 + "\n")
         return True
     finally:
         # Only close if we created a new store (never close shared connection)

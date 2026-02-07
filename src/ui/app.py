@@ -1,5 +1,12 @@
 import tkinter as tk
 import os
+
+DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _dbg_print(msg: str) -> None:
+    if DEBUG_LOG:
+        print(msg, flush=True)
 import platform
 import shutil
 import subprocess
@@ -119,29 +126,38 @@ class MainApp:
         self._add_other_tabs()
         # Ensure all tab references are up to date
         if hasattr(self, 'historical_tab') and self.historical_tab:
-            print("[build_tabs] historical_tab is set.")
+            _dbg_print("[build_tabs] historical_tab is set.")
         else:
-            print("[build_tabs] historical_tab is None!")
+            _dbg_print("[build_tabs] historical_tab is None!")
         if hasattr(self, 'spotify_tab') and self.spotify_tab:
-            print("[build_tabs] spotify_tab is set.")
+            _dbg_print("[build_tabs] spotify_tab is set.")
         if hasattr(self, 'hue_tab') and self.hue_tab:
-            print("[build_tabs] hue_tab is set.")
+            _dbg_print("[build_tabs] hue_tab is set.")
 
     def _start_ertrag_validator(self):
         """Starte wöchentliche Ertrag-Validierung im Hintergrund."""
         def validate_loop():
             try:
                 from core.ertrag_validator import validate_and_repair_ertrag
-                print("[ERTRAG] Validation beim Start...")
-                validate_and_repair_ertrag(self.datastore)
-                print("[ERTRAG] Ertrag- und Heizungs-Tabs werden aktualisiert...")
-                # Update tabs after validation
-                if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
-                    self.ertrag_tab._last_key = None
-                    self.ertrag_tab._update_plot()
-                if hasattr(self, 'historical_tab') and self.historical_tab:
-                    self.historical_tab._last_key = None
-                    self.historical_tab._update_plot()
+                _dbg_print("[ERTRAG] Validation beim Start...")
+                validate_and_repair_ertrag(self.datastore, verbose=DEBUG_LOG)
+
+                def _refresh_tabs() -> None:
+                    try:
+                        if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
+                            self.ertrag_tab._last_key = None
+                            self.ertrag_tab._update_plot()
+                        if hasattr(self, 'historical_tab') and self.historical_tab:
+                            self.historical_tab._last_key = None
+                            self.historical_tab._update_plot()
+                    except Exception:
+                        logging.exception("[ERTRAG] Tab refresh after validation failed")
+
+                # Tkinter/UI updates must run on main thread
+                try:
+                    self.root.after(0, _refresh_tabs)
+                except Exception:
+                    pass
             except Exception as e:
                 print(f"[ERTRAG] Validator nicht verfügbar: {e}")
             # Dann jede Woche wiederholen (7 Tage = 604800 Sekunden)
@@ -149,15 +165,24 @@ class MainApp:
                 time.sleep(7 * 24 * 3600)  # 1 Woche
                 try:
                     from core.ertrag_validator import validate_and_repair_ertrag
-                    print("[ERTRAG] Wöchentliche Validierung...")
-                    validate_and_repair_ertrag(self.datastore)
-                    # Update tabs after validation
-                    if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
-                        self.ertrag_tab._last_key = None
-                        self.ertrag_tab._update_plot()
-                    if hasattr(self, 'historical_tab') and self.historical_tab:
-                        self.historical_tab._last_key = None
-                        self.historical_tab._update_plot()
+                    _dbg_print("[ERTRAG] Wöchentliche Validierung...")
+                    validate_and_repair_ertrag(self.datastore, verbose=DEBUG_LOG)
+
+                    def _refresh_tabs_weekly() -> None:
+                        try:
+                            if hasattr(self, 'ertrag_tab') and self.ertrag_tab:
+                                self.ertrag_tab._last_key = None
+                                self.ertrag_tab._update_plot()
+                            if hasattr(self, 'historical_tab') and self.historical_tab:
+                                self.historical_tab._last_key = None
+                                self.historical_tab._update_plot()
+                        except Exception:
+                            logging.exception("[ERTRAG] Weekly tab refresh failed")
+
+                    try:
+                        self.root.after(0, _refresh_tabs_weekly)
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f"[ERTRAG] Fehler bei wöchentlicher Validierung: {e}")
         validator_thread = threading.Thread(target=validate_loop, daemon=True)
@@ -191,7 +216,8 @@ class MainApp:
                     "buf_mid_c",
                     "buf_bottom_c",
                 ]
-                print("[DATA_KEYS]", {k: data.get(k, "MISSING") for k in keys}, flush=True)
+                if DEBUG_LOG:
+                    print("[DATA_KEYS]", {k: data.get(k, "MISSING") for k in keys}, flush=True)
                 self._dbg_last_data = now
 
             # --- Widgets/Diagramme updaten (nur im MainThread!) ---
@@ -277,23 +303,23 @@ class MainApp:
             return 0
 
     def __init__(self, root: tk.Tk, datastore: DataStore | None = None):
-        print("[INIT] MainApp: Initialisierung gestartet")
+        _dbg_print("[INIT] MainApp: Initialisierung gestartet")
         self._start_time = time.time()
-        print("[INIT] MainApp: Zeitstempel gesetzt")
+        _dbg_print("[INIT] MainApp: Zeitstempel gesetzt")
         self._debug_log = os.getenv("DASH_DEBUG", "0") == "1"
         self._configure_debounce_id = None
         self._last_size = (0, 0)
         self._resize_enabled = False
         self.root = root
-        print("[INIT] MainApp: Tkinter root gesetzt")
+        _dbg_print("[INIT] MainApp: Tkinter root gesetzt")
         self.root.title("Smart Home Dashboard")
         self._tick_count = 0
         self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
 
         # Shared DataStore wird beim Start bereitgestellt
-        print("[INIT] MainApp: DataStore wird geladen...")
+        _dbg_print("[INIT] MainApp: DataStore wird geladen...")
         self.datastore = datastore or safe_get_datastore()
-        print(f"[INIT] MainApp: DataStore geladen: {type(self.datastore)}")
+        _dbg_print(f"[INIT] MainApp: DataStore geladen: {type(self.datastore)}")
 
         # Health-Status für Datenquellen (PV, Heizung)
         self._source_health = {
@@ -359,7 +385,7 @@ class MainApp:
         self.root.grid_columnconfigure(0, weight=1)
 
         # Header
-        print("[INIT] MainApp: HeaderBar wird erstellt...")
+        _dbg_print("[INIT] MainApp: HeaderBar wird erstellt...")
         self.header = HeaderBar(
             self.root,
             on_toggle_a=self.on_toggle_a,
@@ -367,13 +393,13 @@ class MainApp:
             on_exit=self.on_exit,
         )
         self.header.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 2))
-        print("[INIT] MainApp: HeaderBar erstellt und platziert.")
+        _dbg_print("[INIT] MainApp: HeaderBar erstellt und platziert.")
 
         # Start periodic header update for date/time
         self._update_header_datetime()
 
         # Notebook (Tabs) inside rounded container
-        print("[INIT] MainApp: Notebook-Container und Tabs werden erstellt...")
+        _dbg_print("[INIT] MainApp: Notebook-Container und Tabs werden erstellt...")
         self.notebook_container = RoundedFrame(self.root, bg=COLOR_HEADER, border=None, radius=18, padding=0)
         self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=0)
         self.notebook = ttk.Notebook(self.notebook_container.content())
@@ -381,14 +407,14 @@ class MainApp:
         self.notebook.grid_propagate(False)
 
         # Energy Dashboard Tab
-        print("[INIT] MainApp: Dashboard-Tab wird erstellt...")
+        _dbg_print("[INIT] MainApp: Dashboard-Tab wird erstellt...")
         self.dashboard_tab = tk.Frame(self.notebook, bg=COLOR_ROOT)
         self.notebook.add(self.dashboard_tab, text=emoji("⚡ Energie", "Energie"))
         self.dashboard_tab.pack_propagate(False)
-        print("[INIT] MainApp: Dashboard-Tab hinzugefügt.")
+        _dbg_print("[INIT] MainApp: Dashboard-Tab hinzugefügt.")
 
         # Body (Energy + Buffer)
-        print("[INIT] MainApp: Body-Frame für Dashboard wird erstellt...")
+        _dbg_print("[INIT] MainApp: Body-Frame für Dashboard wird erstellt...")
         self.body = tk.Frame(self.dashboard_tab, bg=COLOR_ROOT)
         self.body.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
         self.body.grid_columnconfigure(0, weight=7)
@@ -396,7 +422,7 @@ class MainApp:
         self.body.grid_rowconfigure(0, weight=1)
 
         # Energy Card (70%) - reduced size and padding
-        print("[INIT] MainApp: EnergyCard und EnergyView werden erstellt...")
+        _dbg_print("[INIT] MainApp: EnergyCard und EnergyView werden erstellt...")
         self.energy_card = Card(self.body, padding=6)
         self.energy_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=0)
         self.energy_card.add_title("Energiefluss", icon="⚡")
@@ -404,17 +430,12 @@ class MainApp:
         self.energy_view.pack(fill=tk.BOTH, expand=True, pady=2)
 
         # Buffer Card (30%) - reduced size and padding
-        print("[INIT] MainApp: BufferCard und BufferView werden erstellt...")
+        _dbg_print("[INIT] MainApp: BufferCard und BufferView werden erstellt...")
         self.buffer_card = Card(self.body, padding=6)
         self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=0)
         self.buffer_card.add_title("Warmwasser", icon="🔥")
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True)
-
-        # Alle weiteren Tabs
-        print("[INIT] MainApp: Zusätzliche Tabs werden erstellt...")
-        self._add_other_tabs()
-        print("[INIT] MainApp: Alle weiteren Tabs initialisiert.")
 
         # Statusbar
         self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
@@ -440,13 +461,13 @@ class MainApp:
     # PV Status Tab und zugehörige Methoden entfernt, ersetzt durch StatusTab
 
     def _add_other_tabs(self):
-        print("[TABS] Starte Initialisierung aller weiteren Tabs...")
+        _dbg_print("[TABS] Starte Initialisierung aller weiteren Tabs...")
         """Integriert alle weiteren Tabs, StatusTab immer als letzter Tab (rechts)."""
         if SpotifyTab:
             try:
-                print("[TABS] SpotifyTab wird erstellt...")
+                _dbg_print("[TABS] SpotifyTab wird erstellt...")
                 self.spotify_tab = SpotifyTab(self.root, self.notebook)
-                print("[TABS] SpotifyTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] SpotifyTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] SpotifyTab initialization failed: {e}")
                 import traceback
@@ -455,47 +476,47 @@ class MainApp:
 
         if TadoTab:
             try:
-                print("[TABS] TadoTab wird erstellt...")
+                _dbg_print("[TABS] TadoTab wird erstellt...")
                 self.tado_tab = TadoTab(self.root, self.notebook)
-                print("[TABS] TadoTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] TadoTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] TadoTab initialization failed: {e}")
                 self.tado_tab = None
         else:
-            print(f"[TABS] TadoTab nicht verfügbar (Import fehlgeschlagen)")
+            _dbg_print(f"[TABS] TadoTab nicht verfügbar (Import fehlgeschlagen)")
 
         if HueTab:
             try:
-                print("[TABS] HueTab wird erstellt...")
+                _dbg_print("[TABS] HueTab wird erstellt...")
                 self.hue_tab = HueTab(self.root, self.notebook)
-                print("[TABS] HueTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] HueTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] HueTab initialization failed: {e}")
                 self.hue_tab = None
 
         if CalendarTab:
             try:
-                print("[TABS] CalendarTab wird erstellt...")
+                _dbg_print("[TABS] CalendarTab wird erstellt...")
                 self.calendar_tab = CalendarTab(self.root, self.notebook)
-                print("[TABS] CalendarTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] CalendarTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] CalendarTab init failed: {e}")
                 self.calendar_tab = None
 
         if HistoricalTab:
             try:
-                print("[TABS] HistoricalTab wird erstellt...")
+                _dbg_print("[TABS] HistoricalTab wird erstellt...")
                 self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore)
-                print("[TABS] HistoricalTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] HistoricalTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] HistoricalTab init failed: {e}")
                 self.historical_tab = None
 
         if ErtragTab:
             try:
-                print("[TABS] ErtragTab wird erstellt...")
+                _dbg_print("[TABS] ErtragTab wird erstellt...")
                 self.ertrag_tab = ErtragTab(self.root, self.notebook)
-                print("[TABS] ErtragTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] ErtragTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] ErtragTab init failed: {e}")
                 self.ertrag_tab = None
@@ -503,9 +524,9 @@ class MainApp:
         # SystemTab soll vorletzter Tab sein
         if SystemTab:
             try:
-                print("[TABS] SystemTab wird erstellt...")
+                _dbg_print("[TABS] SystemTab wird erstellt...")
                 self.system_tab = SystemTab(self.root, self.notebook)
-                print("[TABS] SystemTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] SystemTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] SystemTab init failed: {e}")
                 self.system_tab = None
@@ -513,14 +534,14 @@ class MainApp:
         # StatusTab immer als letzter Tab (rechts)
         if StatusTab:
             try:
-                print("[TABS] StatusTab wird erstellt...")
+                _dbg_print("[TABS] StatusTab wird erstellt...")
                 self.status_tab = StatusTab(self.notebook)
                 self.notebook.add(self.status_tab, text="Status")
-                print("[TABS] StatusTab erfolgreich hinzugefügt.")
+                _dbg_print("[TABS] StatusTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] StatusTab init failed: {e}")
                 self.status_tab = None
-        print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
+        _dbg_print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
 
     # --- Callbacks ---
     def on_toggle_a(self):
