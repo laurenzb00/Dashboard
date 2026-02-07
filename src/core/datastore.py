@@ -193,6 +193,10 @@ class DataStore:
                         soc = _safe_float(_first_value(
                             row, 'Batterieladestand (%)', 'SOC', 'SoC', 'State of Charge'))
 
+                        pv = _normalize_power_kw(pv)
+                        grid = _normalize_power_kw(grid)
+                        batt = _normalize_power_kw(batt)
+
                         cursor.execute(
                             """
                             INSERT OR REPLACE INTO fronius
@@ -332,6 +336,10 @@ class DataStore:
         grid = _safe_float(record.get('Netz-Leistung (kW)') or record.get('grid'))
         batt = _safe_float(record.get('Batterie-Leistung (kW)') or record.get('batt'))
         soc = _safe_float(record.get('Batterieladestand (%)') or record.get('soc'))
+
+        pv = _normalize_power_kw(pv)
+        grid = _normalize_power_kw(grid)
+        batt = _normalize_power_kw(batt)
         with self._lock:
             self._execute_with_retry(
                 """
@@ -691,6 +699,23 @@ def _safe_float(value):
         return float(value)
     except (ValueError, TypeError):
         return None
+
+
+def _normalize_power_kw(value: Optional[float]) -> Optional[float]:
+    """Normalize power values to kW.
+
+    Some sources provide power in W (e.g. P_PV from Fronius API/old logs). The DB/UI
+    expects kW. Heuristic: absolute values above ~200 kW are treated as W.
+    """
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (ValueError, TypeError):
+        return None
+    if abs(v) > 200.0:
+        return v / 1000.0
+    return v
 
 
 if __name__ == "__main__":

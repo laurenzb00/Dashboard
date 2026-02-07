@@ -494,6 +494,11 @@ class BufferStorageView(tk.Frame):
             pv_kw = self._safe_float(entry.get('pv'))
             if pv_kw is None or ts < cutoff:
                 continue
+            # Some historical sources (older CSV/API logs) may have stored PV power in W
+            # while the dashboard expects kW everywhere. Heuristic: values above ~200 kW
+            # are extremely unlikely for this setup -> treat as W and convert.
+            if pv_kw > 200.0:
+                pv_kw = pv_kw / 1000.0
             # PV should never be significantly negative; treat small noise as 0.
             if pv_kw < -0.2:
                 continue

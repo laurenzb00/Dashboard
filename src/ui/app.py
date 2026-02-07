@@ -236,8 +236,8 @@ class MainApp:
 
             # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
             last_update = datetime.now().strftime('%H:%M:%S')
-            pv_ts = pv.get("ts")
-            heat_ts = heat.get("ts")
+            pv_ts = pv.get("timestamp")
+            heat_ts = heat.get("timestamp")
             pv_age = None
             heat_age = None
             if pv_ts:

@@ -50,16 +50,29 @@ class EnergyFlowView(tk.Frame):
 
     def update_data(self, data: dict):
         """Update für Energiefluss-View: erwartet dict mit final keys."""
-        pv_kw   = float(data.get("pv_power_kw") or 0.0)
-        grid_kw = float(data.get("grid_power_kw") or 0.0)
-        batt_kw = float(data.get("battery_power_kw") or 0.0)
-        soc     = float(data.get("battery_soc_pct") or 0.0)
+        pv_kw = float(data.get(PV_POWER_KW) or 0.0)
+        grid_kw = float(data.get(GRID_POWER_KW) or 0.0)
+        raw_batt_kw = float(data.get(BATTERY_POWER_KW) or 0.0)
+        soc = float(data.get(BATTERY_SOC_PCT) or 0.0)
+
+        # Fronius-Konvention (PowerFlowRealtimeData):
+        # - P_Grid:  + = Netzbezug, - = Einspeisung
+        # - P_Akku:  + = Batterie lädt (nimmt Leistung), - = Batterie entlädt (liefert Leistung)
+        # Für die Visualisierung verwenden wir batt_flow_kw: + = Entladen (Batterie -> Haus)
+        batt_flow_kw = -raw_batt_kw
+
         pv_w = pv_kw * 1000
         grid_w = grid_kw * 1000
-        batt_w = batt_kw * 1000
-        load_kw = pv_kw + batt_kw + grid_kw
+        batt_w = batt_flow_kw * 1000
+
+        # Hausverbrauch = PV + Netz + Batterie-Beitrag (Entladen positiv)
+        load_kw = pv_kw + grid_kw + batt_flow_kw
         load_w = load_kw * 1000
-        print(f"[ENERGY_FLOW] update_data: pv={pv_kw} grid={grid_kw} batt={batt_kw} soc={soc}", flush=True)
+
+        print(
+            f"[ENERGY_FLOW] update_data: pv={pv_kw} grid={grid_kw} batt_raw={raw_batt_kw} batt_flow={batt_flow_kw} soc={soc}",
+            flush=True,
+        )
         try:
             self.update_flows(pv_w, load_w, grid_w, batt_w, soc)
         except Exception as e:
