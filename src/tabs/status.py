@@ -34,7 +34,9 @@ class StatusTab(ttk.Frame):
 
         # Oben: Health Cards
         self.top_frame = tk.Frame(self, bg=COLOR_CARD)
-        self.top_frame.grid_columnconfigure((0,1,2,3), weight=1)
+        for i in range(4):
+            self.top_frame.grid_columnconfigure(i, weight=1)
+        self.top_frame.grid_rowconfigure(0, weight=1)
         self.card_db = self._make_health_card(self.top_frame, 0, "DB", "🗄️")
         self.card_pv = self._make_health_card(self.top_frame, 1, "PV", "☀️")
         self.card_heat = self._make_health_card(self.top_frame, 2, "Heizung", "🔥")
@@ -50,7 +52,8 @@ class StatusTab(ttk.Frame):
         self.snapshot_card.add_title("Current Snapshot", icon="🧾")
         self.snapshot_frame = self.snapshot_card.content()
         self.snapshot_frame.configure(bg=COLOR_CARD)
-        self.snapshot_frame.grid_columnconfigure(0, weight=1)
+        for i in range(2):
+            self.snapshot_frame.grid_columnconfigure(i, weight=1)
         self.bottom_paned.add(self.snapshot_card, weight=2)
 
         # Rechts: Details/Errors
@@ -64,7 +67,7 @@ class StatusTab(ttk.Frame):
 
         # Fehlertextfeld (immer sichtbar)
         self.errors_text = tk.Text(self.details_frame, font="TkFixedFont", bg="#181818", fg="#e0e0e0", height=10, wrap="none")
-        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
         self.errors_text.config(state="disabled")
 
         # Snapshot-Labels
@@ -81,15 +84,15 @@ class StatusTab(ttk.Frame):
             (BUF_MID_C, "Puffer mitte [°C]"),
             (BUF_BOTTOM_C, "Puffer unten [°C]"),
         ]:
-            tk.Label(self.snapshot_frame, text=label, anchor="w", bg=COLOR_CARD, fg=COLOR_TEXT).grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            tk.Label(self.snapshot_frame, text=label, anchor="w", bg=COLOR_CARD, fg=COLOR_TEXT).grid(row=row, column=0, sticky="w", padx=8, pady=2)
             val = tk.Label(self.snapshot_frame, text="--", anchor="e", bg=COLOR_CARD, fg=COLOR_TEXT)
-            val.grid(row=row, column=1, sticky="e", padx=4, pady=1)
+            val.grid(row=row, column=1, sticky="e", padx=8, pady=2)
             self.snapshot_labels[key] = val
             row += 1
 
     def _make_health_card(self, parent, col, title, icon):
         card = Card(parent)
-        card.grid(row=0, column=col, sticky="nsew", padx=(0, 10) if col < 3 else 0)
+        card.grid(row=0, column=col, sticky="nsew", padx=12, pady=8)
         card.add_title(title, icon=icon)
         content = card.content()
         content.configure(bg=COLOR_CARD)
