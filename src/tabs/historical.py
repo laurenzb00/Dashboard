@@ -97,18 +97,24 @@ class HistoricalTab(tk.Frame):
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 
-        card = tk.Frame(plot_container, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
-        card.grid(row=0, column=0, sticky="nsew")
-        card.grid_rowconfigure(0, weight=1)
-        card.grid_columnconfigure(0, weight=1)
+        self.card = tk.Frame(plot_container, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        self.card.grid(row=0, column=0, sticky="nsew")
+        self.card.grid_rowconfigure(0, weight=1)
+        self.card.grid_columnconfigure(0, weight=1)
 
         self.fig = Figure(figsize=(8.0, 3.0), dpi=100)
-        self.fig.patch.set_facecolor(COLOR_CARD)
+        self.fig.patch.set_alpha(0)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor(COLOR_CARD)
+        self.ax.set_facecolor("none")
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=card)
-        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.card)
+        self.canvas_widget = self.canvas.get_tk_widget()
+        try:
+            self.canvas_widget.configure(bg=COLOR_CARD, highlightthickness=0)
+        except Exception:
+            pass
+        self.canvas_widget.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        self.canvas_widget.bind("<Configure>", self._on_canvas_resize)
 
         self.statusbar = tk.Label(
             self,
@@ -151,6 +157,16 @@ class HistoricalTab(tk.Frame):
             except Exception:
                 pass
         self.after_job = self.after(60000, self._update_plot)
+
+    def _on_canvas_resize(self, event) -> None:
+        try:
+            w = max(1, int(getattr(event, "width", 1)))
+            h = max(1, int(getattr(event, "height", 1)))
+            dpi = float(self.fig.get_dpi() or 100.0)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            self.canvas.draw_idle()
+        except Exception:
+            pass
 
     def _update_plot(self) -> None:
         hours = self._period_map.get(self._period_var.get(), 24)
@@ -202,11 +218,16 @@ class HistoricalTab(tk.Frame):
                 else:
                     series[key].append(val)
 
-        self.ax.clear()
+        # Defensive: rebuild axes to avoid accidental overlay of multiple axes
+        self.fig.clear()
+        self.ax = self.fig.add_subplot(111)
+        self.fig.patch.set_alpha(0)
+        self.ax.set_facecolor("none")
         for spine in self.ax.spines.values():
             spine.set_color(COLOR_BORDER)
+            spine.set_linewidth(0.6)
 
-        self.ax.grid(True, alpha=0.20)
+        self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
         self.ax.tick_params(axis="x", labelsize=9, colors=COLOR_SUBTEXT)
         self.ax.tick_params(axis="y", labelsize=9, colors=COLOR_SUBTEXT)
         self.ax.set_ylabel("°C", color=COLOR_SUBTEXT)
@@ -230,6 +251,10 @@ class HistoricalTab(tk.Frame):
             )
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
             self._render_status(hours, 0)
+            try:
+                self.fig.subplots_adjust(left=0.07, right=0.985, top=0.95, bottom=0.16)
+            except Exception:
+                pass
             self.canvas.draw_idle()
             self._schedule_update()
             return
@@ -258,10 +283,10 @@ class HistoricalTab(tk.Frame):
         self.ax.xaxis.set_major_locator(locator)
         self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
 
-        self.ax.legend(loc="upper right", fontsize=9, frameon=False)
+        self.ax.legend(loc="upper right", fontsize=9, frameon=False, labelcolor=COLOR_SUBTEXT)
 
         try:
-            self.fig.tight_layout(pad=0.8)
+            self.fig.subplots_adjust(left=0.07, right=0.985, top=0.95, bottom=0.16)
         except Exception:
             pass
 
@@ -271,7 +296,7 @@ class HistoricalTab(tk.Frame):
 
     def _render_status(self, hours: int, points: int) -> None:
         self.topbar_status.config(text=f"{hours}h")
-        self.statusbar.config(text=f"Letztes Update: {datetime.now().strftime('%H:%M:%S')}  |  Datenpunkte: {points}")
+        self.statusbar.config(text=f"Letztes Update: {datetime.now().strftime('%H:%M')}  |  Datenpunkte: {points}")
 
     def update_data(self, data: dict) -> None:
         # Called by app update loop; keep for compatibility.
