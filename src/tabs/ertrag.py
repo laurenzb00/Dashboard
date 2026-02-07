@@ -189,7 +189,15 @@ class ErtragTab:
             h = max(1, int(getattr(event, "height", 1)))
             dpi = float(self.fig.get_dpi() or 100.0)
             self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            self._apply_layout()
             self.canvas.draw()
+        except Exception:
+            pass
+
+    def _apply_layout(self) -> None:
+        # Extra padding to avoid right/bottom clipping of tick labels.
+        try:
+            self.fig.subplots_adjust(left=0.08, right=0.975, top=0.92, bottom=0.26)
         except Exception:
             pass
 
@@ -283,7 +291,16 @@ class ErtragTab:
             locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
             self.ax.xaxis.set_major_locator(locator)
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+            try:
+                self.ax.xaxis.get_offset_text().set_visible(False)
+            except Exception:
+                pass
             self.ax.set_ylim(bottom=0)
+
+            try:
+                self.ax.margins(x=0.01)
+            except Exception:
+                pass
 
             total = float(np.nansum(ys))
             count = int(np.sum(~np.isnan(ys)))
@@ -307,7 +324,7 @@ class ErtragTab:
             self.topbar_status.config(text=f"{window_days}d")
 
         # Feste Ränder für optimalen Sitz
-        self.fig.subplots_adjust(left=0.07, right=0.99, top=0.92, bottom=0.20)
+        self._apply_layout()
         
         try:
             if self.canvas.get_tk_widget().winfo_exists():

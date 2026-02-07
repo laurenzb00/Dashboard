@@ -176,8 +176,16 @@ class HistoricalTab(tk.Frame):
             h = max(1, int(getattr(event, "height", 1)))
             dpi = float(self.fig.get_dpi() or 100.0)
             self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            self._apply_layout()
             # Full draw to avoid leftover pixels from a previous larger render.
             self.canvas.draw()
+        except Exception:
+            pass
+
+    def _apply_layout(self) -> None:
+        # Extra padding to avoid right/bottom clipping of tick labels.
+        try:
+            self.fig.subplots_adjust(left=0.07, right=0.975, top=0.90, bottom=0.24)
         except Exception:
             pass
 
@@ -319,10 +327,7 @@ class HistoricalTab(tk.Frame):
             except Exception:
                 pass
             self._render_status(hours, 0)
-            try:
-                self.fig.subplots_adjust(left=0.06, right=0.985, top=0.90, bottom=0.18)
-            except Exception:
-                pass
+            self._apply_layout()
             self.canvas.draw()
             self._schedule_update()
             return
@@ -367,9 +372,11 @@ class HistoricalTab(tk.Frame):
         )
 
         try:
-            self.fig.subplots_adjust(left=0.06, right=0.99, top=0.90, bottom=0.20)
+            self.ax.margins(x=0.01)
         except Exception:
             pass
+
+        self._apply_layout()
 
         self._render_status(hours, len(times_sorted))
         self.canvas.draw()
