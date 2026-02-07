@@ -461,12 +461,21 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _parse_ts(value):
-        # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
+        # Parse timestamps coming from different sources.
+        # Some are naive ("YYYY-MM-DD HH:MM:SS"), some are offset-aware ("...+01:00").
+        # For UI charting we normalize to *naive local time* to avoid TypeError
+        # when comparing offset-aware vs. naive datetimes.
         from datetime import datetime
         if not value:
             return None
         try:
-            return datetime.fromisoformat(str(value))
+            s = str(value).strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            dt = datetime.fromisoformat(s)
+            if getattr(dt, "tzinfo", None) is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
+            return dt
         except Exception:
             return None
 

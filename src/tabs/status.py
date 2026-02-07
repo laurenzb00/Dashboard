@@ -1,7 +1,9 @@
 
 import tkinter as tk
 from tkinter import ttk
-from datetime import datetime, timedelta
+from datetime import datetime
+from collections import deque
+import math
 import traceback
 
 from core.datastore import get_shared_datastore
@@ -23,6 +25,11 @@ class StatusTab(ttk.Frame):
         self._last_err_db = None
         self._last_err_pv = None
         self._last_err_heat = None
+
+        # Rolling in-memory history of UI fetches (for consistency analysis)
+        self._hist_db = deque(maxlen=50)
+        self._hist_pv = deque(maxlen=50)
+        self._hist_heat = deque(maxlen=50)
         self._build_layout()
         self.after_job = None
         self._schedule_update()
@@ -110,23 +117,87 @@ class StatusTab(ttk.Frame):
         card.line2 = line2
         return card
 
-    def _set_health(self, card, color, text, title, line1, line2):
+    def _set_health(self, card, color, status_text, line2=""):
         try:
             card.lamp.delete("all")
             card.lamp.create_oval(4, 4, 22, 22, fill=color, outline="#222")
-            card.line1.config(text=text)
-            card.line2.config(text=line1 if line1 else "")
+            card.line1.config(text=status_text)
+            card.line2.config(text=line2 if line2 else "")
         except Exception:
             pass
-        def _set_health(self, card, color, status_text, line1, line2):
-            # title wird nicht genutzt, daher entfernt
-            try:
-                card.lamp.delete("all")
-                card.lamp.create_oval(4, 4, 22, 22, fill=color, outline="#222")
-                card.line1.config(text=status_text)
-                card.line2.config(text=line2 if line2 else "")
-            except Exception:
-                pass
+
+    @staticmethod
+    def _safe_float(v):
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+        except Exception:
+            return None
+
+    @staticmethod
+    def _fmt_num(v, decimals=1):
+        f = StatusTab._safe_float(v)
+        if f is None:
+            return "--"
+        return f"{f:.{decimals}f}"
+
+    @staticmethod
+    def _expected_keys_pv():
+        return {PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT}
+
+    @staticmethod
+    def _expected_keys_heat():
+        return {BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C}
+
+    @staticmethod
+    def _range_warnings(record, kind: str):
+        warns = []
+        if not record:
+            return warns
+        if kind == "pv":
+            soc = StatusTab._safe_float(record.get(BATTERY_SOC_PCT))
+            if soc is not None and not (0.0 <= soc <= 100.0):
+                warns.append(f"SOC außerhalb 0..100: {soc:.1f}")
+            for key, lim in [(PV_POWER_KW, 80.0), (GRID_POWER_KW, 80.0), (BATTERY_POWER_KW, 80.0)]:
+                val = StatusTab._safe_float(record.get(key))
+                if val is not None and abs(val) > lim:
+                    warns.append(f"{key} unplausibel (|x|>{lim:g}): {val:.2f}")
+        if kind == "heat":
+            for key in [BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C]:
+                val = StatusTab._safe_float(record.get(key))
+                if val is not None and not (-40.0 <= val <= 120.0):
+                    warns.append(f"{key} unplausibel (-40..120): {val:.1f}")
+        return warns
+
+    @staticmethod
+    def _key_warnings(record, expected_keys: set, allowed_extras: set):
+        if record is None:
+            return ["Keine Daten"]
+        keys = set(record.keys())
+        missing = sorted(expected_keys - keys)
+        extra = sorted(keys - expected_keys - allowed_extras)
+        warns = []
+        if missing:
+            warns.append("Fehlende Keys: " + ", ".join(missing))
+        if extra:
+            warns.append("Unerwartete Keys: " + ", ".join(extra))
+        return warns
+
+    @staticmethod
+    def _monotonic_ts_warnings(history_deque):
+        if len(history_deque) < 2:
+            return []
+        last = history_deque[-1].get("source_dt")
+        prev = history_deque[-2].get("source_dt")
+        if last is None or prev is None:
+            return []
+        if last < prev:
+            return ["Zeitstempel rückwärts (neu < alt)"]
+        return []
 
     def _schedule_update(self):
         if self.after_job is not None:
@@ -143,11 +214,12 @@ class StatusTab(ttk.Frame):
         # Default: alle Werte auf "--"
         for lbl in self.snapshot_labels.values():
             lbl.config(text="--")
+
         # Health-Card Defaults
-            self._set_health(self.card_db, "#9a9a9a", "--", "", "")
-            self._set_health(self.card_pv, "#9a9a9a", "--", "", "")
-            self._set_health(self.card_heat, "#9a9a9a", "--", "", "")
-            self._set_health(self.card_warn, "#9a9a9a", "OK", "", "")
+        self._set_health(self.card_db, "#9a9a9a", "--")
+        self._set_health(self.card_pv, "#9a9a9a", "--")
+        self._set_health(self.card_heat, "#9a9a9a", "--")
+        self._set_health(self.card_warn, "#9a9a9a", "OK")
 
         # DB
         try:
@@ -155,11 +227,17 @@ class StatusTab(ttk.Frame):
             db_dt = self._safe_iso_to_dt(latest_ts)
             db_age = self._age_seconds(now, db_dt)
             db_color, db_status, db_line2 = self._lamp_style_ext(db_age, db_dt, now)
-            self._set_health(self.card_db, db_color, db_status, "", db_line2)
+            self._set_health(self.card_db, db_color, db_status, db_line2)
+            self._hist_db.append({
+                "at": now,
+                "source_ts": latest_ts,
+                "source_dt": db_dt,
+                "age_s": db_age,
+            })
         except Exception:
-            err = "[DB] " + traceback.format_exc().splitlines()[-1]
             errors.append("DB: Fehler beim Lesen")
             tb_full += traceback.format_exc() + "\n"
+            self._hist_db.append({"at": now, "source_ts": None, "source_dt": None, "age_s": None})
 
         # PV
         try:
@@ -168,17 +246,24 @@ class StatusTab(ttk.Frame):
                 for key in [PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT]:
                     val = pv_rec.get(key)
                     if key == PV_POWER_KW or key == GRID_POWER_KW or key == BATTERY_POWER_KW:
-                        self.snapshot_labels[key].config(text=f"{val:.2f}" if val is not None else "--")
+                        self.snapshot_labels[key].config(text=self._fmt_num(val, decimals=2))
                     elif key == BATTERY_SOC_PCT:
-                        self.snapshot_labels[key].config(text=f"{val:.1f}" if val is not None else "--")
+                        self.snapshot_labels[key].config(text=self._fmt_num(val, decimals=1))
             pv_dt = self._safe_iso_to_dt(pv_rec.get("timestamp") if pv_rec else None)
             pv_age = self._age_seconds(now, pv_dt)
             pv_color, pv_status, pv_line2 = self._lamp_style_ext(pv_age, pv_dt, now)
-            self._set_health(self.card_pv, pv_color, pv_status, "", pv_line2)
+            self._set_health(self.card_pv, pv_color, pv_status, pv_line2)
+            self._hist_pv.append({
+                "at": now,
+                "source_ts": (pv_rec or {}).get("timestamp"),
+                "source_dt": pv_dt,
+                "age_s": pv_age,
+                "record": pv_rec,
+            })
         except Exception:
-            err = "[PV] " + traceback.format_exc().splitlines()[-1]
             errors.append("PV: Fehler beim Lesen")
             tb_full += traceback.format_exc() + "\n"
+            self._hist_pv.append({"at": now, "source_ts": None, "source_dt": None, "age_s": None, "record": None})
 
         # Heating
         try:
@@ -186,21 +271,28 @@ class StatusTab(ttk.Frame):
             if heat_rec:
                 for key in [BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C]:
                     val = heat_rec.get(key)
-                    self.snapshot_labels[key].config(text=f"{val:.1f}" if val is not None else "--")
+                    self.snapshot_labels[key].config(text=self._fmt_num(val, decimals=1))
             heat_dt = self._safe_iso_to_dt(heat_rec.get("timestamp") if heat_rec else None)
             heat_age = self._age_seconds(now, heat_dt)
             heat_color, heat_status, heat_line2 = self._lamp_style_ext(heat_age, heat_dt, now)
-            self._set_health(self.card_heat, heat_color, heat_status, "", heat_line2)
+            self._set_health(self.card_heat, heat_color, heat_status, heat_line2)
+            self._hist_heat.append({
+                "at": now,
+                "source_ts": (heat_rec or {}).get("timestamp"),
+                "source_dt": heat_dt,
+                "age_s": heat_age,
+                "record": heat_rec,
+            })
         except Exception:
-            err = "[Heizung] " + traceback.format_exc().splitlines()[-1]
             errors.append("Heizung: Fehler beim Lesen")
             tb_full += traceback.format_exc() + "\n"
+            self._hist_heat.append({"at": now, "source_ts": None, "source_dt": None, "age_s": None, "record": None})
 
         # Warnings
         if errors:
-            self._set_health(self.card_warn, "#cc4444", "Fehler", "", errors[0] if errors else "Fehler")
+            self._set_health(self.card_warn, "#cc4444", "Fehler", errors[0] if errors else "Fehler")
         else:
-            self._set_health(self.card_warn, "#44cc44", "OK", "", "Alles gut")
+            self._set_health(self.card_warn, "#44cc44", "OK", "Alles gut")
 
         # Fehlertextfeld immer aktualisieren
         self.errors_text.config(state="normal")
@@ -208,13 +300,70 @@ class StatusTab(ttk.Frame):
         if tb_full:
             self.errors_text.insert("1.0", "Fehler/Details:\n" + tb_full)
         else:
-            # Kontext-Infos, wenn keine Fehler
+            db_last = self._hist_db[-1] if self._hist_db else {}
+            pv_last = self._hist_pv[-1] if self._hist_pv else {}
+            ht_last = self._hist_heat[-1] if self._hist_heat else {}
+
+            pv_rec_last = pv_last.get("record")
+            ht_rec_last = ht_last.get("record")
+
+            consistency = []
+            pv_key_warn = self._key_warnings(pv_rec_last, self._expected_keys_pv(), allowed_extras={"timestamp"})
+            pv_range_warn = self._range_warnings(pv_rec_last, "pv")
+            pv_ts_warn = self._monotonic_ts_warnings(self._hist_pv)
+            if pv_key_warn or pv_range_warn or pv_ts_warn:
+                consistency.append("PV: " + " | ".join(pv_key_warn + pv_range_warn + pv_ts_warn))
+
+            ht_key_warn = self._key_warnings(ht_rec_last, self._expected_keys_heat(), allowed_extras={"timestamp", "outdoor"})
+            ht_range_warn = self._range_warnings(ht_rec_last, "heat")
+            ht_ts_warn = self._monotonic_ts_warnings(self._hist_heat)
+            if ht_key_warn or ht_range_warn or ht_ts_warn:
+                consistency.append("Heizung: " + " | ".join(ht_key_warn + ht_range_warn + ht_ts_warn))
+
             info = [
                 f"Letztes Update: {now.strftime('%H:%M:%S')}",
-                f"DB-Alter: {self._format_age(self._age_seconds(now, self._safe_iso_to_dt(self.datastore.get_latest_timestamp())))}",
-                f"PV-Alter: {self._format_age(self._age_seconds(now, self._safe_iso_to_dt((self.datastore.get_last_fronius_record() or {}).get('timestamp'))))}",
-                f"Heizung-Alter: {self._format_age(self._age_seconds(now, self._safe_iso_to_dt((self.datastore.get_last_heating_record() or {}).get('timestamp'))))}"
+                f"DB-Alter: {self._format_age(db_last.get('age_s'))}",
+                f"PV-Alter: {self._format_age(pv_last.get('age_s'))}",
+                f"Heizung-Alter: {self._format_age(ht_last.get('age_s'))}",
+                "",
+                "=== Konsistenz ===",
             ]
+            if consistency:
+                info.extend(consistency)
+            else:
+                info.append("OK")
+
+            def _fmt_hist_line(entry, kind: str):
+                at = entry.get("at")
+                age = entry.get("age_s")
+                rec = entry.get("record")
+                at_s = at.strftime("%H:%M:%S") if at else "--"
+                age_s = self._format_age(age)
+                ts = entry.get("source_ts") or "--"
+                if rec is None:
+                    return f"{at_s} age={age_s} ts={ts} (keine Daten)"
+                if kind == "pv":
+                    return (
+                        f"{at_s} age={age_s} ts={ts} "
+                        f"pv={self._fmt_num(rec.get(PV_POWER_KW),2)} grid={self._fmt_num(rec.get(GRID_POWER_KW),2)} "
+                        f"batt={self._fmt_num(rec.get(BATTERY_POWER_KW),2)} soc={self._fmt_num(rec.get(BATTERY_SOC_PCT),1)}"
+                    )
+                return (
+                    f"{at_s} age={age_s} ts={ts} "
+                    f"kessel={self._fmt_num(rec.get(BMK_KESSEL_C),1)} ww={self._fmt_num(rec.get(BMK_WARMWASSER_C),1)} "
+                    f"top={self._fmt_num(rec.get(BUF_TOP_C),1)} mid={self._fmt_num(rec.get(BUF_MID_C),1)} bot={self._fmt_num(rec.get(BUF_BOTTOM_C),1)}"
+                )
+
+            info.append("")
+            info.append("=== Verlauf PV (letzte 5) ===")
+            for entry in list(self._hist_pv)[-5:]:
+                info.append(_fmt_hist_line(entry, "pv"))
+
+            info.append("")
+            info.append("=== Verlauf Heizung (letzte 5) ===")
+            for entry in list(self._hist_heat)[-5:]:
+                info.append(_fmt_hist_line(entry, "heat"))
+
             self.errors_text.insert("1.0", "\n".join(info))
         self.errors_text.config(state="disabled")
 

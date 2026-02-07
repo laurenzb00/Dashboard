@@ -166,7 +166,7 @@ class DataStore:
                 self._last_ingest_dt = None
                 return
             parsed = _parse_iso_timestamp(ts)
-            self._last_ingest_dt = parsed
+            self._last_ingest_dt = ensure_utc(parsed) if parsed else None
     
     def import_fronius_csv(self, csv_path: str | os.PathLike[str]) -> bool:
         """Importiere FroniusDaten.csv in Datenbank."""
@@ -506,7 +506,8 @@ class DataStore:
         if not dt:
             return
         dt = ensure_utc(dt)
-        if self._last_ingest_dt is None or dt > self._last_ingest_dt:
+        current = ensure_utc(self._last_ingest_dt) if self._last_ingest_dt else None
+        if current is None or dt > current:
             self._last_ingest_dt = dt
 
     def seed_from_csv(self, data_dir: Optional[Path] = None) -> None:
