@@ -292,8 +292,7 @@ class DataStore:
         monthly: dict[str, dict[str, float | int]] = {}
         for item in daily:
             try:
-                day_obj = datetime.fromisoformat(item['day'])
-                            day_obj = ensure_utc(datetime.fromisoformat(item['day']))
+                day_obj = ensure_utc(datetime.fromisoformat(item['day']))
             except ValueError:
                 continue
             month_key = day_obj.replace(day=1).date().isoformat()
