@@ -40,58 +40,60 @@ class StatusTab(ttk.Frame):
     def _build_layout(self):
         self.configure(style="TFrame")
         main = tk.Frame(self, bg=COLOR_ROOT)
-        main.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        # Health Cards (oben, wie SystemTab)
-        main.grid_rowconfigure(0, weight=1)
-        main.grid_rowconfigure(1, weight=1)
-        main.grid_rowconfigure(2, weight=1)
+        # --- UI: System-Gesundheit (oben) ---
+        main.grid_rowconfigure(0, weight=0)
+        main.grid_rowconfigure(1, weight=0)
+        main.grid_rowconfigure(2, weight=0)
+        main.grid_rowconfigure(3, weight=1)
         for i in range(4):
             main.grid_columnconfigure(i, weight=1)
 
-        self.card_db = Card(main, padding=12)
-        self.card_db.add_title("DB", icon="🗄️")
-        self.card_db.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        # Klare, ausgeschriebene Titel und Statusanzeige
+        self.card_db = Card(main, padding=14)
+        self.card_db.add_title("Datenbank", icon="🗄️")
+        self.card_db.grid(row=0, column=0, sticky="nsew", padx=4, pady=2)
 
-        self.card_pv = Card(main, padding=12)
-        self.card_pv.add_title("PV", icon="☀️")
-        self.card_pv.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
+        self.card_pv = Card(main, padding=14)
+        self.card_pv.add_title("PV-Anlage", icon="☀️")
+        self.card_pv.grid(row=0, column=1, sticky="nsew", padx=4, pady=2)
 
-        self.card_heat = Card(main, padding=12)
+        self.card_heat = Card(main, padding=14)
         self.card_heat.add_title("Heizung", icon="🔥")
-        self.card_heat.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
+        self.card_heat.grid(row=0, column=2, sticky="nsew", padx=4, pady=2)
 
-        self.card_warn = Card(main, padding=12)
-        self.card_warn.add_title("Warnung", icon="⚠️")
-        self.card_warn.grid(row=0, column=3, sticky="nsew", padx=2, pady=2)
+        self.card_warn = Card(main, padding=14)
+        self.card_warn.add_title("Warnungen", icon="⚠️")
+        self.card_warn.grid(row=0, column=3, sticky="nsew", padx=4, pady=2)
 
-        # Health-Card Inhalte (Lamp, Status, Zusatz)
+        # Health-Card Inhalte (Statusanzeige, Klartext)
         self._health_cards = []
         for card in [self.card_db, self.card_pv, self.card_heat, self.card_warn]:
             frame = card.content()
             frame.configure(bg=COLOR_CARD)
             card.lamp = tk.Canvas(frame, width=18, height=18, bg=COLOR_CARD, highlightthickness=0)
             card.lamp.grid(row=0, column=0, sticky="w", padx=(2, 8), pady=(2, 2))
-            card.line1 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 16, "bold"))
+            card.line1 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 14, "bold"))
             card.line1.grid(row=0, column=1, sticky="w", pady=(2, 0), padx=(0, 4))
-            card.line2 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10))
+            card.line2 = tk.Label(frame, text="", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10))
             card.line2.grid(row=1, column=1, sticky="w", pady=(0, 6), padx=(0, 4))
             self._health_cards.append(card)
 
-        # Werte Card (wie SystemTab, große Werte)
+        # --- UI: Live-Systemstatus (Mitte) ---
         self.values_card = Card(main, padding=18)
-        self.values_card.add_title("Werte", icon="📊")
-        self.values_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=2, pady=(10, 6))
+        self.values_card.add_title("Live-Systemstatus", icon="📊")
+        self.values_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=(10, 6))
         self.values_frame = self.values_card.content()
         self.values_frame.configure(bg=COLOR_CARD)
         for i in range(6):
             self.values_frame.grid_columnconfigure(i, weight=1)
 
-        # Werte: PV, Netz, Batterie, SOC, Kessel, Warmwasser
+        # Einheitliche Kacheln mit Icon, Wert, Label
         self.value_labels = {}
         value_items = [
-            (PV_POWER_KW, "PV", "☀️", "kW"),
-            (GRID_POWER_KW, "Netz", "🔌", "kW"),
+            (PV_POWER_KW, "PV-Leistung", "☀️", "kW"),
+            (GRID_POWER_KW, "Netzbezug", "🔌", "kW"),
             (BATTERY_POWER_KW, "Batterie", "🔋", "kW"),
             (BATTERY_SOC_PCT, "SOC", "%", "%"),
             (BMK_KESSEL_C, "Kessel", "🔥", "°C"),
@@ -101,16 +103,16 @@ class StatusTab(ttk.Frame):
             frame = tk.Frame(self.values_frame, bg=COLOR_CARD)
             frame.grid(row=0, column=i, sticky="nsew", padx=8, pady=8)
             tk.Label(frame, text=icon, font=("Segoe UI", 18), bg=COLOR_CARD, fg=COLOR_TEXT).pack()
-            val = tk.Label(frame, text="--", font=("Segoe UI", 20, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
+            val = tk.Label(frame, text="keine Daten", font=("Segoe UI", 20, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
             val.pack()
             tk.Label(frame, text=label, font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
             tk.Label(frame, text=unit, font=("Segoe UI", 9), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
             self.value_labels[key] = val
 
-        # Info Card (Letztes Update, Alter, Konsistenz)
+        # --- UI: Diagnose & Alter der Daten (unten) ---
         self.info_card = Card(main, padding=14)
-        self.info_card.add_title("Info", icon="ℹ️")
-        self.info_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=2, pady=(0, 6))
+        self.info_card.add_title("Diagnose & Datenalter", icon="ℹ️")
+        self.info_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=4, pady=(0, 6))
         self.info_frame = self.info_card.content()
         self.info_frame.configure(bg=COLOR_CARD)
         self.info_frame.grid_columnconfigure(0, weight=1)
@@ -136,10 +138,10 @@ class StatusTab(ttk.Frame):
             val.grid(row=row, column=1, sticky="e", padx=10, pady=2)
             return val
 
-        self.lbl_last_update = _make_kv(0, "Letztes Update")
-        self.lbl_db_age = _make_kv(1, "DB-Alter")
-        self.lbl_pv_age = _make_kv(2, "PV-Alter")
-        self.lbl_heat_age = _make_kv(3, "Heizung-Alter")
+        self.lbl_last_update = _make_kv(0, "Letztes Update (gesamt)")
+        self.lbl_db_age = _make_kv(1, "Letztes DB-Update")
+        self.lbl_pv_age = _make_kv(2, "Letztes PV-Update")
+        self.lbl_heat_age = _make_kv(3, "Letztes Heizungs-Update")
         self.lbl_consistency = tk.Label(
             self.info_frame,
             text="Konsistenz: --",
