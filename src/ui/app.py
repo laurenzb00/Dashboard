@@ -413,8 +413,8 @@ class MainApp:
     # PV Status Tab und zugehörige Methoden entfernt, ersetzt durch StatusTab
 
     def _add_other_tabs(self):
-        """Integriert den SpotifyTab (modern, mit OAuth) sowie Tado, Hue, System und Calendar Tabs."""
-        # StatusTab hinzufügen (immer als letzter Tab, damit ganz rechts)
+        """Integriert alle weiteren Tabs, StatusTab immer als letzter Tab (rechts)."""
+        # StatusTab als robustes Widget (ttk.Frame) hinzufügen
         if StatusTab:
             try:
                 self.status_tab = StatusTab(self.notebook)
@@ -422,10 +422,10 @@ class MainApp:
             except Exception as e:
                 print(f"[ERROR] StatusTab init failed: {e}")
                 self.status_tab = None
+
         if SpotifyTab:
             try:
                 print("[SPOTIFY] SpotifyTab wird als Tab hinzugefügt!")
-                # SpotifyTab fügt sich selbst dem Notebook hinzu
                 self.spotify_tab = SpotifyTab(self.root, self.notebook)
                 print("[SPOTIFY] ✓ Tab erfolgreich hinzugefügt")
             except Exception as e:
@@ -433,7 +433,7 @@ class MainApp:
                 import traceback
                 traceback.print_exc()
                 self.spotify_tab = None
-        
+
         if TadoTab:
             try:
                 self.tado_tab = TadoTab(self.root, self.notebook)
@@ -447,6 +447,7 @@ class MainApp:
         else:
             if self._debug_log:
                 print(f"[TADO] Tab not available (import failed)")
+
         if HueTab:
             try:
                 self.hue_tab = HueTab(self.root, self.notebook)
@@ -455,28 +456,28 @@ class MainApp:
             except Exception as e:
                 print(f"[ERROR] HueTab initialization failed: {e}")
                 self.hue_tab = None
-        
+
         if SystemTab:
             try:
                 self.system_tab = SystemTab(self.root, self.notebook)
             except Exception as e:
                 print(f"[ERROR] SystemTab init failed: {e}")
                 self.system_tab = None
-        
+
         if CalendarTab:
             try:
                 self.calendar_tab = CalendarTab(self.root, self.notebook)
             except Exception as e:
                 print(f"[ERROR] CalendarTab init failed: {e}")
                 self.calendar_tab = None
-        
+
         if HistoricalTab:
             try:
                 self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore)
             except Exception as e:
                 print(f"[ERROR] HistoricalTab init failed: {e}")
                 self.historical_tab = None
-        
+
         if ErtragTab:
             try:
                 self.ertrag_tab = ErtragTab(self.root, self.notebook)
