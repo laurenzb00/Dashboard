@@ -1,7 +1,6 @@
-from .time_utils import ensure_utc
-"""Central SQLite datastore for PV and heating metrics."""
 from __future__ import annotations
 """Central SQLite datastore for PV and heating metrics."""
+from .time_utils import ensure_utc
 
 from collections import defaultdict
 import csv
