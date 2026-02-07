@@ -36,30 +36,54 @@ class StatusTab(ttk.Frame):
         self.after_job = None
         self._schedule_update()
 
+
     def _build_layout(self):
         self.configure(style="TFrame")
-
-
         # Modernes Main-Frame wie im SystemTab
         main = tk.Frame(self, bg=COLOR_ROOT)
         main.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
-        main.grid_rowconfigure(0, weight=0)
-        main.grid_rowconfigure(1, weight=0)
-        main.grid_rowconfigure(2, weight=0)
-        main.grid_rowconfigure(3, weight=1)
+
+        # Grid layout: 2 rows x 4 columns (Health-Cards oben)
+        main.grid_rowconfigure(0, weight=1)
+        main.grid_rowconfigure(1, weight=1)
+        main.grid_rowconfigure(2, weight=1)
         for i in range(4):
             main.grid_columnconfigure(i, weight=1)
 
-        # Health Cards (4 nebeneinander, wie SystemTab)
-        self.card_db = self._make_health_tile(main, 0, "DB", "🗄️")
-        self.card_pv = self._make_health_tile(main, 1, "PV", "☀️")
-        self.card_heat = self._make_health_tile(main, 2, "Heizung", "🔥")
-        self.card_warn = self._make_health_tile(main, 3, "Warnung", "⚠️")
+        # Health Cards (4 nebeneinander, wie SystemTab, als Card)
+        self.card_db = Card(main, padding=12)
+        self.card_db.add_title("DB", icon="🗄️")
+        self.card_db.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
-        # Kurzstatus (ruhig)
-        self.summary_card = Card(main, padding=14)
-        self.summary_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=2, pady=(6, 10))
+        self.card_pv = Card(main, padding=12)
+        self.card_pv.add_title("PV", icon="☀️")
+        self.card_pv.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
+
+        self.card_heat = Card(main, padding=12)
+        self.card_heat.add_title("Heizung", icon="🔥")
+        self.card_heat.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
+
+        self.card_warn = Card(main, padding=12)
+        self.card_warn.add_title("Warnung", icon="⚠️")
+        self.card_warn.grid(row=0, column=3, sticky="nsew", padx=2, pady=2)
+
+        # Health-Card Inhalte (Lamp, Status, Zusatz)
+        self._health_cards = []
+        for card in [self.card_db, self.card_pv, self.card_heat, self.card_warn]:
+            frame = card.content()
+            frame.configure(bg=COLOR_CARD)
+            card.lamp = tk.Canvas(frame, width=18, height=18, bg=COLOR_CARD, highlightthickness=0)
+            card.lamp.grid(row=0, column=0, sticky="w", padx=(2, 8), pady=(2, 2))
+            card.line1 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 12, "bold"))
+            card.line1.grid(row=0, column=1, sticky="w", pady=(2, 0), padx=(0, 4))
+            card.line2 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 9))
+            card.line2.grid(row=1, column=1, sticky="w", pady=(0, 6), padx=(0, 4))
+            self._health_cards.append(card)
+
+        # Summary Card (wie SystemTab, groß, luftig)
+        self.summary_card = Card(main, padding=18)
         self.summary_card.add_title("Status", icon="✅")
+        self.summary_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=2, pady=(10, 6))
         self.summary_frame = self.summary_card.content()
         self.summary_frame.configure(bg=COLOR_CARD)
         self.summary_frame.grid_columnconfigure(0, weight=1)
@@ -99,45 +123,14 @@ class StatusTab(ttk.Frame):
         )
         self.lbl_consistency.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(6, 8))
 
-        # Snapshot (immer sichtbar)
-        self.snapshot_card = Card(main, padding=14)
-        self.snapshot_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=2, pady=(0, 10))
+        # Snapshot Card
+        self.snapshot_card = Card(main, padding=18)
         self.snapshot_card.add_title("Snapshot", icon="🧾")
+        self.snapshot_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=2, pady=(0, 6))
         self.snapshot_frame = self.snapshot_card.content()
         self.snapshot_frame.configure(bg=COLOR_CARD)
         for i in range(2):
             self.snapshot_frame.grid_columnconfigure(i, weight=1)
-
-        # Details (nur bei Warnung/Fehler sichtbar)
-        self.details_card = Card(main, padding=14)
-        self.details_card.grid(row=3, column=0, columnspan=4, sticky="nsew", padx=2, pady=(0, 10))
-        self.details_card.add_title("Details", icon="🧩")
-        self.details_frame = self.details_card.content()
-        self.details_frame.configure(bg=COLOR_CARD)
-        self.details_frame.grid_rowconfigure(0, weight=1)
-        self.details_frame.grid_columnconfigure(0, weight=1)
-        self.details_frame.grid_columnconfigure(1, weight=0)
-
-        self.errors_text = tk.Text(
-            self.details_frame,
-            font=("Consolas", 10),
-            bg=COLOR_ROOT,
-            fg=COLOR_TEXT,
-            insertbackground=COLOR_TEXT,
-            height=10,
-            wrap="none",
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=1,
-            highlightbackground=COLOR_CARD,
-        )
-        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=(4, 0), pady=4)
-        sb = ttk.Scrollbar(self.details_frame, orient="vertical", command=self.errors_text.yview)
-        sb.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=4)
-        self.errors_text.configure(yscrollcommand=sb.set)
-        self.errors_text.config(state="disabled")
-
-        # Snapshot-Labels: bessere Spaltenaufteilung
         self.snapshot_frame.grid_columnconfigure(0, weight=3, minsize=120)
         self.snapshot_frame.grid_columnconfigure(1, weight=1, minsize=60, uniform="snapval")
         self.snapshot_labels = {}
@@ -172,6 +165,35 @@ class StatusTab(ttk.Frame):
             val.grid(row=row, column=1, sticky="e", padx=8, pady=2)
             self.snapshot_labels[key] = val
             row += 1
+
+        # Details Card (nur bei Warnung/Fehler sichtbar)
+        self.details_card = Card(main, padding=18)
+        self.details_card.add_title("Details", icon="🧩")
+        self.details_card.grid(row=3, column=0, columnspan=4, sticky="nsew", padx=2, pady=(0, 6))
+        self.details_frame = self.details_card.content()
+        self.details_frame.configure(bg=COLOR_CARD)
+        self.details_frame.grid_rowconfigure(0, weight=1)
+        self.details_frame.grid_columnconfigure(0, weight=1)
+        self.details_frame.grid_columnconfigure(1, weight=0)
+
+        self.errors_text = tk.Text(
+            self.details_frame,
+            font=("Consolas", 10),
+            bg=COLOR_ROOT,
+            fg=COLOR_TEXT,
+            insertbackground=COLOR_TEXT,
+            height=10,
+            wrap="none",
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=COLOR_CARD,
+        )
+        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=(4, 0), pady=4)
+        sb = ttk.Scrollbar(self.details_frame, orient="vertical", command=self.errors_text.yview)
+        sb.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=4)
+        self.errors_text.configure(yscrollcommand=sb.set)
+        self.errors_text.config(state="disabled")
 
         # Start quiet: hide details until warning/error occurs.
         try:
