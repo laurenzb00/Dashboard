@@ -941,11 +941,15 @@ class MainApp:
             return None
 
     def _load_pv_sparkline(self, minutes: int = 60) -> list[float]:
+        import sys
+        print("[SPARKLINE] _load_pv_sparkline called", file=sys.stderr)
         if not self.datastore:
+            print("[SPARKLINE] Kein Datastore!", file=sys.stderr)
             return []
         cutoff = datetime.now() - timedelta(minutes=minutes)
         hours = max(1, (minutes // 60) + 1)
         rows = self.datastore.get_recent_fronius(hours=hours, limit=1200)
+        print(f"[SPARKLINE] rows geladen: {len(rows)}", file=sys.stderr)
         values: list[float] = []
         for row in rows[-400:]:
             ts = self._parse_timestamp_value(row.get('timestamp'))
@@ -955,6 +959,7 @@ class MainApp:
             if ts < cutoff:
                 continue
             values.append(float(pv_kw))
+        print(f"[SPARKLINE] Werte für Sparkline: {values[-10:] if values else values}", file=sys.stderr)
         return values
 
     def _fetch_real_data(self):

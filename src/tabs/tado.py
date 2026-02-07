@@ -295,7 +295,7 @@ class TadoTab:
             
             self._ui_set(self.var_status, "Verbunden")
         except ImportError:
-            self._ui_set(self.var_status, "PyTado nicht installiert")
+            self._ui_set(self.var_status, "PyTado nicht installiert! Bitte im Terminal ausführen: 'pip install pytado' (im .venv falls vorhanden). Dann Dashboard neu starten.")
             self._ui_set(self.var_temp_ist, "N/A")
             self._ui_set(self.var_humidity, "N/A")
             while self.alive:
