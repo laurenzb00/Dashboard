@@ -14,6 +14,7 @@ from tkinter import ttk
 
 from core.datastore import DataStore
 from tabs.historical import HistoricalTab
+from ui.styles import COLOR_ROOT
 
 
 def main() -> None:
@@ -32,7 +33,7 @@ def main() -> None:
     tab._update_plot()
 
     # Save figure to PNG
-    tab.fig.savefig(out, dpi=140, facecolor=tab.fig.get_facecolor(), bbox_inches="tight")
+    tab.fig.savefig(out, dpi=140, facecolor=COLOR_ROOT, bbox_inches="tight")
 
     try:
         root.destroy()

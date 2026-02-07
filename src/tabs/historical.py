@@ -97,7 +97,8 @@ class HistoricalTab(tk.Frame):
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 
-        self.card = tk.Frame(plot_container, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        # Use COLOR_ROOT as plot background (no blue tint), keep border for structure.
+        self.card = tk.Frame(plot_container, bg=COLOR_ROOT, highlightthickness=1, highlightbackground=COLOR_BORDER)
         self.card.grid(row=0, column=0, sticky="nsew")
         self.card.grid_rowconfigure(0, weight=1)
         self.card.grid_columnconfigure(0, weight=1)
@@ -110,7 +111,7 @@ class HistoricalTab(tk.Frame):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.card)
         self.canvas_widget = self.canvas.get_tk_widget()
         try:
-            self.canvas_widget.configure(bg=COLOR_CARD, highlightthickness=0)
+            self.canvas_widget.configure(bg=COLOR_ROOT, highlightthickness=0)
         except Exception:
             pass
         self.canvas_widget.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
@@ -168,6 +169,24 @@ class HistoricalTab(tk.Frame):
         except Exception:
             pass
 
+    def _style_axes(self) -> None:
+        self.ax.set_facecolor("none")
+        # Sparkline-like minimal frame
+        self.ax.spines["top"].set_visible(False)
+        self.ax.spines["right"].set_visible(False)
+        self.ax.spines["left"].set_color(COLOR_BORDER)
+        self.ax.spines["bottom"].set_color(COLOR_BORDER)
+        self.ax.spines["left"].set_linewidth(0.5)
+        self.ax.spines["bottom"].set_linewidth(0.5)
+
+        self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
+        self.ax.tick_params(axis="both", which="major", labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.ax.set_ylabel("°C", fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va="center")
+        try:
+            self.ax.xaxis.get_offset_text().set_visible(False)
+        except Exception:
+            pass
+
     def _update_plot(self) -> None:
         hours = self._period_map.get(self._period_var.get(), 24)
         now = datetime.now()
@@ -222,15 +241,19 @@ class HistoricalTab(tk.Frame):
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
         self.fig.patch.set_alpha(0)
-        self.ax.set_facecolor("none")
-        for spine in self.ax.spines.values():
-            spine.set_color(COLOR_BORDER)
-            spine.set_linewidth(0.6)
+        self._style_axes()
 
-        self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        self.ax.tick_params(axis="x", labelsize=9, colors=COLOR_SUBTEXT)
-        self.ax.tick_params(axis="y", labelsize=9, colors=COLOR_SUBTEXT)
-        self.ax.set_ylabel("°C", color=COLOR_SUBTEXT)
+        # Title like sparkline: left aligned, subtle
+        try:
+            self.ax.set_title(
+                f"Heizung & Temperaturen ({hours}h)",
+                loc="left",
+                fontsize=10,
+                color=COLOR_TEXT,
+                pad=6,
+            )
+        except Exception:
+            pass
 
         # Always show the full window for the selected period.
         try:
@@ -249,10 +272,20 @@ class HistoricalTab(tk.Frame):
                 color=COLOR_SUBTEXT,
                 fontsize=14,
             )
-            self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+            # Empty state: no fake axes (avoid 0..1 scale / duplicate tick labels)
+            self.ax.set_xticks([])
+            self.ax.set_yticks([])
+            try:
+                for spine in self.ax.spines.values():
+                    spine.set_visible(False)
+                self.ax.grid(False)
+                self.ax.set_ylabel("")
+                self.ax.xaxis.get_offset_text().set_visible(False)
+            except Exception:
+                pass
             self._render_status(hours, 0)
             try:
-                self.fig.subplots_adjust(left=0.07, right=0.985, top=0.95, bottom=0.16)
+                self.fig.subplots_adjust(left=0.06, right=0.985, top=0.90, bottom=0.18)
             except Exception:
                 pass
             self.canvas.draw_idle()
@@ -282,11 +315,15 @@ class HistoricalTab(tk.Frame):
         locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
         self.ax.xaxis.set_major_locator(locator)
         self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+        try:
+            self.ax.xaxis.get_offset_text().set_visible(False)
+        except Exception:
+            pass
 
-        self.ax.legend(loc="upper right", fontsize=9, frameon=False, labelcolor=COLOR_SUBTEXT)
+        self.ax.legend(loc="upper right", fontsize=7, frameon=False, labelcolor=COLOR_SUBTEXT)
 
         try:
-            self.fig.subplots_adjust(left=0.07, right=0.985, top=0.95, bottom=0.16)
+            self.fig.subplots_adjust(left=0.06, right=0.985, top=0.90, bottom=0.18)
         except Exception:
             pass
 
