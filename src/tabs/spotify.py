@@ -336,7 +336,7 @@ class SpotifyTab:
         quick_box = ttk.Labelframe(right, text="Schnellaktionen")
         quick_box.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         self.shuffle_var = tk.BooleanVar(value=False)
-        toggle_style = safe_toggle_style("round-toggle")
+        toggle_style = self.safe_toggle_style("round-toggle")
         try:
             if toggle_style:
                 ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,

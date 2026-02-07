@@ -33,9 +33,11 @@ from tkinter import StringVar, OptionMenu
 from datetime import timedelta
 
 class HistoricalTab(Frame):
+from src.core.time_utils import guard_alive
 
     def __init__(self, parent, notebook, datastore, *args, **kwargs):
         super().__init__(notebook, *args, **kwargs)
+        self.alive = True
         notebook.add(self, text="Heizung-Historie")
         from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_KESSEL_C, BMK_WARMWASSER_C
         self.BUF_TOP_C = BUF_TOP_C
@@ -606,9 +608,8 @@ class HistoricalTab(Frame):
             self.canvas.get_tk_widget().destroy()
         except Exception:
             pass
+    @guard_alive
     def _update_plot(self):
-        if not self.alive:
-            return
         if not self.canvas.get_tk_widget().winfo_exists():
             return
 

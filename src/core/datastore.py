@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from src.core.time_utils import ensure_utc
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -52,7 +53,8 @@ class DataStore:
         from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BMK_BOILER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         ts = record.get('timestamp')
         dt = _parse_iso_timestamp(ts)
-        now = datetime.now()
+        now = ensure_utc(datetime.now())
+        dt = ensure_utc(dt) if dt else None
         age_min = (now - dt).total_seconds() / 60 if dt else None
         outdoor = _safe_float(record.get('outdoor') or record.get('außentemp'))
         kessel = record.get(BMK_KESSEL_C) or record.get('kessel') or record.get(BMK_BOILER_C)
@@ -291,6 +293,7 @@ class DataStore:
         for item in daily:
             try:
                 day_obj = datetime.fromisoformat(item['day'])
+                            day_obj = ensure_utc(datetime.fromisoformat(item['day']))
             except ValueError:
                 continue
             month_key = day_obj.replace(day=1).date().isoformat()
@@ -468,7 +471,7 @@ class DataStore:
 
     def get_last_ingest_datetime(self) -> Optional[datetime]:
         with self._lock:
-            return self._last_ingest_dt
+            return ensure_utc(self._last_ingest_dt) if self._last_ingest_dt else None
 
     def get_last_ingest_timestamp(self) -> Optional[str]:
         dt = self.get_last_ingest_datetime()
@@ -604,7 +607,7 @@ def _integrate_daily_energy(rows: Iterable[tuple[str, Optional[float]]]) -> List
         if ts is None or pv is None:
             continue
         try:
-            cur_ts = datetime.fromisoformat(ts)
+            cur_ts = ensure_utc(datetime.fromisoformat(ts))
             cur_power = float(pv)
         except ValueError:
             continue
@@ -649,13 +652,13 @@ def _distribute_segment_energy(
         if hours <= 0:
             return
         energy = (p_start + p_end) / 2.0 * hours
-        day_key = day_ts.date().isoformat()
+        day_key = ensure_utc(day_ts).date().isoformat()
         bucket = buckets[day_key]
         bucket['pv_kwh'] += energy
         bucket['samples'] += 1
 
     while current_ts.date() != final_ts.date():
-        boundary = datetime.combine(current_ts.date() + timedelta(days=1), datetime.min.time())
+        boundary = ensure_utc(datetime.combine(current_ts.date() + timedelta(days=1), datetime.min.time()))
         total_hours = (final_ts - current_ts).total_seconds() / 3600
         if total_hours <= 0:
             return
