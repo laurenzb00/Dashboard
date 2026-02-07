@@ -1,10 +1,16 @@
 import tkinter as tk
 from tkinter import font
 
+try:
+    from ui.styles import COLOR_ROOT
+except Exception:
+    COLOR_ROOT = "#0E0F12"
+
 class RoundedButton(tk.Canvas):
     """A modern, rounded button for touch dashboards."""
     def __init__(self, parent, text, command=None, bg="#3B82F6", fg="#fff", radius=18, padding=(18, 10), font_name="Segoe UI", font_size=12, active_bg="#2563eb", active_fg="#fff", border=None, borderwidth=0, **kwargs):
-        super().__init__(parent, highlightthickness=0, bd=0, bg=parent["bg"] if "bg" in parent.keys() else "#0B1320", **kwargs)
+        parent_bg = parent["bg"] if hasattr(parent, "keys") and ("bg" in parent.keys()) else None
+        super().__init__(parent, highlightthickness=0, bd=0, bg=parent_bg or COLOR_ROOT, **kwargs)
         self._text = text
         self._command = command
         self._bg = bg

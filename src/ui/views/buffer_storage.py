@@ -27,8 +27,8 @@ try:
     )
 except ImportError:
     # Fallback Farben, falls Import fehlschlägt
-    COLOR_CARD = "#232F41"
-    COLOR_BORDER = "#1F2A3A"
+    COLOR_CARD = "#171A20"
+    COLOR_BORDER = "#242833"
     COLOR_PRIMARY = "#3B82F6"
     COLOR_SUCCESS = "#10B981"
     COLOR_WARNING = "#F59E0B"

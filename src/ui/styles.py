@@ -3,11 +3,13 @@ import tkinter.font as tkfont
 from ttkbootstrap import Style
 
 # Farbpalette gemäß Vorgabe
-COLOR_ROOT = "#0B1320"       # Hintergrund/root
-COLOR_HEADER = "#0B1320"     # Header/Notebook
+# Hinweis: ttkbootstrap "darkly" hat standardmäßig einen bläulichen Grundton.
+# Wir setzen hier bewusst neutralere Dark-Töne, damit nicht überall ein "blauer" Background durchscheint.
+COLOR_ROOT = "#0E0F12"       # Hintergrund/root (neutral dark)
+COLOR_HEADER = "#0E0F12"     # Header/Notebook
 COLOR_BG = COLOR_HEADER       # alias für bestehende Verwendungen
-COLOR_CARD = "#232F41"  # Helleres, freundlicheres Grau für Diagramm-Hintergrund
-COLOR_BORDER = "#1F2A3A"
+COLOR_CARD = "#171A20"       # Card/Plot-Hintergrund (neutral dark, leicht heller)
+COLOR_BORDER = "#242833"
 COLOR_PRIMARY = "#3B82F6"
 COLOR_SUCCESS = "#10B981"
 COLOR_WARNING = "#F59E0B"
@@ -74,6 +76,14 @@ def emoji(text: str, fallback: str = "") -> str:
 
 def configure_styles(style: Style) -> None:
     """Applies notebook + button styles on an existing ttkbootstrap Style."""
+    # Base defaults
+    # Viele Tabs verwenden ttk.Frame/ttk.Label ohne explizite bg/fg.
+    # Wenn wir das nicht überschreiben, scheint der Theme-Hintergrund (bei "darkly" oft blau) überall durch.
+    style.configure("TFrame", background=COLOR_ROOT)
+    style.configure("TLabel", background=COLOR_ROOT, foreground=COLOR_TEXT)
+    style.configure("TLabelframe", background=COLOR_ROOT)
+    style.configure("TLabelframe.Label", background=COLOR_ROOT, foreground=COLOR_SUBTEXT)
+
     # Notebook (Tabs)
     nb = "TNotebook"
     style.configure(nb, background=COLOR_HEADER, borderwidth=0, padding=0)

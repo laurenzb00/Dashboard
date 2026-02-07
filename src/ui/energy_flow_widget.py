@@ -10,15 +10,30 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import os
 
-# Glasmorphism Farbpalette (dunkel & transparent)
-COLOR_GLASS_BG = "#1a1f2e"     # Transparente Glass Cards
-COLOR_DARK_BG = "#0a0e1a"      # Sehr dunkler Hintergrund
-COLOR_SUCCESS = "#10b981"      # Grün für Produktion/OK
-COLOR_WARNING = "#f59e0b"      # Orange für Verbrauch
-COLOR_DANGER = "#ef4444"       # Rot für Bezug
-COLOR_TEXT = "#e2e8f0"         # Hellerer Text
-COLOR_SUBTEXT = "#64748b"      # Gedimmter Text
-COLOR_BORDER = "#2d3548"       # Glass Border
+# Farbpalette
+# Ursprünglich hatte dieses Widget eine eigenständige (bläuliche) Glasmorphism-Palette.
+# Für ein konsistentes Dashboard leiten wir die Basisfarben aus ui.styles ab.
+try:
+    from ui.styles import (
+        COLOR_ROOT as COLOR_DARK_BG,
+        COLOR_CARD as COLOR_GLASS_BG,
+        COLOR_BORDER,
+        COLOR_SUCCESS,
+        COLOR_WARNING,
+        COLOR_DANGER,
+        COLOR_TEXT,
+        COLOR_SUBTEXT,
+    )
+except Exception:
+    # Fallback
+    COLOR_GLASS_BG = "#171A20"
+    COLOR_DARK_BG = "#0E0F12"
+    COLOR_SUCCESS = "#10b981"
+    COLOR_WARNING = "#f59e0b"
+    COLOR_DANGER = "#ef4444"
+    COLOR_TEXT = "#e2e8f0"
+    COLOR_SUBTEXT = "#64748b"
+    COLOR_BORDER = "#242833"
 
 class EnergyFlowWidgetV2:
     """Moderne Card-basierte Energiefluss-Visualisierung"""

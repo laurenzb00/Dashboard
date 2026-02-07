@@ -20,15 +20,29 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.cm as cm
 
-# --- GLASMORPHISM FARBEN ---
-COLOR_DARK_BG = "#0a0e1a"
-COLOR_GLASS_BG = "#1a1f2e"
-COLOR_PRIMARY = "#3b82f6"
-COLOR_SUCCESS = "#10b981"
-COLOR_WARNING = "#f59e0b"
-COLOR_TEXT = "#e2e8f0"
-COLOR_SUBTEXT = "#64748b"
-COLOR_BORDER = "#2d3548"
+# --- FARBEN ---
+# Dieses Widget hatte eine eigene (bläuliche) Glasmorphism-Palette.
+# Für ein konsistentes UI verwenden wir die globale Palette aus ui.styles.
+try:
+    from ui.styles import (
+        COLOR_ROOT as COLOR_DARK_BG,
+        COLOR_CARD as COLOR_GLASS_BG,
+        COLOR_PRIMARY,
+        COLOR_SUCCESS,
+        COLOR_WARNING,
+        COLOR_TEXT,
+        COLOR_SUBTEXT,
+        COLOR_BORDER,
+    )
+except Exception:
+    COLOR_DARK_BG = "#0E0F12"
+    COLOR_GLASS_BG = "#171A20"
+    COLOR_PRIMARY = "#3b82f6"
+    COLOR_SUCCESS = "#10b981"
+    COLOR_WARNING = "#f59e0b"
+    COLOR_TEXT = "#e2e8f0"
+    COLOR_SUBTEXT = "#64748b"
+    COLOR_BORDER = "#242833"
 
 class ModernBoilerWidget:
     """Moderne Pufferspeicher-Visualisierung mit Heatmap"""

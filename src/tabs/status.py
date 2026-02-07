@@ -38,45 +38,83 @@ class StatusTab(ttk.Frame):
 
     def _build_layout(self):
         self.configure(style="TFrame")
-        self.grid_rowconfigure(0, weight=0)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(0, weight=1)
 
-        # Oben: kompakte Health Tiles
-        self.top_frame = tk.Frame(self, bg=COLOR_ROOT, height=96)
-        self.top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
-        self.top_frame.grid_propagate(False)
+
+        # Modernes Main-Frame wie im SystemTab
+        main = tk.Frame(self, bg=COLOR_ROOT)
+        main.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        main.grid_rowconfigure(0, weight=0)
+        main.grid_rowconfigure(1, weight=0)
+        main.grid_rowconfigure(2, weight=0)
+        main.grid_rowconfigure(3, weight=1)
         for i in range(4):
-            self.top_frame.grid_columnconfigure(i, weight=1, uniform="health")
+            main.grid_columnconfigure(i, weight=1)
 
-        self.card_db = self._make_health_tile(self.top_frame, 0, "DB", "🗄️")
-        self.card_pv = self._make_health_tile(self.top_frame, 1, "PV", "☀️")
-        self.card_heat = self._make_health_tile(self.top_frame, 2, "Heizung", "🔥")
-        self.card_warn = self._make_health_tile(self.top_frame, 3, "Warnung", "⚠️")
+        # Health Cards (4 nebeneinander, wie SystemTab)
+        self.card_db = self._make_health_tile(main, 0, "DB", "🗄️")
+        self.card_pv = self._make_health_tile(main, 1, "PV", "☀️")
+        self.card_heat = self._make_health_tile(main, 2, "Heizung", "🔥")
+        self.card_warn = self._make_health_tile(main, 3, "Warnung", "⚠️")
 
-        # Unten: horizontal PanedWindow (Snapshot | Details)
-        self.bottom_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        self.bottom_paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=(6, 10))
+        # Kurzstatus (ruhig)
+        self.summary_card = Card(main, padding=14)
+        self.summary_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=2, pady=(6, 10))
+        self.summary_card.add_title("Status", icon="✅")
+        self.summary_frame = self.summary_card.content()
+        self.summary_frame.configure(bg=COLOR_CARD)
+        self.summary_frame.grid_columnconfigure(0, weight=1)
+        self.summary_frame.grid_columnconfigure(1, weight=1)
 
-        # Links: Snapshot
-        self.snapshot_card = Card(self.bottom_paned)
-        self.snapshot_card.add_title("Current Snapshot", icon="🧾")
+        def _make_kv(row: int, label: str):
+            tk.Label(
+                self.summary_frame,
+                text=label,
+                anchor="w",
+                bg=COLOR_CARD,
+                fg=COLOR_SUBTEXT,
+                font=("Segoe UI", 10),
+            ).grid(row=row, column=0, sticky="w", padx=10, pady=2)
+            val = tk.Label(
+                self.summary_frame,
+                text="--",
+                anchor="e",
+                bg=COLOR_CARD,
+                fg=COLOR_TEXT,
+                font=("Segoe UI", 10, "bold"),
+            )
+            val.grid(row=row, column=1, sticky="e", padx=10, pady=2)
+            return val
+
+        self.lbl_last_update = _make_kv(0, "Letztes Update")
+        self.lbl_db_age = _make_kv(1, "DB-Alter")
+        self.lbl_pv_age = _make_kv(2, "PV-Alter")
+        self.lbl_heat_age = _make_kv(3, "Heizung-Alter")
+        self.lbl_consistency = tk.Label(
+            self.summary_frame,
+            text="Konsistenz: --",
+            anchor="w",
+            bg=COLOR_CARD,
+            fg=COLOR_SUBTEXT,
+            font=("Segoe UI", 9),
+        )
+        self.lbl_consistency.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(6, 8))
+
+        # Snapshot (immer sichtbar)
+        self.snapshot_card = Card(main, padding=14)
+        self.snapshot_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=2, pady=(0, 10))
+        self.snapshot_card.add_title("Snapshot", icon="🧾")
         self.snapshot_frame = self.snapshot_card.content()
         self.snapshot_frame.configure(bg=COLOR_CARD)
         for i in range(2):
             self.snapshot_frame.grid_columnconfigure(i, weight=1)
-        self.bottom_paned.add(self.snapshot_card, weight=2)
 
-        # Rechts: Details/Errors
-        self.details_card = Card(self.bottom_paned)
-        self.details_card.add_title("Details / Errors", icon="🧩")
+        # Details (nur bei Warnung/Fehler sichtbar)
+        self.details_card = Card(main, padding=14)
+        self.details_card.grid(row=3, column=0, columnspan=4, sticky="nsew", padx=2, pady=(0, 10))
+        self.details_card.add_title("Details", icon="🧩")
         self.details_frame = self.details_card.content()
         self.details_frame.configure(bg=COLOR_CARD)
         self.details_frame.grid_rowconfigure(0, weight=1)
-        self.details_frame.grid_columnconfigure(0, weight=1)
-        self.bottom_paned.add(self.details_card, weight=1)
-
-        # Details (scrollable)
         self.details_frame.grid_columnconfigure(0, weight=1)
         self.details_frame.grid_columnconfigure(1, weight=0)
 
@@ -93,9 +131,9 @@ class StatusTab(ttk.Frame):
             highlightthickness=1,
             highlightbackground=COLOR_CARD,
         )
-        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
+        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=(4, 0), pady=4)
         sb = ttk.Scrollbar(self.details_frame, orient="vertical", command=self.errors_text.yview)
-        sb.grid(row=0, column=1, sticky="ns", padx=(0, 8), pady=8)
+        sb.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=4)
         self.errors_text.configure(yscrollcommand=sb.set)
         self.errors_text.config(state="disabled")
 
@@ -134,6 +172,12 @@ class StatusTab(ttk.Frame):
             val.grid(row=row, column=1, sticky="e", padx=8, pady=2)
             self.snapshot_labels[key] = val
             row += 1
+
+        # Start quiet: hide details until warning/error occurs.
+        try:
+            self.details_card.grid_remove()
+        except Exception:
+            pass
 
     def _make_health_tile(self, parent, col, title, icon):
         outer = RoundedFrame(parent, bg=COLOR_CARD, border=None, radius=18, padding=0)
@@ -359,58 +403,86 @@ class StatusTab(ttk.Frame):
             self._set_health(self.card_warn, "#44cc44", "OK", "Alles gut")
 
         # Fehlertextfeld immer aktualisieren
-        self.errors_text.config(state="normal")
-        self.errors_text.delete("1.0", "end")
-        if tb_full:
-            self.errors_text.insert("1.0", "Fehler/Details:\n" + tb_full)
-        else:
-            db_last = self._hist_db[-1] if self._hist_db else {}
-            info = [
-                f"Letztes Update: {now.strftime('%H:%M:%S')}",
-                f"DB-Alter: {self._format_age(db_last.get('age_s'))}",
-                f"PV-Alter: {self._format_age(pv_last.get('age_s'))}",
-                f"Heizung-Alter: {self._format_age(ht_last.get('age_s'))}",
-                "",
-                "=== Konsistenz ===",
-            ]
-            if consistency_lines:
-                info.extend(consistency_lines)
-            else:
-                info.append("OK")
+        db_last = self._hist_db[-1] if self._hist_db else {}
 
-            def _fmt_hist_line(entry, kind: str):
-                at = entry.get("at")
-                age = entry.get("age_s")
-                rec = entry.get("record")
-                at_s = at.strftime("%H:%M:%S") if at else "--"
-                age_s = self._format_age(age)
-                ts = entry.get("source_ts") or "--"
-                if rec is None:
-                    return f"{at_s} age={age_s} ts={ts} (keine Daten)"
-                if kind == "pv":
+        # Summary labels (always visible)
+        try:
+            self.lbl_last_update.config(text=now.strftime('%H:%M:%S'))
+            self.lbl_db_age.config(text=self._format_age(db_last.get('age_s')))
+            self.lbl_pv_age.config(text=self._format_age(pv_last.get('age_s')))
+            self.lbl_heat_age.config(text=self._format_age(ht_last.get('age_s')))
+            if consistency_lines:
+                self.lbl_consistency.config(text="Konsistenz: " + " | ".join(consistency_lines), fg=COLOR_SUBTEXT)
+            else:
+                self.lbl_consistency.config(text="Konsistenz: OK", fg=COLOR_SUBTEXT)
+        except Exception:
+            pass
+
+        has_errors = bool(tb_full or errors)
+        has_warnings = bool(consistency_lines)
+        show_details = has_errors or has_warnings
+
+        # Quiet when OK: hide verbose details unless warning/error
+        try:
+            if show_details:
+                self.details_card.grid()
+            else:
+                self.details_card.grid_remove()
+        except Exception:
+            pass
+
+        if show_details:
+            self.errors_text.config(state="normal")
+            self.errors_text.delete("1.0", "end")
+            if tb_full:
+                self.errors_text.insert("1.0", "Fehler/Details:\n" + tb_full)
+            else:
+                info = [
+                    f"Letztes Update: {now.strftime('%H:%M:%S')}",
+                    f"DB-Alter: {self._format_age(db_last.get('age_s'))}",
+                    f"PV-Alter: {self._format_age(pv_last.get('age_s'))}",
+                    f"Heizung-Alter: {self._format_age(ht_last.get('age_s'))}",
+                    "",
+                    "=== Konsistenz ===",
+                ]
+                if consistency_lines:
+                    info.extend(consistency_lines)
+                else:
+                    info.append("OK")
+
+                def _fmt_hist_line(entry, kind: str):
+                    at = entry.get("at")
+                    age = entry.get("age_s")
+                    rec = entry.get("record")
+                    at_s = at.strftime("%H:%M:%S") if at else "--"
+                    age_s = self._format_age(age)
+                    ts = entry.get("source_ts") or "--"
+                    if rec is None:
+                        return f"{at_s} age={age_s} ts={ts} (keine Daten)"
+                    if kind == "pv":
+                        return (
+                            f"{at_s} age={age_s} ts={ts} "
+                            f"pv={self._fmt_num(rec.get(PV_POWER_KW),2)} grid={self._fmt_num(rec.get(GRID_POWER_KW),2)} "
+                            f"batt={self._fmt_num(rec.get(BATTERY_POWER_KW),2)} soc={self._fmt_num(rec.get(BATTERY_SOC_PCT),1)}"
+                        )
                     return (
                         f"{at_s} age={age_s} ts={ts} "
-                        f"pv={self._fmt_num(rec.get(PV_POWER_KW),2)} grid={self._fmt_num(rec.get(GRID_POWER_KW),2)} "
-                        f"batt={self._fmt_num(rec.get(BATTERY_POWER_KW),2)} soc={self._fmt_num(rec.get(BATTERY_SOC_PCT),1)}"
+                        f"kessel={self._fmt_num(rec.get(BMK_KESSEL_C),1)} ww={self._fmt_num(rec.get(BMK_WARMWASSER_C),1)} "
+                        f"top={self._fmt_num(rec.get(BUF_TOP_C),1)} mid={self._fmt_num(rec.get(BUF_MID_C),1)} bot={self._fmt_num(rec.get(BUF_BOTTOM_C),1)}"
                     )
-                return (
-                    f"{at_s} age={age_s} ts={ts} "
-                    f"kessel={self._fmt_num(rec.get(BMK_KESSEL_C),1)} ww={self._fmt_num(rec.get(BMK_WARMWASSER_C),1)} "
-                    f"top={self._fmt_num(rec.get(BUF_TOP_C),1)} mid={self._fmt_num(rec.get(BUF_MID_C),1)} bot={self._fmt_num(rec.get(BUF_BOTTOM_C),1)}"
-                )
 
-            info.append("")
-            info.append("=== Verlauf PV (letzte 5) ===")
-            for entry in list(self._hist_pv)[-5:]:
-                info.append(_fmt_hist_line(entry, "pv"))
+                info.append("")
+                info.append("=== Verlauf PV (letzte 5) ===")
+                for entry in list(self._hist_pv)[-5:]:
+                    info.append(_fmt_hist_line(entry, "pv"))
 
-            info.append("")
-            info.append("=== Verlauf Heizung (letzte 5) ===")
-            for entry in list(self._hist_heat)[-5:]:
-                info.append(_fmt_hist_line(entry, "heat"))
+                info.append("")
+                info.append("=== Verlauf Heizung (letzte 5) ===")
+                for entry in list(self._hist_heat)[-5:]:
+                    info.append(_fmt_hist_line(entry, "heat"))
 
-            self.errors_text.insert("1.0", "\n".join(info))
-        self.errors_text.config(state="disabled")
+                self.errors_text.insert("1.0", "\n".join(info))
+            self.errors_text.config(state="disabled")
 
         self._schedule_update()
 
