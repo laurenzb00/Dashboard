@@ -263,18 +263,23 @@ class MainApp:
             return 0
 
     def __init__(self, root: tk.Tk, datastore: DataStore | None = None):
+        print("[INIT] MainApp: Initialisierung gestartet")
         self._start_time = time.time()
+        print("[INIT] MainApp: Zeitstempel gesetzt")
         self._debug_log = os.getenv("DASH_DEBUG", "0") == "1"
         self._configure_debounce_id = None
         self._last_size = (0, 0)
         self._resize_enabled = False
         self.root = root
+        print("[INIT] MainApp: Tkinter root gesetzt")
         self.root.title("Smart Home Dashboard")
         self._tick_count = 0
         self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
 
         # Shared DataStore wird beim Start bereitgestellt
+        print("[INIT] MainApp: DataStore wird geladen...")
         self.datastore = datastore or safe_get_datastore()
+        print(f"[INIT] MainApp: DataStore geladen: {type(self.datastore)}")
 
         # Health-Status für Datenquellen (PV, Heizung)
         self._source_health = {
@@ -339,6 +344,7 @@ class MainApp:
         self.root.grid_columnconfigure(0, weight=1)
 
         # Header
+        print("[INIT] MainApp: HeaderBar wird erstellt...")
         self.header = HeaderBar(
             self.root,
             on_toggle_a=self.on_toggle_a,
@@ -346,11 +352,13 @@ class MainApp:
             on_exit=self.on_exit,
         )
         self.header.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 2))
+        print("[INIT] MainApp: HeaderBar erstellt und platziert.")
 
         # Start periodic header update for date/time
         self._update_header_datetime()
 
         # Notebook (Tabs) inside rounded container
+        print("[INIT] MainApp: Notebook-Container und Tabs werden erstellt...")
         self.notebook_container = RoundedFrame(self.root, bg=COLOR_HEADER, border=None, radius=18, padding=0)
         self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=0)
         self.notebook = ttk.Notebook(self.notebook_container.content())
@@ -358,11 +366,14 @@ class MainApp:
         self.notebook.grid_propagate(False)
 
         # Energy Dashboard Tab
+        print("[INIT] MainApp: Dashboard-Tab wird erstellt...")
         self.dashboard_tab = tk.Frame(self.notebook, bg=COLOR_ROOT)
         self.notebook.add(self.dashboard_tab, text=emoji("⚡ Energie", "Energie"))
         self.dashboard_tab.pack_propagate(False)
+        print("[INIT] MainApp: Dashboard-Tab hinzugefügt.")
 
         # Body (Energy + Buffer)
+        print("[INIT] MainApp: Body-Frame für Dashboard wird erstellt...")
         self.body = tk.Frame(self.dashboard_tab, bg=COLOR_ROOT)
         self.body.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
         self.body.grid_columnconfigure(0, weight=7)
@@ -370,24 +381,25 @@ class MainApp:
         self.body.grid_rowconfigure(0, weight=1)
 
         # Energy Card (70%) - reduced size and padding
+        print("[INIT] MainApp: EnergyCard und EnergyView werden erstellt...")
         self.energy_card = Card(self.body, padding=6)
         self.energy_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=0)
         self.energy_card.add_title("Energiefluss", icon="⚡")
-        # LAYOUT FIX: Start with minimal size, will resize after layout settles
         self.energy_view = EnergyFlowView(self.energy_card.content(), width=240, height=200)
         self.energy_view.pack(fill=tk.BOTH, expand=True, pady=2)
 
         # Buffer Card (30%) - reduced size and padding
+        print("[INIT] MainApp: BufferCard und BufferView werden erstellt...")
         self.buffer_card = Card(self.body, padding=6)
         self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=0)
-        # Update title to 'Warmwasser' with appropriate icon
         self.buffer_card.add_title("Warmwasser", icon="🔥")
-        # LAYOUT FIX: Start with minimal height, will resize after layout settles
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True)
 
         # Alle weiteren Tabs
+        print("[INIT] MainApp: Zusätzliche Tabs werden erstellt...")
         self._add_other_tabs()
+        print("[INIT] MainApp: Alle weiteren Tabs initialisiert.")
 
         # Statusbar
         self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
@@ -413,21 +425,24 @@ class MainApp:
     # PV Status Tab und zugehörige Methoden entfernt, ersetzt durch StatusTab
 
     def _add_other_tabs(self):
+        print("[TABS] Starte Initialisierung aller weiteren Tabs...")
         """Integriert alle weiteren Tabs, StatusTab immer als letzter Tab (rechts)."""
         # StatusTab als robustes Widget (ttk.Frame) hinzufügen
         if StatusTab:
             try:
+                print("[TABS] StatusTab wird erstellt...")
                 self.status_tab = StatusTab(self.notebook)
                 self.notebook.add(self.status_tab, text="Status")
+                print("[TABS] StatusTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] StatusTab init failed: {e}")
                 self.status_tab = None
 
         if SpotifyTab:
             try:
-                print("[SPOTIFY] SpotifyTab wird als Tab hinzugefügt!")
+                print("[TABS] SpotifyTab wird erstellt...")
                 self.spotify_tab = SpotifyTab(self.root, self.notebook)
-                print("[SPOTIFY] ✓ Tab erfolgreich hinzugefügt")
+                print("[TABS] SpotifyTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] SpotifyTab initialization failed: {e}")
                 import traceback
@@ -436,54 +451,60 @@ class MainApp:
 
         if TadoTab:
             try:
+                print("[TABS] TadoTab wird erstellt...")
                 self.tado_tab = TadoTab(self.root, self.notebook)
-                if self._debug_log:
-                    print(f"[TADO] Tab added successfully")
+                print("[TABS] TadoTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] TadoTab initialization failed: {e}")
                 self.tado_tab = None
-                if self._debug_log:
-                    print(f"[TADO] Tab not available (init failed)")
         else:
-            if self._debug_log:
-                print(f"[TADO] Tab not available (import failed)")
+            print(f"[TABS] TadoTab nicht verfügbar (Import fehlgeschlagen)")
 
         if HueTab:
             try:
+                print("[TABS] HueTab wird erstellt...")
                 self.hue_tab = HueTab(self.root, self.notebook)
-                if self._debug_log:
-                    print(f"[HUE] Tab added successfully")
+                print("[TABS] HueTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] HueTab initialization failed: {e}")
                 self.hue_tab = None
 
         if SystemTab:
             try:
+                print("[TABS] SystemTab wird erstellt...")
                 self.system_tab = SystemTab(self.root, self.notebook)
+                print("[TABS] SystemTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] SystemTab init failed: {e}")
                 self.system_tab = None
 
         if CalendarTab:
             try:
+                print("[TABS] CalendarTab wird erstellt...")
                 self.calendar_tab = CalendarTab(self.root, self.notebook)
+                print("[TABS] CalendarTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] CalendarTab init failed: {e}")
                 self.calendar_tab = None
 
         if HistoricalTab:
             try:
+                print("[TABS] HistoricalTab wird erstellt...")
                 self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore)
+                print("[TABS] HistoricalTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] HistoricalTab init failed: {e}")
                 self.historical_tab = None
 
         if ErtragTab:
             try:
+                print("[TABS] ErtragTab wird erstellt...")
                 self.ertrag_tab = ErtragTab(self.root, self.notebook)
+                print("[TABS] ErtragTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] ErtragTab init failed: {e}")
                 self.ertrag_tab = None
+        print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
 
     # --- Callbacks ---
     def on_toggle_a(self):
