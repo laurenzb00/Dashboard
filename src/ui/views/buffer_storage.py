@@ -57,6 +57,8 @@ class BufferStorageView(tk.Frame):
         pv_series = self._load_pv_series(hours=24, bin_minutes=15)
         temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
         self.spark_ax.clear()
+        now = datetime.now()
+        cutoff = now - timedelta(hours=24)
         if hasattr(self, "spark_ax2"):
             try:
                 self.spark_ax2.remove()
@@ -77,10 +79,27 @@ class BufferStorageView(tk.Frame):
             self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
             self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
             self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+
+            # Keep PV scale sane and non-negative.
+            try:
+                max_pv = max(float(v) for v in ys_pv)
+            except Exception:
+                max_pv = 0.0
+            self.spark_ax.set_ylim(0.0, max(0.5, max_pv * 1.15))
         if temp_series:
             xs_temp, ys_temp = zip(*temp_series)
             ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
             ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
+
+            # Add padding so small variations are visible.
+            try:
+                min_t = min(float(v) for v in ys_temp)
+                max_t = max(float(v) for v in ys_temp)
+                span = max_t - min_t
+                pad = max(1.0, span * 0.15)
+                ax2.set_ylim(min_t - pad, max_t + pad)
+            except Exception:
+                pass
         self.spark_ax.spines['top'].set_visible(False)
         self.spark_ax.spines['right'].set_visible(False)
         self.spark_ax.spines['left'].set_color(COLOR_BORDER)
@@ -101,6 +120,14 @@ class BufferStorageView(tk.Frame):
         ax2.yaxis.set_major_locator(plt.MaxNLocator(4))
         self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
         self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+
+        # Always show the last 24h window, even if data is sparse/missing.
+        try:
+            self.spark_ax.set_xlim(cutoff, now)
+            ax2.set_xlim(cutoff, now)
+        except Exception:
+            pass
+        self.spark_ax.margins(x=0.01)
         try:
             self.spark_fig.tight_layout(pad=0.3)
         except Exception as exc:
@@ -346,90 +373,131 @@ class BufferStorageView(tk.Frame):
 
     def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
-            print("[DEBUG] Kein Datastore für PV-Serie!")
+            if DEBUG_LOG:
+                print("[DEBUG] Kein Datastore für PV-Serie!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
-        rows = self.datastore.get_recent_fronius(hours=hours + 4, limit=2000)
-        print(f"[DEBUG] get_recent_fronius liefert {len(rows)} Zeilen")
-        if rows:
-            print(f"[DEBUG] Beispiel-Eintrag Fronius: {rows[-1]}")
-            print(f"[DEBUG] Alle Keys im letzten Eintrag: {list(rows[-1].keys())}")
-        samples: list[tuple[datetime, float]] = []
         now = datetime.now()
-        for entry in rows[-1000:]:
+
+        # DB timestamps may come in different string formats; don't rely on SQL text filtering/order.
+        rows = self.datastore.get_recent_fronius(hours=None, limit=4000)
+        if DEBUG_LOG:
+            print(f"[DEBUG] get_recent_fronius liefert {len(rows)} Zeilen")
+            if rows:
+                print(f"[DEBUG] Beispiel-Eintrag Fronius: {rows[-1]}")
+                print(f"[DEBUG] Alle Keys im letzten Eintrag: {list(rows[-1].keys())}")
+
+        parsed_rows: list[tuple[datetime, dict]] = []
+        for entry in rows:
             ts = self._parse_ts(entry.get('timestamp'))
-            pv_kw = self._safe_float(entry.get('pv'))
-            if ts is None or pv_kw is None or ts < cutoff:
+            if ts is None:
                 continue
-            # Korrigiere Zukunftszeiten
+            # Cap future timestamps (clock drift)
             if ts > now:
-                print(f"[DEBUG] PV-Sparkline: timestamp in future ({entry.get('timestamp')} -> {ts}), capped to now.")
                 ts = now
+            parsed_rows.append((ts, entry))
+        parsed_rows.sort(key=lambda t: t[0])
+
+        samples: list[tuple[datetime, float]] = []
+        for ts, entry in parsed_rows[-2500:]:
+            pv_kw = self._safe_float(entry.get('pv'))
+            if pv_kw is None or ts < cutoff:
+                continue
+            # PV should never be significantly negative; treat small noise as 0.
+            if pv_kw < -0.2:
+                continue
+            pv_kw = max(0.0, pv_kw)
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, pv_kw))
-        print(f"[DEBUG] PV-Samples: {len(samples)}")
+        if DEBUG_LOG:
+            print(f"[DEBUG] PV-Samples: {len(samples)}")
         return self._aggregate_series(samples)
 
     def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
-            print("[DEBUG] Kein Datastore für Außentemperatur!")
+            if DEBUG_LOG:
+                print("[DEBUG] Kein Datastore für Außentemperatur!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
-        rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
-        print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (outdoor)")
-        if rows:
-            print(f"[DEBUG] Beispiel-Eintrag (outdoor): {rows[0]}")
-            print(f"[DEBUG] Keys im ersten Eintrag: {list(rows[0].keys())}")
-        else:
-            print("[DEBUG] Keine Daten von get_recent_heating (outdoor)")
-        samples: list[tuple[datetime, float]] = []
         now = datetime.now()
-        for entry in rows[-800:]:
+
+        rows = self.datastore.get_recent_heating(hours=None, limit=4000)
+        if DEBUG_LOG:
+            print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (outdoor)")
+            if rows:
+                print(f"[DEBUG] Beispiel-Eintrag (outdoor): {rows[0]}")
+                print(f"[DEBUG] Keys im ersten Eintrag: {list(rows[0].keys())}")
+            else:
+                print("[DEBUG] Keine Daten von get_recent_heating (outdoor)")
+
+        parsed_rows: list[tuple[datetime, dict]] = []
+        for entry in rows:
             ts = self._parse_ts(entry.get('timestamp'))
-            val = self._safe_float(entry.get('outdoor'))
-            if ts is None or val is None or ts < cutoff:
+            if ts is None:
                 continue
-            # Korrigiere Zukunftszeiten
             if ts > now:
-                print(f"[DEBUG] Outdoor-Sparkline: timestamp in future ({entry.get('timestamp')} -> {ts}), capped to now.")
                 ts = now
+            parsed_rows.append((ts, entry))
+        parsed_rows.sort(key=lambda t: t[0])
+
+        samples: list[tuple[datetime, float]] = []
+        for ts, entry in parsed_rows[-2500:]:
+            val = self._safe_float(entry.get('outdoor'))
+            if val is None or ts < cutoff:
+                continue
+            # Plausibility clamp (sensor glitches)
+            if not (-40.0 <= val <= 60.0):
+                continue
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, val))
-        print(f"[DEBUG] Outdoor-Samples: {len(samples)}")
+        if DEBUG_LOG:
+            print(f"[DEBUG] Outdoor-Samples: {len(samples)}")
         return self._aggregate_series(samples)
 
     def _load_puffer_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
-            print("[DEBUG] Kein Datastore für Puffer-Serie!")
+            if DEBUG_LOG:
+                print("[DEBUG] Kein Datastore für Puffer-Serie!")
             return []
         cutoff = datetime.now() - timedelta(hours=hours)
-        rows = self.datastore.get_recent_heating(hours=hours + 4, limit=1600)
-        print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (puffer)")
-        if rows:
-            print(f"[DEBUG] Beispiel-Eintrag (puffer): {rows[0]}")
-            print(f"[DEBUG] Keys im ersten Eintrag: {list(rows[0].keys())}")
-        else:
-            print("[DEBUG] Keine Daten von get_recent_heating (puffer)")
-        samples: list[tuple[datetime, float]] = []
         now = datetime.now()
-        for entry in rows[-800:]:
+
+        rows = self.datastore.get_recent_heating(hours=None, limit=4000)
+        if DEBUG_LOG:
+            print(f"[DEBUG] get_recent_heating liefert {len(rows)} Zeilen (puffer)")
+            if rows:
+                print(f"[DEBUG] Beispiel-Eintrag (puffer): {rows[0]}")
+                print(f"[DEBUG] Keys im ersten Eintrag: {list(rows[0].keys())}")
+            else:
+                print("[DEBUG] Keine Daten von get_recent_heating (puffer)")
+
+        parsed_rows: list[tuple[datetime, dict]] = []
+        for entry in rows:
             ts = self._parse_ts(entry.get('timestamp'))
-            mid = self._safe_float(entry.get('mid'))
-            if ts is None or mid is None or ts < cutoff:
+            if ts is None:
                 continue
-            # Korrigiere Zukunftszeiten
             if ts > now:
-                print(f"[DEBUG] Puffer-Sparkline: timestamp in future ({entry.get('timestamp')} -> {ts}), capped to now.")
                 ts = now
+            parsed_rows.append((ts, entry))
+        parsed_rows.sort(key=lambda t: t[0])
+
+        samples: list[tuple[datetime, float]] = []
+        for ts, entry in parsed_rows[-2500:]:
+            mid = self._safe_float(entry.get('mid'))
+            if mid is None or ts < cutoff:
+                continue
+            if not (-40.0 <= mid <= 120.0):
+                continue
             ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
                                     seconds=ts.second,
                                     microseconds=ts.microsecond)
             samples.append((ts_bin, mid))
-        print(f"[DEBUG] Puffer-Samples: {len(samples)}")
+        if DEBUG_LOG:
+            print(f"[DEBUG] Puffer-Samples: {len(samples)}")
         aggregated = self._aggregate_series(samples)
         if len(aggregated) < 3:
             return aggregated

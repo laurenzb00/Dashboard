@@ -49,18 +49,18 @@ class ErtragTab:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         # Keine dynamische Resize-Events nötig
 
-        stats_frame = ttk.Frame(body)
+        stats_frame = tk.Frame(body, bg=COLOR_CARD)
         stats_frame.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.var_sum = tk.StringVar(value="Summe: -- kWh")
         self.var_avg = tk.StringVar(value="Schnitt/Tag: -- kWh")
         self.var_last = tk.StringVar(value="Letzter Tag: -- kWh")
-        ttk.Label(stats_frame, textvariable=self.var_sum).pack(side=tk.LEFT, padx=6)
-        ttk.Label(stats_frame, textvariable=self.var_avg).pack(side=tk.LEFT, padx=6)
-        ttk.Label(stats_frame, textvariable=self.var_last).pack(side=tk.LEFT, padx=6)
+        tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
+        tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=10)
+        tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=10)
 
         self._last_key = None
         self.store = get_shared_datastore()
-        self.root.after(100, self._update_plot)
+        self._update_task_id = self.root.after(100, self._update_plot)
 
     def stop(self):
         self.alive = False
@@ -88,7 +88,10 @@ class ErtragTab:
                 continue
             if ts < cutoff:
                 continue
-            series.append((ts, float(row.get('pv_kwh') or 0.0)))
+            pv_kwh = row.get('pv_kwh')
+            if pv_kwh is None:
+                continue
+            series.append((ts, float(pv_kwh)))
         return series
 
     def _load_pv_monthly(self, months: int = 12):
@@ -102,7 +105,10 @@ class ErtragTab:
                 continue
             if ts < cutoff:
                 continue
-            series.append((ts, float(row.get('pv_kwh') or 0.0)))
+            pv_kwh = row.get('pv_kwh')
+            if pv_kwh is None:
+                continue
+            series.append((ts, float(pv_kwh)))
         return series
 
     def _style_axes(self):
@@ -119,6 +125,13 @@ class ErtragTab:
         if not self.canvas.get_tk_widget().winfo_exists():
             return
 
+        if self._update_task_id:
+            try:
+                self.root.after_cancel(self._update_task_id)
+            except Exception:
+                pass
+            self._update_task_id = None
+
         window_days = 90
         data = self._load_pv_daily(window_days)
         key = (len(data), data[-1] if data else None) if data else ("empty",)
@@ -126,7 +139,7 @@ class ErtragTab:
         # Nur redraw wenn sich Daten wirklich geändert haben
         if key == self._last_key:
             # Keine Änderung - nur neu einplanen, nicht redraw
-            self.root.after(5 * 60 * 1000, self._update_plot)
+            self._update_task_id = self.root.after(5 * 60 * 1000, self._update_plot)
             return
         
         self._last_key = key
@@ -144,14 +157,14 @@ class ErtragTab:
             ts, vals = zip(*data)
             self.ax.plot(ts, vals, color=COLOR_PRIMARY, linewidth=2.0, alpha=0.9, marker="o", markersize=3)
 
-            self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=10, fontweight='bold')
-            self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=9)
-            self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=8)
+            self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=11, fontweight='bold')
+            self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=10)
+            self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=9)
             locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
             self.ax.xaxis.set_major_locator(locator)
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
             for label in self.ax.get_xticklabels():
-                label.set_rotation(45)
+                label.set_rotation(35)
                 label.set_horizontalalignment("right")
             self.ax.grid(True, color=COLOR_BORDER, alpha=0.2, linewidth=0.6)
             self.ax.set_ylim(bottom=0)
@@ -170,28 +183,10 @@ class ErtragTab:
             self.ax.set_yticks([])
             self.var_sum.set("Summe: -- kWh")
             self.var_avg.set("Ø Tag: -- kWh")
-            self.var_last.set("Max: -- kWh")
+            self.var_last.set("Letzter Tag: -- kWh")
 
-        # Feste Ränder und Schriftgrößen für optimalen Sitz
+        # Feste Ränder für optimalen Sitz
         self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
-        self.ax.set_ylabel("Ertrag (kWh/Tag)", color=COLOR_TEXT, fontsize=13, fontweight='bold')
-        self.ax.tick_params(axis="y", colors=COLOR_TEXT, labelsize=12)
-        self.ax.tick_params(axis="x", colors=COLOR_SUBTEXT, labelsize=11)
-        for label in self.ax.get_xticklabels():
-            label.set_rotation(35)
-            label.set_horizontalalignment("right")
-        legend = self.ax.get_legend()
-        if legend:
-            # set_fontsize is not always available, use set_prop if needed
-            try:
-                legend.set_fontsize(11)
-            except AttributeError:
-                legend.prop = {'size': 11}
-            try:
-                legend.set_bbox_to_anchor((1, 1))
-                legend.set_loc('upper left')
-            except Exception:
-                pass
         
         try:
             if self.canvas.get_tk_widget().winfo_exists():
@@ -200,7 +195,7 @@ class ErtragTab:
             pass
         
         # Nächster Update in 5 Minuten
-        self.root.after(5 * 60 * 1000, self._update_plot)
+        self._update_task_id = self.root.after(5 * 60 * 1000, self._update_plot)
 
     # Keine dynamische Größenanpassung nötig
 

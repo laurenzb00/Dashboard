@@ -22,7 +22,7 @@ class HeaderBar(tk.Frame):
     def __init__(self, parent: tk.Widget, datastore=None, on_toggle_a=None, on_toggle_b=None, on_exit=None):
         super().__init__(parent, height=36, bg=COLOR_HEADER)
         self.pack_propagate(False)
-        self.datastore = datastore  # ADD: reference to central datastore
+        self.datastore = datastore
 
         # Rounded container
         rounded = RoundedFrame(self, bg=COLOR_CARD, border=None, radius=18, padding=0)
@@ -63,61 +63,37 @@ class HeaderBar(tk.Frame):
         btn_row = tk.Frame(center, bg=COLOR_CARD, height=36)
         btn_row.grid(row=0, column=2, sticky="n", padx=(8, 8), pady=0)
         btn_row.grid_propagate(False)
+
+        tk.Label(
+            btn_row,
+            text="Licht",
+            bg=COLOR_CARD,
+            fg=COLOR_SUBTEXT,
+            font=("Segoe UI", 10),
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
         self.btn_a = RoundedButton(
             btn_row, text="An", command=on_toggle_a,
             bg=COLOR_PRIMARY, fg="#fff",
-            radius=12, padding=(12, 4), font_size=12, width=60, height=30
+            radius=12, padding=(12, 4), font_size=12, width=64, height=30
         )
         self.btn_a.pack(side=tk.LEFT, padx=4, pady=0)
         self.btn_b = RoundedButton(
             btn_row, text="Aus", command=on_toggle_b,
             bg=COLOR_BORDER, fg=COLOR_TEXT,
-            radius=12, padding=(12, 4), font_size=12, width=60, height=30
+            radius=12, padding=(12, 4), font_size=12, width=64, height=30
         )
         self.btn_b.pack(side=tk.LEFT, padx=4, pady=0)
 
-        # ADD: Start polling for latest outdoor temp
-        self._refresh_outdoor_temp()
-
-    # ADD: Polling method for latest outdoor temp
-    def _refresh_outdoor_temp(self):
-        value, ts = self._get_latest_outdoor_temp()
-        if value is not None:
-            self.out_temp_label.config(text=f"{value:.1f} °C")
-            if ts:
-                self.out_temp_time.config(text=f"Stand: {ts.strftime('%H:%M')}")
-            else:
-                self.out_temp_time.config(text="")
-        else:
-            self.out_temp_label.config(text="--.- °C")
-            self.out_temp_time.config(text="")
-        # Poll every 5 seconds
-        self.after(5000, self._refresh_outdoor_temp)
-
-    # ADD: Get latest outdoor temp from datastore (single source of truth)
-    def _get_latest_outdoor_temp(self, max_age_min=30):
-        if not self.datastore:
-            return None, None
-        try:
-            # Try new generic getter if available
-            if hasattr(self.datastore, 'get_latest_metric'):
-                return self.datastore.get_latest_metric('outdoor', max_age_min)
-            # Fallback: use normalize_heating_record if present
-            if hasattr(self.datastore, 'get_last_heating_record') and hasattr(self.datastore, 'normalize_heating_record'):
-                rec = self.datastore.get_last_heating_record() or {}
-                norm = self.datastore.normalize_heating_record(rec, stale_minutes=max_age_min)
-                if norm['is_stale'] or norm['outdoor'] is None:
-                    return None, None
-                return norm['outdoor'], norm['datetime']
-        except Exception:
-            pass
-        return None, None
+        # Outdoor temp is updated via MainApp.update_header(...), single source of truth.
 
     def update_header(self, date_text: str, weekday: str, time_text: str, out_temp: str):
         self.date_label.config(text=date_text)
         self.weekday_label.config(text=weekday)
         self.clock_label.config(text=time_text)
         self.out_temp_label.config(text=out_temp)
+        # Keep the small sub-label unused unless you want to show a timestamp.
+        self.out_temp_time.config(text="")
 
     def update_time(self, time_text: str):
         self.clock_label.config(text=time_text)

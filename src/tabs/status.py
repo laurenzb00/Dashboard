@@ -40,7 +40,7 @@ class StatusTab(ttk.Frame):
         self.paned.pack(fill="both", expand=True)
 
         # Oben: Health Cards
-        self.top_frame = tk.Frame(self, bg=COLOR_CARD)
+        self.top_frame = tk.Frame(self, bg=COLOR_ROOT)
         for i in range(4):
             self.top_frame.grid_columnconfigure(i, weight=1)
         self.top_frame.grid_rowconfigure(0, weight=1)
@@ -72,9 +72,27 @@ class StatusTab(ttk.Frame):
         self.details_frame.grid_columnconfigure(0, weight=1)
         self.bottom_paned.add(self.details_card, weight=1)
 
-        # Fehlertextfeld (immer sichtbar)
-        self.errors_text = tk.Text(self.details_frame, font="TkFixedFont", bg="#181818", fg="#e0e0e0", height=10, wrap="none")
-        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        # Details (scrollable)
+        self.details_frame.grid_columnconfigure(0, weight=1)
+        self.details_frame.grid_columnconfigure(1, weight=0)
+
+        self.errors_text = tk.Text(
+            self.details_frame,
+            font=("Consolas", 10),
+            bg=COLOR_ROOT,
+            fg=COLOR_TEXT,
+            insertbackground=COLOR_TEXT,
+            height=10,
+            wrap="none",
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=COLOR_CARD,
+        )
+        self.errors_text.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
+        sb = ttk.Scrollbar(self.details_frame, orient="vertical", command=self.errors_text.yview)
+        sb.grid(row=0, column=1, sticky="ns", padx=(0, 8), pady=8)
+        self.errors_text.configure(yscrollcommand=sb.set)
         self.errors_text.config(state="disabled")
 
         # Snapshot-Labels: bessere Spaltenaufteilung
@@ -93,8 +111,22 @@ class StatusTab(ttk.Frame):
             (BUF_MID_C, "Puffer mitte [°C]"),
             (BUF_BOTTOM_C, "Puffer unten [°C]"),
         ]:
-            tk.Label(self.snapshot_frame, text=label, anchor="w", bg=COLOR_CARD, fg=COLOR_TEXT).grid(row=row, column=0, sticky="w", padx=8, pady=2)
-            val = tk.Label(self.snapshot_frame, text="--", anchor="e", bg=COLOR_CARD, fg=COLOR_TEXT)
+            tk.Label(
+                self.snapshot_frame,
+                text=label,
+                anchor="w",
+                bg=COLOR_CARD,
+                fg=COLOR_SUBTEXT,
+                font=("Segoe UI", 10),
+            ).grid(row=row, column=0, sticky="w", padx=8, pady=2)
+            val = tk.Label(
+                self.snapshot_frame,
+                text="--",
+                anchor="e",
+                bg=COLOR_CARD,
+                fg=COLOR_TEXT,
+                font=("Segoe UI", 11, "bold"),
+            )
             val.grid(row=row, column=1, sticky="e", padx=8, pady=2)
             self.snapshot_labels[key] = val
             row += 1
@@ -108,14 +140,30 @@ class StatusTab(ttk.Frame):
         content.grid_columnconfigure(1, weight=1)
         lamp = tk.Canvas(content, width=26, height=26, bg=COLOR_CARD, highlightthickness=0)
         lamp.grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 10), pady=2)
-        line1 = tk.Label(content, text="--", bg=COLOR_CARD, fg=COLOR_TEXT)
+        line1 = tk.Label(content, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 11, "bold"))
         line1.grid(row=0, column=1, sticky="w")
-        line2 = tk.Label(content, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT)
+        line2 = tk.Label(content, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 9))
         line2.grid(row=1, column=1, sticky="w")
         card.lamp = lamp
         card.line1 = line1
         card.line2 = line2
         return card
+
+    def _build_consistency_lines(self, pv_rec_last, ht_rec_last) -> list[str]:
+        consistency: list[str] = []
+        pv_key_warn = self._key_warnings(pv_rec_last, self._expected_keys_pv(), allowed_extras={"timestamp"})
+        pv_range_warn = self._range_warnings(pv_rec_last, "pv")
+        pv_ts_warn = self._monotonic_ts_warnings(self._hist_pv)
+        if pv_key_warn or pv_range_warn or pv_ts_warn:
+            consistency.append("PV: " + " | ".join(pv_key_warn + pv_range_warn + pv_ts_warn))
+
+        ht_key_warn = self._key_warnings(ht_rec_last, self._expected_keys_heat(), allowed_extras={"timestamp", "outdoor"})
+        ht_range_warn = self._range_warnings(ht_rec_last, "heat")
+        ht_ts_warn = self._monotonic_ts_warnings(self._hist_heat)
+        if ht_key_warn or ht_range_warn or ht_ts_warn:
+            consistency.append("Heizung: " + " | ".join(ht_key_warn + ht_range_warn + ht_ts_warn))
+
+        return consistency
 
     def _set_health(self, card, color, status_text, line2=""):
         try:
@@ -289,8 +337,16 @@ class StatusTab(ttk.Frame):
             self._hist_heat.append({"at": now, "source_ts": None, "source_dt": None, "age_s": None, "record": None})
 
         # Warnings
+        pv_last = self._hist_pv[-1] if self._hist_pv else {}
+        ht_last = self._hist_heat[-1] if self._hist_heat else {}
+        pv_rec_last = pv_last.get("record")
+        ht_rec_last = ht_last.get("record")
+        consistency_lines = self._build_consistency_lines(pv_rec_last, ht_rec_last)
+
         if errors:
             self._set_health(self.card_warn, "#cc4444", "Fehler", errors[0] if errors else "Fehler")
+        elif consistency_lines and any(line and "OK" not in line for line in consistency_lines):
+            self._set_health(self.card_warn, "#d2a106", "Warnung", consistency_lines[0])
         else:
             self._set_health(self.card_warn, "#44cc44", "OK", "Alles gut")
 
@@ -301,25 +357,6 @@ class StatusTab(ttk.Frame):
             self.errors_text.insert("1.0", "Fehler/Details:\n" + tb_full)
         else:
             db_last = self._hist_db[-1] if self._hist_db else {}
-            pv_last = self._hist_pv[-1] if self._hist_pv else {}
-            ht_last = self._hist_heat[-1] if self._hist_heat else {}
-
-            pv_rec_last = pv_last.get("record")
-            ht_rec_last = ht_last.get("record")
-
-            consistency = []
-            pv_key_warn = self._key_warnings(pv_rec_last, self._expected_keys_pv(), allowed_extras={"timestamp"})
-            pv_range_warn = self._range_warnings(pv_rec_last, "pv")
-            pv_ts_warn = self._monotonic_ts_warnings(self._hist_pv)
-            if pv_key_warn or pv_range_warn or pv_ts_warn:
-                consistency.append("PV: " + " | ".join(pv_key_warn + pv_range_warn + pv_ts_warn))
-
-            ht_key_warn = self._key_warnings(ht_rec_last, self._expected_keys_heat(), allowed_extras={"timestamp", "outdoor"})
-            ht_range_warn = self._range_warnings(ht_rec_last, "heat")
-            ht_ts_warn = self._monotonic_ts_warnings(self._hist_heat)
-            if ht_key_warn or ht_range_warn or ht_ts_warn:
-                consistency.append("Heizung: " + " | ".join(ht_key_warn + ht_range_warn + ht_ts_warn))
-
             info = [
                 f"Letztes Update: {now.strftime('%H:%M:%S')}",
                 f"DB-Alter: {self._format_age(db_last.get('age_s'))}",
@@ -328,8 +365,8 @@ class StatusTab(ttk.Frame):
                 "",
                 "=== Konsistenz ===",
             ]
-            if consistency:
-                info.extend(consistency)
+            if consistency_lines:
+                info.extend(consistency_lines)
             else:
                 info.append("OK")
 
