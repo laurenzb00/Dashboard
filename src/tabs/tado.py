@@ -20,11 +20,18 @@ from ui.styles import (
 from ui.components.card import Card
 
 # --- Robust: python-tado-Import mit Fallback ---
+Tado = None
 try:
-    from python_tado import Tado
-except ImportError:
-    Tado = None
-    logging.warning("[TADO] python-tado konnte nicht importiert werden! Sparkline und API werden nicht funktionieren.")
+    from python_tado import Tado as _PythonTado
+    Tado = _PythonTado
+except ImportError as exc:
+    logging.warning("[TADO] python-tado Import fehlgeschlagen: %s", exc)
+    try:
+        from PyTado import Tado as _LegacyTado
+        Tado = _LegacyTado
+        logging.info("[TADO] Legacy PyTado Import erfolgreich, bitte python-tado nachinstallieren.")
+    except ImportError as exc_legacy:
+        logging.warning("[TADO] PyTado Import ebenfalls fehlgeschlagen: %s", exc_legacy)
 
 # --- KONFIGURATION ---
 TADO_USER = os.getenv("TADO_USER")
