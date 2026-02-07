@@ -414,10 +414,11 @@ class MainApp:
 
     def _add_other_tabs(self):
         """Integriert den SpotifyTab (modern, mit OAuth) sowie Tado, Hue, System und Calendar Tabs."""
-        # StatusTab hinzufügen
+        # StatusTab hinzufügen (immer als letzter Tab, damit ganz rechts)
         if StatusTab:
             try:
-                self.status_tab = StatusTab(self.root, self.notebook, datastore=self.datastore)
+                self.status_tab = StatusTab(self.notebook)
+                self.notebook.add(self.status_tab, text="Status")
             except Exception as e:
                 print(f"[ERROR] StatusTab init failed: {e}")
                 self.status_tab = None
