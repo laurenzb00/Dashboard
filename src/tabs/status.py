@@ -32,6 +32,8 @@ class StatusTab(ttk.Frame):
         self._hist_db = deque(maxlen=50)
         self._hist_pv = deque(maxlen=50)
         self._hist_heat = deque(maxlen=50)
+        # --- Fix: initialize snapshot_labels dict for all relevant keys ---
+        self.snapshot_labels = {}
         self._build_layout()
         self.after_job = None
         self._schedule_update()
@@ -90,7 +92,6 @@ class StatusTab(ttk.Frame):
             self.values_frame.grid_columnconfigure(i, weight=1)
 
         # Einheitliche Kacheln mit Icon, Wert, Label
-        self.value_labels = {}
         value_items = [
             (PV_POWER_KW, "PV-Leistung", "☀️", "kW"),
             (GRID_POWER_KW, "Netzbezug", "🔌", "kW"),
@@ -98,16 +99,21 @@ class StatusTab(ttk.Frame):
             (BATTERY_SOC_PCT, "SOC", "%", "%"),
             (BMK_KESSEL_C, "Kessel", "🔥", "°C"),
             (BMK_WARMWASSER_C, "Warmwasser", "💧", "°C"),
+            (BUF_TOP_C, "Puffer oben", "⬆️", "°C"),
+            (BUF_MID_C, "Puffer Mitte", "⬜", "°C"),
+            (BUF_BOTTOM_C, "Puffer unten", "⬇️", "°C"),
         ]
-        for i, (key, label, icon, unit) in enumerate(value_items):
+        col = 0
+        for key, label, icon, unit in value_items:
             frame = tk.Frame(self.values_frame, bg=COLOR_CARD)
-            frame.grid(row=0, column=i, sticky="nsew", padx=8, pady=8)
+            frame.grid(row=0, column=col, sticky="nsew", padx=8, pady=8)
             tk.Label(frame, text=icon, font=("Segoe UI", 18), bg=COLOR_CARD, fg=COLOR_TEXT).pack()
             val = tk.Label(frame, text="keine Daten", font=("Segoe UI", 20, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
             val.pack()
             tk.Label(frame, text=label, font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
             tk.Label(frame, text=unit, font=("Segoe UI", 9), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
-            self.value_labels[key] = val
+            self.snapshot_labels[key] = val
+            col += 1
 
         # --- UI: Diagnose & Alter der Daten (unten) ---
         self.info_card = Card(main, padding=14)
