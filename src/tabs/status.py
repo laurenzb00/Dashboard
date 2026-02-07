@@ -132,11 +132,13 @@ class StatusTab:
         self.card_heat = self._make_health_card(top, 2, "Heizung / BMK", "🔥")
         self.card_warn = self._make_health_card(top, 3, "Warnings", "⚠️")
 
-        # Middle: Snapshot + Details notebook
+
+        # Middle: Snapshot + Debug Text + Details notebook
         mid = tk.Frame(body, bg=COLOR_CARD)
         mid.grid(row=1, column=0, sticky="nsew")
         mid.grid_columnconfigure(0, weight=1)
         mid.grid_rowconfigure(1, weight=1)
+        mid.grid_rowconfigure(2, weight=1)
 
         snap_card = Card(mid)
         snap_card.grid(row=0, column=0, sticky="ew", pady=(0, 10))
@@ -146,9 +148,14 @@ class StatusTab:
         self.snapshot_frame.grid_columnconfigure(0, weight=1)
         self.snapshot_frame.grid_columnconfigure(1, weight=1)
 
+        # Debug-Textfeld (immer sichtbar, monospace, expandiert)
+        self.debug_text = tk.Text(mid, font=("Consolas", 11), bg="#181818", fg="#e0e0e0", height=8, wrap="none")
+        self.debug_text.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, 10))
+        self.debug_text.config(state="disabled")
+
         # Details area
         details_card = Card(mid)
-        details_card.grid(row=1, column=0, sticky="nsew")
+        details_card.grid(row=2, column=0, sticky="nsew")
         details_card.add_title("Details", icon="🧩")
         details_body = details_card.content()
         details_body.configure(bg=COLOR_CARD)
@@ -266,6 +273,11 @@ class StatusTab:
                 tb = traceback.format_exc()
                 if hasattr(self, 'raw_err') and hasattr(self, '_set_text'):
                     self._set_text(self.raw_err, "[StatusTab CRASH]\n\n" + tb)
+                if hasattr(self, 'debug_text'):
+                    self.debug_text.config(state="normal")
+                    self.debug_text.delete("1.0", "end")
+                    self.debug_text.insert("1.0", "[StatusTab CRASH]\n\n" + tb)
+                    self.debug_text.config(state="disabled")
                 if hasattr(self, 'card_warn') and hasattr(self, '_set_health'):
                     self._set_health(self.card_warn, "#cc4444", "ERR", "StatusTab crashed", "siehe Errors-Tab", "")
             except Exception:
