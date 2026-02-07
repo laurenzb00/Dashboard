@@ -32,8 +32,10 @@ import pytz
 from tkinter import StringVar, OptionMenu
 from datetime import timedelta
 
-class HistoricalTab(Frame):
+
 from src.core.time_utils import guard_alive
+
+class HistoricalTab(Frame):
 
     def __init__(self, parent, notebook, datastore, *args, **kwargs):
         super().__init__(notebook, *args, **kwargs)
