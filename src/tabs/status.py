@@ -51,7 +51,7 @@ class StatusTab(ttk.Frame):
         self.snapshot_frame = self.snapshot_card.content()
         self.snapshot_frame.configure(bg=COLOR_CARD)
         self.snapshot_frame.grid_columnconfigure(0, weight=1)
-        self.bottom_paned.add(self.snapshot_card, weight=2, minsize=250)
+        self.bottom_paned.add(self.snapshot_card, weight=2)
 
         # Rechts: Details/Errors
         self.details_card = Card(self.bottom_paned)
@@ -60,7 +60,7 @@ class StatusTab(ttk.Frame):
         self.details_frame.configure(bg=COLOR_CARD)
         self.details_frame.grid_rowconfigure(0, weight=1)
         self.details_frame.grid_columnconfigure(0, weight=1)
-        self.bottom_paned.add(self.details_card, weight=1, minsize=250)
+        self.bottom_paned.add(self.details_card, weight=1)
 
         # Fehlertextfeld (immer sichtbar)
         self.errors_text = tk.Text(self.details_frame, font="TkFixedFont", bg="#181818", fg="#e0e0e0", height=10, wrap="none")
