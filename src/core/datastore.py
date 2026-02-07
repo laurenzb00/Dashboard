@@ -1,3 +1,4 @@
+from .time_utils import ensure_utc
 """Central SQLite datastore for PV and heating metrics."""
 
 from __future__ import annotations
