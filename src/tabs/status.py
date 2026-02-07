@@ -210,6 +210,11 @@ class StatusTab(ttk.Frame):
     def _age_seconds(now, dt):
         if dt is None:
             return None
+        # Normalize both datetimes to naive (no tzinfo) to avoid TypeError
+        if hasattr(now, 'tzinfo') and now.tzinfo is not None:
+            now = now.replace(tzinfo=None)
+        if hasattr(dt, 'tzinfo') and dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
         return (now - dt).total_seconds()
 
     @staticmethod
