@@ -427,7 +427,7 @@ class MainApp:
         now = datetime.now()
         date_text = now.strftime("%d.%m.%Y")
         weekday = now.strftime("%A")
-        time_text = now.strftime("%H:%M:%S")
+        time_text = now.strftime("%H:%M")
         heat = self.datastore.get_last_heating_record() or {}
         norm = self.datastore.normalize_heating_record(heat, stale_minutes=5)
         if norm['is_stale'] or norm['outdoor'] is None:
@@ -442,17 +442,6 @@ class MainApp:
     def _add_other_tabs(self):
         print("[TABS] Starte Initialisierung aller weiteren Tabs...")
         """Integriert alle weiteren Tabs, StatusTab immer als letzter Tab (rechts)."""
-        # StatusTab als robustes Widget (ttk.Frame) hinzufügen
-        if StatusTab:
-            try:
-                print("[TABS] StatusTab wird erstellt...")
-                self.status_tab = StatusTab(self.notebook)
-                self.notebook.add(self.status_tab, text="Status")
-                print("[TABS] StatusTab erfolgreich hinzugefügt.")
-            except Exception as e:
-                print(f"[ERROR] StatusTab init failed: {e}")
-                self.status_tab = None
-
         if SpotifyTab:
             try:
                 print("[TABS] SpotifyTab wird erstellt...")
@@ -484,15 +473,6 @@ class MainApp:
                 print(f"[ERROR] HueTab initialization failed: {e}")
                 self.hue_tab = None
 
-        if SystemTab:
-            try:
-                print("[TABS] SystemTab wird erstellt...")
-                self.system_tab = SystemTab(self.root, self.notebook)
-                print("[TABS] SystemTab erfolgreich hinzugefügt.")
-            except Exception as e:
-                print(f"[ERROR] SystemTab init failed: {e}")
-                self.system_tab = None
-
         if CalendarTab:
             try:
                 print("[TABS] CalendarTab wird erstellt...")
@@ -519,6 +499,27 @@ class MainApp:
             except Exception as e:
                 print(f"[ERROR] ErtragTab init failed: {e}")
                 self.ertrag_tab = None
+
+        # SystemTab soll vorletzter Tab sein
+        if SystemTab:
+            try:
+                print("[TABS] SystemTab wird erstellt...")
+                self.system_tab = SystemTab(self.root, self.notebook)
+                print("[TABS] SystemTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] SystemTab init failed: {e}")
+                self.system_tab = None
+
+        # StatusTab immer als letzter Tab (rechts)
+        if StatusTab:
+            try:
+                print("[TABS] StatusTab wird erstellt...")
+                self.status_tab = StatusTab(self.notebook)
+                self.notebook.add(self.status_tab, text="Status")
+                print("[TABS] StatusTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] StatusTab init failed: {e}")
+                self.status_tab = None
         print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
 
     # --- Callbacks ---

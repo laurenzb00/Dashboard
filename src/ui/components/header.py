@@ -66,7 +66,7 @@ class HeaderBar(tk.Frame):
 
         tk.Label(
             btn_row,
-            text="Licht",
+            text="💡 Licht",
             bg=COLOR_CARD,
             fg=COLOR_SUBTEXT,
             font=("Segoe UI", 10),

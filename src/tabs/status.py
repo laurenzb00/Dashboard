@@ -5,6 +5,7 @@ from datetime import datetime
 from collections import deque
 import math
 import traceback
+from types import SimpleNamespace
 
 from core.datastore import get_shared_datastore
 from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
@@ -17,6 +18,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.card import Card
+from ui.components.rounded import RoundedFrame
 
 class StatusTab(ttk.Frame):
     def __init__(self, parent, *args, **kwargs):
@@ -35,24 +37,26 @@ class StatusTab(ttk.Frame):
         self._schedule_update()
 
     def _build_layout(self):
-        # Hauptlayout: vertikal PanedWindow (oben Health, unten Split)
-        self.paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
-        self.paned.pack(fill="both", expand=True)
+        self.configure(style="TFrame")
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
-        # Oben: Health Cards
-        self.top_frame = tk.Frame(self, bg=COLOR_ROOT)
+        # Oben: kompakte Health Tiles
+        self.top_frame = tk.Frame(self, bg=COLOR_ROOT, height=96)
+        self.top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        self.top_frame.grid_propagate(False)
         for i in range(4):
-            self.top_frame.grid_columnconfigure(i, weight=1)
-        self.top_frame.grid_rowconfigure(0, weight=1)
-        self.card_db = self._make_health_card(self.top_frame, 0, "DB", "🗄️")
-        self.card_pv = self._make_health_card(self.top_frame, 1, "PV", "☀️")
-        self.card_heat = self._make_health_card(self.top_frame, 2, "Heizung", "🔥")
-        self.card_warn = self._make_health_card(self.top_frame, 3, "Warnung", "⚠️")
-        self.paned.add(self.top_frame, weight=0)
+            self.top_frame.grid_columnconfigure(i, weight=1, uniform="health")
+
+        self.card_db = self._make_health_tile(self.top_frame, 0, "DB", "🗄️")
+        self.card_pv = self._make_health_tile(self.top_frame, 1, "PV", "☀️")
+        self.card_heat = self._make_health_tile(self.top_frame, 2, "Heizung", "🔥")
+        self.card_warn = self._make_health_tile(self.top_frame, 3, "Warnung", "⚠️")
 
         # Unten: horizontal PanedWindow (Snapshot | Details)
-        self.bottom_paned = ttk.PanedWindow(self.paned, orient=tk.HORIZONTAL)
-        self.paned.add(self.bottom_paned, weight=1)
+        self.bottom_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        self.bottom_paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=(6, 10))
 
         # Links: Snapshot
         self.snapshot_card = Card(self.bottom_paned)
@@ -131,23 +135,27 @@ class StatusTab(ttk.Frame):
             self.snapshot_labels[key] = val
             row += 1
 
-    def _make_health_card(self, parent, col, title, icon):
-        card = Card(parent)
-        card.grid(row=0, column=col, sticky="nsew", padx=12, pady=8)
-        card.add_title(title, icon=icon)
-        content = card.content()
-        content.configure(bg=COLOR_CARD)
-        content.grid_columnconfigure(1, weight=1)
-        lamp = tk.Canvas(content, width=26, height=26, bg=COLOR_CARD, highlightthickness=0)
-        lamp.grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 10), pady=2)
-        line1 = tk.Label(content, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 11, "bold"))
-        line1.grid(row=0, column=1, sticky="w")
-        line2 = tk.Label(content, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 9))
-        line2.grid(row=1, column=1, sticky="w")
-        card.lamp = lamp
-        card.line1 = line1
-        card.line2 = line2
-        return card
+    def _make_health_tile(self, parent, col, title, icon):
+        outer = RoundedFrame(parent, bg=COLOR_CARD, border=None, radius=18, padding=0)
+        outer.grid(row=0, column=col, sticky="nsew", padx=8, pady=0)
+        inner = outer.content()
+        inner.configure(bg=COLOR_CARD)
+        inner.grid_columnconfigure(0, weight=0)
+        inner.grid_columnconfigure(1, weight=1)
+
+        header = tk.Frame(inner, bg=COLOR_CARD)
+        header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 2))
+        tk.Label(header, text=icon, bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 12)).pack(side=tk.LEFT)
+        tk.Label(header, text=title, bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(6, 0))
+
+        lamp = tk.Canvas(inner, width=18, height=18, bg=COLOR_CARD, highlightthickness=0)
+        lamp.grid(row=1, column=0, sticky="w", padx=(12, 8), pady=(2, 10))
+        line1 = tk.Label(inner, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 12, "bold"))
+        line1.grid(row=1, column=1, sticky="w", pady=(2, 0), padx=(0, 12))
+        line2 = tk.Label(inner, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 9))
+        line2.grid(row=2, column=1, sticky="w", pady=(0, 10), padx=(0, 12))
+
+        return SimpleNamespace(lamp=lamp, line1=line1, line2=line2)
 
     def _build_consistency_lines(self, pv_rec_last, ht_rec_last) -> list[str]:
         consistency: list[str] = []

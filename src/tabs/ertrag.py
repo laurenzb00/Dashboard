@@ -29,16 +29,44 @@ class ErtragTab:
         self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
         self.notebook.add(self.tab_frame, text=emoji("🔆 Ertrag", "Ertrag"))
 
-        self.card = Card(self.tab_frame)
-        self.card.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
-        self.card.add_title("PV-Ertrag (täglich)", icon="📈")
+        self._period_var = tk.StringVar(value="90d")
+        self._period_map: dict[str, int] = {"30d": 30, "90d": 90, "180d": 180, "365d": 365}
 
-        body = self.card.content()
-        body.grid_rowconfigure(0, weight=1)
-        body.grid_columnconfigure(0, weight=1)
+        # Layout like HistoricalTab: topbar + plot card + status line
+        self.tab_frame.grid_rowconfigure(0, minsize=44)
+        self.tab_frame.grid_rowconfigure(1, weight=1)
+        self.tab_frame.grid_rowconfigure(2, minsize=26)
+        self.tab_frame.grid_columnconfigure(0, weight=1)
 
-        self.chart_frame = tk.Frame(body, bg=COLOR_CARD)
-        self.chart_frame.grid(row=0, column=0, sticky="nsew")
+        topbar = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+
+        tk.Label(topbar, text="Zeitraum", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 8))
+        self.period_combo = ttk.Combobox(
+            topbar,
+            textvariable=self._period_var,
+            values=list(self._period_map.keys()),
+            state="readonly",
+            width=6,
+        )
+        self.period_combo.pack(side=tk.LEFT)
+        self.period_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_plot())
+
+        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_TITLE, font=("Segoe UI", 10))
+        self.topbar_status.pack(side=tk.RIGHT)
+
+        plot_container = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        plot_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=0)
+        plot_container.grid_rowconfigure(0, weight=1)
+        plot_container.grid_columnconfigure(0, weight=1)
+
+        self.card = tk.Frame(plot_container, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        self.card.grid(row=0, column=0, sticky="nsew")
+        self.card.grid_rowconfigure(0, weight=1)
+        self.card.grid_columnconfigure(0, weight=1)
+
+        self.chart_frame = tk.Frame(self.card, bg=COLOR_CARD)
+        self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
         # Feste Größe und Layout für das Diagramm, da Bildschirm bekannt
         self.fig = Figure(figsize=(9.0, 4.5), dpi=100)
@@ -49,14 +77,14 @@ class ErtragTab:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         # Keine dynamische Resize-Events nötig
 
-        stats_frame = tk.Frame(body, bg=COLOR_CARD)
-        stats_frame.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        stats_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        stats_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
         self.var_sum = tk.StringVar(value="Summe: -- kWh")
         self.var_avg = tk.StringVar(value="Schnitt/Tag: -- kWh")
         self.var_last = tk.StringVar(value="Letzter Tag: -- kWh")
-        tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
-        tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=10)
-        tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=10)
+        tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_ROOT, fg=COLOR_TEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
 
         self._last_key = None
         self.store = get_shared_datastore()
@@ -132,7 +160,7 @@ class ErtragTab:
                 pass
             self._update_task_id = None
 
-        window_days = 90
+        window_days = self._period_map.get(self._period_var.get(), 90)
         data = self._load_pv_daily(window_days)
         key = (len(data), data[-1] if data else None) if data else ("empty",)
         
@@ -173,6 +201,7 @@ class ErtragTab:
             avg = total / max(1, len(vals))
             last_ts = ts[-1].strftime("%d.%m.%Y")
             last_val = vals[-1]
+            self.topbar_status.config(text=f"{window_days}d")
             self.var_sum.set(f"Summe ({window_days}T): {total:.0f} kWh")
             self.var_avg.set(f"Ø Tag: {avg:.1f} kWh")
             self.var_last.set(f"{last_ts}: {last_val:.1f} kWh")
@@ -184,6 +213,7 @@ class ErtragTab:
             self.var_sum.set("Summe: -- kWh")
             self.var_avg.set("Ø Tag: -- kWh")
             self.var_last.set("Letzter Tag: -- kWh")
+            self.topbar_status.config(text=f"{window_days}d")
 
         # Feste Ränder für optimalen Sitz
         self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
