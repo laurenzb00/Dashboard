@@ -39,18 +39,16 @@ class StatusTab(ttk.Frame):
 
     def _build_layout(self):
         self.configure(style="TFrame")
-        # Modernes Main-Frame wie im SystemTab
         main = tk.Frame(self, bg=COLOR_ROOT)
         main.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-        # Grid layout: 2 rows x 4 columns (Health-Cards oben)
+        # Health Cards (oben, wie SystemTab)
         main.grid_rowconfigure(0, weight=1)
         main.grid_rowconfigure(1, weight=1)
         main.grid_rowconfigure(2, weight=1)
         for i in range(4):
             main.grid_columnconfigure(i, weight=1)
 
-        # Health Cards (4 nebeneinander, wie SystemTab, als Card)
         self.card_db = Card(main, padding=12)
         self.card_db.add_title("DB", icon="🗄️")
         self.card_db.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
@@ -74,24 +72,53 @@ class StatusTab(ttk.Frame):
             frame.configure(bg=COLOR_CARD)
             card.lamp = tk.Canvas(frame, width=18, height=18, bg=COLOR_CARD, highlightthickness=0)
             card.lamp.grid(row=0, column=0, sticky="w", padx=(2, 8), pady=(2, 2))
-            card.line1 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 12, "bold"))
+            card.line1 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 16, "bold"))
             card.line1.grid(row=0, column=1, sticky="w", pady=(2, 0), padx=(0, 4))
-            card.line2 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 9))
+            card.line2 = tk.Label(frame, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10))
             card.line2.grid(row=1, column=1, sticky="w", pady=(0, 6), padx=(0, 4))
             self._health_cards.append(card)
 
-        # Summary Card (wie SystemTab, groß, luftig)
-        self.summary_card = Card(main, padding=18)
-        self.summary_card.add_title("Status", icon="✅")
-        self.summary_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=2, pady=(10, 6))
-        self.summary_frame = self.summary_card.content()
-        self.summary_frame.configure(bg=COLOR_CARD)
-        self.summary_frame.grid_columnconfigure(0, weight=1)
-        self.summary_frame.grid_columnconfigure(1, weight=1)
+        # Werte Card (wie SystemTab, große Werte)
+        self.values_card = Card(main, padding=18)
+        self.values_card.add_title("Werte", icon="📊")
+        self.values_card.grid(row=1, column=0, columnspan=4, sticky="ew", padx=2, pady=(10, 6))
+        self.values_frame = self.values_card.content()
+        self.values_frame.configure(bg=COLOR_CARD)
+        for i in range(6):
+            self.values_frame.grid_columnconfigure(i, weight=1)
+
+        # Werte: PV, Netz, Batterie, SOC, Kessel, Warmwasser
+        self.value_labels = {}
+        value_items = [
+            (PV_POWER_KW, "PV", "☀️", "kW"),
+            (GRID_POWER_KW, "Netz", "🔌", "kW"),
+            (BATTERY_POWER_KW, "Batterie", "🔋", "kW"),
+            (BATTERY_SOC_PCT, "SOC", "%", "%"),
+            (BMK_KESSEL_C, "Kessel", "🔥", "°C"),
+            (BMK_WARMWASSER_C, "Warmwasser", "💧", "°C"),
+        ]
+        for i, (key, label, icon, unit) in enumerate(value_items):
+            frame = tk.Frame(self.values_frame, bg=COLOR_CARD)
+            frame.grid(row=0, column=i, sticky="nsew", padx=8, pady=8)
+            tk.Label(frame, text=icon, font=("Segoe UI", 18), bg=COLOR_CARD, fg=COLOR_TEXT).pack()
+            val = tk.Label(frame, text="--", font=("Segoe UI", 20, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
+            val.pack()
+            tk.Label(frame, text=label, font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
+            tk.Label(frame, text=unit, font=("Segoe UI", 9), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
+            self.value_labels[key] = val
+
+        # Info Card (Letztes Update, Alter, Konsistenz)
+        self.info_card = Card(main, padding=14)
+        self.info_card.add_title("Info", icon="ℹ️")
+        self.info_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=2, pady=(0, 6))
+        self.info_frame = self.info_card.content()
+        self.info_frame.configure(bg=COLOR_CARD)
+        self.info_frame.grid_columnconfigure(0, weight=1)
+        self.info_frame.grid_columnconfigure(1, weight=1)
 
         def _make_kv(row: int, label: str):
             tk.Label(
-                self.summary_frame,
+                self.info_frame,
                 text=label,
                 anchor="w",
                 bg=COLOR_CARD,
@@ -99,7 +126,7 @@ class StatusTab(ttk.Frame):
                 font=("Segoe UI", 10),
             ).grid(row=row, column=0, sticky="w", padx=10, pady=2)
             val = tk.Label(
-                self.summary_frame,
+                self.info_frame,
                 text="--",
                 anchor="e",
                 bg=COLOR_CARD,
@@ -114,7 +141,7 @@ class StatusTab(ttk.Frame):
         self.lbl_pv_age = _make_kv(2, "PV-Alter")
         self.lbl_heat_age = _make_kv(3, "Heizung-Alter")
         self.lbl_consistency = tk.Label(
-            self.summary_frame,
+            self.info_frame,
             text="Konsistenz: --",
             anchor="w",
             bg=COLOR_CARD,
@@ -122,49 +149,6 @@ class StatusTab(ttk.Frame):
             font=("Segoe UI", 9),
         )
         self.lbl_consistency.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(6, 8))
-
-        # Snapshot Card
-        self.snapshot_card = Card(main, padding=18)
-        self.snapshot_card.add_title("Snapshot", icon="🧾")
-        self.snapshot_card.grid(row=2, column=0, columnspan=4, sticky="ew", padx=2, pady=(0, 6))
-        self.snapshot_frame = self.snapshot_card.content()
-        self.snapshot_frame.configure(bg=COLOR_CARD)
-        for i in range(2):
-            self.snapshot_frame.grid_columnconfigure(i, weight=1)
-        self.snapshot_frame.grid_columnconfigure(0, weight=3, minsize=120)
-        self.snapshot_frame.grid_columnconfigure(1, weight=1, minsize=60, uniform="snapval")
-        self.snapshot_labels = {}
-        row = 0
-        for key, label in [
-            (PV_POWER_KW, "PV-Leistung [kW]"),
-            (GRID_POWER_KW, "Netz [kW]"),
-            (BATTERY_POWER_KW, "Batterie [kW]"),
-            (BATTERY_SOC_PCT, "SOC [%]"),
-            (BMK_KESSEL_C, "Kessel [°C]"),
-            (BMK_WARMWASSER_C, "Warmwasser [°C]"),
-            (BUF_TOP_C, "Puffer oben [°C]"),
-            (BUF_MID_C, "Puffer mitte [°C]"),
-            (BUF_BOTTOM_C, "Puffer unten [°C]"),
-        ]:
-            tk.Label(
-                self.snapshot_frame,
-                text=label,
-                anchor="w",
-                bg=COLOR_CARD,
-                fg=COLOR_SUBTEXT,
-                font=("Segoe UI", 10),
-            ).grid(row=row, column=0, sticky="w", padx=8, pady=2)
-            val = tk.Label(
-                self.snapshot_frame,
-                text="--",
-                anchor="e",
-                bg=COLOR_CARD,
-                fg=COLOR_TEXT,
-                font=("Segoe UI", 11, "bold"),
-            )
-            val.grid(row=row, column=1, sticky="e", padx=8, pady=2)
-            self.snapshot_labels[key] = val
-            row += 1
 
         # Details Card (nur bei Warnung/Fehler sichtbar)
         self.details_card = Card(main, padding=18)
