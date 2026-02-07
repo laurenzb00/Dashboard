@@ -44,7 +44,7 @@ except ImportError:
     def get_shared_datastore():
         return None
 
-from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_BOILER_C
+from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_WARMWASSER_C, BMK_BOILER_C
 
 DEBUG_LOG = False
 
@@ -300,7 +300,9 @@ class BufferStorageView(tk.Frame):
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
-        boiler = float(data.get(BMK_BOILER_C) or 0.0)
+        # Boiler = Warmwasser. Prefer the final key BMK_WARMWASSER_C.
+        # Fallback to BMK_BOILER_C for legacy callers.
+        boiler = float((data.get(BMK_WARMWASSER_C) if BMK_WARMWASSER_C in data else data.get(BMK_BOILER_C)) or 0.0)
         now = time.time()
         if not hasattr(self, '_last_heat_dbg'):
             self._last_heat_dbg = 0.0

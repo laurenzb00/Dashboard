@@ -185,7 +185,8 @@ class MainApp:
                     "grid_power_kw",
                     "battery_power_kw",
                     "battery_soc_pct",
-                    "bmk_boiler_c",
+                    "bmk_kessel_c",
+                    "bmk_warmwasser_c",
                     "buf_top_c",
                     "buf_mid_c",
                     "buf_bottom_c",
@@ -231,8 +232,21 @@ class MainApp:
             if not hasattr(self, '_last_log_tick'):
                 self._last_log_tick = 0
             if now - self._last_log_tick > 10:
-                from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_BOILER_C, BUF_TOP_C
-                logging.info(f"latest values: PV {data.get(PV_POWER_KW, 0)}kW, Grid {data.get(GRID_POWER_KW, 0)}kW, Batt {data.get(BATTERY_POWER_KW, 0)}kW, SOC {data.get(BATTERY_SOC_PCT, 0)}%, Kessel {data.get(BMK_BOILER_C, 0)}°C, PufferTop {data.get(BUF_TOP_C, 0)}°C")
+                from core.schema import (
+                    PV_POWER_KW,
+                    GRID_POWER_KW,
+                    BATTERY_POWER_KW,
+                    BATTERY_SOC_PCT,
+                    BMK_KESSEL_C,
+                    BMK_WARMWASSER_C,
+                    BUF_TOP_C,
+                )
+                logging.info(
+                    f"latest values: PV {data.get(PV_POWER_KW, 0)}kW, Grid {data.get(GRID_POWER_KW, 0)}kW, "
+                    f"Batt {data.get(BATTERY_POWER_KW, 0)}kW, SOC {data.get(BATTERY_SOC_PCT, 0)}%, "
+                    f"Kessel {data.get(BMK_KESSEL_C, 0)}°C, Warmwasser {data.get(BMK_WARMWASSER_C, 0)}°C, "
+                    f"PufferTop {data.get(BUF_TOP_C, 0)}°C"
+                )
                 self._last_log_tick = now
         except Exception:
             logging.exception("update_tick failed")
@@ -297,7 +311,8 @@ class MainApp:
             "grid_power_kw": 0,
             "battery_power_kw": 0,
             "battery_soc_pct": 0,
-            "bmk_boiler_c": 0,
+            "bmk_kessel_c": 0,
+            "bmk_warmwasser_c": 0,
             "buf_top_c": 0,
             "buf_mid_c": 0,
             "buf_bottom_c": 0,
