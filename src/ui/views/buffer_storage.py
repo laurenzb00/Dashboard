@@ -46,7 +46,7 @@ except ImportError:
 
 from core.schema import BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C, BMK_WARMWASSER_C, BMK_BOILER_C
 
-DEBUG_LOG = False
+DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 class BufferStorageView(tk.Frame):
@@ -56,6 +56,8 @@ class BufferStorageView(tk.Frame):
             return
         pv_series = self._load_pv_series(hours=24, bin_minutes=15)
         temp_series = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+        if DEBUG_LOG:
+            print(f"[BUFFER] sparkline pv_series={len(pv_series)} temp_series={len(temp_series)}")
         self.spark_ax.clear()
         now = datetime.now()
         cutoff = now - timedelta(hours=24)
@@ -134,6 +136,8 @@ class BufferStorageView(tk.Frame):
             print(f"[BUFFER] tight_layout warning: {exc}")
         try:
             self.spark_canvas.draw_idle()
+            if DEBUG_LOG:
+                print("[BUFFER] sparkline draw_idle ok")
         except Exception as exc:
             print(f"[BUFFER] Sparkline canvas draw error: {exc}")
 

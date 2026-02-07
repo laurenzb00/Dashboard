@@ -101,6 +101,17 @@ class StatusTab(ttk.Frame):
             lamp.pack(pady=(8, 8))
             self.ampel_cards.append({"frame": card, "lamp": lamp, "label": label})
 
+        # --- Health Summary Tiles -------------------------------------------------
+        health_frame = tk.Frame(main, bg=COLOR_ROOT)
+        health_frame.pack(fill=tk.X, padx=0, pady=(0, 12))
+        for col in range(4):
+            health_frame.grid_columnconfigure(col, weight=1)
+
+        self.card_db = self._make_health_tile(health_frame, 0, "Datenbank", "🗄️")
+        self.card_pv = self._make_health_tile(health_frame, 1, "PV", "☀️")
+        self.card_heat = self._make_health_tile(health_frame, 2, "Heizung", "🔥")
+        self.card_warn = self._make_health_tile(health_frame, 3, "Warnung", "⚠️")
+
         # ...Restliches Layout (Live-Systemstatus, Diagnose, Details) bleibt wie gehabt...
 
         # --- UI: Live-Systemstatus (Mitte) ---
