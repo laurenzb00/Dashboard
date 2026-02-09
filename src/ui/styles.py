@@ -11,8 +11,8 @@ ctk.set_default_color_theme("blue")  # "blue", "green", "dark-blue"
 COLOR_ROOT = "#0E0F12"       # Hintergrund/root (neutral dark)
 COLOR_HEADER = "#0E0F12"     # Header/Notebook
 COLOR_BG = COLOR_HEADER       # alias für bestehende Verwendungen
-COLOR_CARD = "#171A20"       # Card/Plot-Hintergrund (neutral dark, leicht heller)
-COLOR_BORDER = "#242833"
+COLOR_CARD = "#0E0F12"       # Card/Plot-Hintergrund - einheitlich mit Root
+COLOR_BORDER = "#0E0F12"     # Auch dunkel für einheitliches Erscheinungsbild
 COLOR_PRIMARY = "#3B82F6"
 COLOR_SUCCESS = "#10B981"
 COLOR_WARNING = "#F59E0B"
@@ -87,6 +87,39 @@ def configure_styles(style: Style) -> None:
     style.configure("TLabelframe", background=COLOR_ROOT)
     style.configure("TLabelframe.Label", background=COLOR_ROOT, foreground=COLOR_SUBTEXT)
 
+    # === KRITISCH: Überschreibe ALLE success-Styles um hellgrüne Farbe #00bc8c zu entfernen ===
+    # Das darkly theme verwendet #00bc8c für success - wir wollen #10B981 (COLOR_SUCCESS)
+    
+    # success.TButton - alle Eigenschaften überschreiben
+    style.configure("success.TButton", 
+                    background=COLOR_SUCCESS, foreground="#ffffff",
+                    lightcolor=COLOR_SUCCESS, darkcolor=COLOR_SUCCESS, bordercolor=COLOR_SUCCESS)
+    style.map("success.TButton",
+        background=[("active", COLOR_SUCCESS), ("pressed", COLOR_SUCCESS), ("!active", COLOR_SUCCESS)],
+        foreground=[("active", "#ffffff"), ("pressed", "#ffffff")]
+    )
+    
+    # success-outline und outline-success Varianten
+    for variant in ["success-outline.TButton", "outline-success.TButton"]:
+        style.configure(variant, 
+                        background=COLOR_ROOT, foreground=COLOR_SUCCESS, 
+                        bordercolor=COLOR_SUCCESS, lightcolor=COLOR_ROOT, darkcolor=COLOR_ROOT)
+        style.map(variant,
+            background=[("active", COLOR_SUCCESS), ("pressed", COLOR_SUCCESS), ("!active", COLOR_ROOT)],
+            foreground=[("active", "#ffffff"), ("pressed", "#ffffff"), ("!active", COLOR_SUCCESS)]
+        )
+    
+    # Alle anderen success-Widgets
+    style.configure("success.TLabel", foreground=COLOR_SUCCESS, background=COLOR_ROOT)
+    style.configure("success.TFrame", background=COLOR_SUCCESS)
+    style.configure("success.TEntry", bordercolor=COLOR_SUCCESS, fieldbackground=COLOR_CARD, foreground=COLOR_TEXT)
+    style.configure("success.TCombobox", bordercolor=COLOR_SUCCESS, fieldbackground=COLOR_CARD, foreground=COLOR_TEXT)
+    style.configure("success.Treeview", bordercolor=COLOR_SUCCESS, background=COLOR_CARD, foreground=COLOR_TEXT)
+    style.configure("success.Horizontal.TScrollbar", arrowcolor=COLOR_SUCCESS, background=COLOR_SUCCESS, troughcolor=COLOR_CARD)
+    style.configure("success.Vertical.TScrollbar", arrowcolor=COLOR_SUCCESS, background=COLOR_SUCCESS, troughcolor=COLOR_CARD)
+    style.configure("success.TLabelframe", bordercolor=COLOR_SUCCESS, background=COLOR_ROOT)
+    style.configure("success.TLabelframe.Label", foreground=COLOR_SUCCESS, background=COLOR_ROOT)
+
     # Notebook (Tabs)
     nb = "TNotebook"
     style.configure(nb, background=COLOR_HEADER, borderwidth=0, padding=0)
@@ -123,6 +156,18 @@ def init_style(root) -> Style:
     # CustomTkinter global theme wurde oben via set_appearance_mode/set_default_color_theme gesetzt
     # Hier nur ttkbootstrap für eventuelle ttk-Widgets (Backward-Compat)
     style = Style(theme="darkly")
+    
+    # KRITISCH: Überschreibe ttkbootstrap-Theme-Farben DIREKT
+    # Das darkly-Theme hat #00bc8c als success-Farbe - wir wollen #10B981
+    if hasattr(style, 'colors'):
+        # Alte success-Farbe #00bc8c durch unsere ersetzen
+        style.colors.success = COLOR_SUCCESS  # #10B981
+        # Auch bg-Farben anpassen für konsistentes Erscheinungsbild
+        style.colors.bg = COLOR_ROOT  # #0E0F12
+        style.colors.selectbg = COLOR_PRIMARY  # #3B82F6
+        style.colors.inputbg = COLOR_ROOT  # #0E0F12
+        style.colors.border = COLOR_ROOT  # #0E0F12
+    
     try:
         root.configure(bg=COLOR_ROOT)  # CTk root hat kein bg-Parameter, ignorieren wenn CTk
     except Exception:

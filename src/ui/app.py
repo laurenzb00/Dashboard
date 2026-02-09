@@ -373,7 +373,7 @@ class MainApp:
         }
 
         # Define base header and status heights - moderner mit mehr Platz
-        self._base_header_h = 60  # Größer für bessere Präsenz
+        self._base_header_h = 55  # Kompakt aber mit Platz für alle Elemente
         self._base_status_h = 52  # Größer für bessere Buttons
 
         # Start weekly Ertrag validation in background
@@ -407,20 +407,24 @@ class MainApp:
 
         self._base_energy_h = 230
         self._base_buffer_h = 180
-        self.root.grid_rowconfigure(0, minsize=self._base_header_h)
-        self.root.grid_rowconfigure(1, weight=1)
-        self.root.grid_rowconfigure(2, minsize=self._base_status_h)
-        self.root.grid_columnconfigure(0, weight=1)
+        
+        # Haupt-Container Frame mit COLOR_ROOT Hintergrund (bedeckt gesamtes root)
+        self.main_container = ctk.CTkFrame(self.root, fg_color=COLOR_ROOT, corner_radius=0, border_width=0)
+        self.main_container.pack(fill=tk.BOTH, expand=True)
+        self.main_container.grid_rowconfigure(0, minsize=self._base_header_h)
+        self.main_container.grid_rowconfigure(1, weight=1)
+        self.main_container.grid_rowconfigure(2, minsize=self._base_status_h)
+        self.main_container.grid_columnconfigure(0, weight=1)
 
         # Header - modernerer Style mit mehr Höhe
         _dbg_print("[INIT] MainApp: HeaderBar wird erstellt...")
         self.header = HeaderBar(
-            self.root,
+            self.main_container,
             on_toggle_a=self.on_toggle_a,
             on_toggle_b=self.on_toggle_b,
             on_exit=self.on_exit,
         )
-        self.header.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 4))
+        self.header.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         _dbg_print("[INIT] MainApp: HeaderBar erstellt und platziert.")
 
         # Start periodic header update for date/time
@@ -428,20 +432,21 @@ class MainApp:
 
         # CTkTabview (Tabs) - moderner mit besserem Spacing
         _dbg_print("[INIT] MainApp: CustomTkinter Tabview wird erstellt...")
-        self.notebook_container = ctk.CTkFrame(self.root, fg_color="transparent")
-        self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+        self.notebook_container = ctk.CTkFrame(self.main_container, fg_color=COLOR_ROOT, corner_radius=0, border_width=0)
+        self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
         
         self.tabview = ctk.CTkTabview(
             self.notebook_container, 
-            fg_color=COLOR_HEADER,
-            segmented_button_fg_color=COLOR_BORDER,
+            fg_color=COLOR_ROOT,
+            border_color=COLOR_ROOT,
+            segmented_button_fg_color=COLOR_ROOT,
             segmented_button_selected_color=COLOR_PRIMARY,
             segmented_button_selected_hover_color=COLOR_PRIMARY,
-            segmented_button_unselected_color=COLOR_BORDER,
-            segmented_button_unselected_hover_color=COLOR_CARD,
+            segmented_button_unselected_color=COLOR_ROOT,
+            segmented_button_unselected_hover_color=COLOR_ROOT,
             text_color=COLOR_TEXT,
             text_color_disabled=COLOR_SUBTEXT,
-            corner_radius=16,
+            corner_radius=0,
             border_width=0
         )
         self.tabview.pack(fill=tk.BOTH, expand=True)
@@ -452,36 +457,40 @@ class MainApp:
         _dbg_print("[INIT] MainApp: Dashboard-Tab wird erstellt...")
         self.tabview.add(emoji("⚡ Energie", "Energie"))
         self.dashboard_tab = self.tabview.tab(emoji("⚡ Energie", "Energie"))
-        self.dashboard_tab.configure(fg_color=COLOR_ROOT)
+        # Setze Tab-Frame Hintergrund explizit auf COLOR_ROOT
+        try:
+            self.dashboard_tab.configure(fg_color=COLOR_ROOT)
+        except:
+            pass
         _dbg_print("[INIT] MainApp: Dashboard-Tab hinzugefügt.")
 
         # Body (Energy + Buffer)
         _dbg_print("[INIT] MainApp: Body-Frame für Dashboard wird erstellt...")
-        self.body = tk.Frame(self.dashboard_tab, bg=COLOR_ROOT)
+        self.body = ctk.CTkFrame(self.dashboard_tab, fg_color=COLOR_ROOT, corner_radius=0, border_width=0)
         self.body.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
-        self.body.grid_columnconfigure(0, weight=7)
-        self.body.grid_columnconfigure(1, weight=3)
+        self.body.grid_columnconfigure(0, weight=3)  # 60% Energiefluss
+        self.body.grid_columnconfigure(1, weight=2)  # 40% Heatmap
         self.body.grid_rowconfigure(0, weight=1)
 
-        # Energy Card (70%) - reduced size and padding
+        # Energy Card (60:40 Grid) - flexible Größe
         _dbg_print("[INIT] MainApp: EnergyCard und EnergyView werden erstellt...")
-        self.energy_card = Card(self.body, padding=6)
-        self.energy_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4), pady=0)
+        self.energy_card = Card(self.body, padding=0)
+        self.energy_card.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         self.energy_card.add_title("Energiefluss", icon="⚡")
-        self.energy_view = EnergyFlowView(self.energy_card.content(), width=240, height=200)
-        self.energy_view.pack(fill=tk.BOTH, expand=True, pady=2)
+        self.energy_view = EnergyFlowView(self.energy_card.content(), width=200, height=180)
+        self.energy_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
-        # Buffer Card (30%) - reduced size and padding
+        # Buffer Card (60:40 Grid) - flexible Größe
         _dbg_print("[INIT] MainApp: BufferCard und BufferView werden erstellt...")
-        self.buffer_card = Card(self.body, padding=6)
-        self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=0)
+        self.buffer_card = Card(self.body, padding=0)
+        self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
         self.buffer_card.add_title("Warmwasser", icon="🔥")
-        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=320, datastore=self.datastore)
-        self.buffer_view.pack(fill=tk.BOTH, expand=True)
+        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=280, datastore=self.datastore)
+        self.buffer_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
         # Statusbar - moderner Style mit besserem Spacing
-        self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
-        self.status.grid(row=2, column=0, sticky="nsew", padx=8, pady=(4, 8))
+        self.status = StatusBar(self.main_container, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
+        self.status.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         self._apply_fullscreen()
         self.build_tabs()
         self.root.after(500, self.update_tick)
@@ -513,6 +522,11 @@ class MainApp:
                 # Tab in Tabview erstellen
                 self.tabview.add(emoji("💡 Licht", "Licht"))
                 hue_frame = self.tabview.tab(emoji("💡 Licht", "Licht"))
+                # Setze Frame Hintergrund
+                try:
+                    hue_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 # HueTab initialisieren mit direktem Frame
                 self.hue_tab = HueTab(self.root, self.notebook, tab_frame=hue_frame)
                 _dbg_print("[TABS] HueTab erfolgreich hinzugefügt.")
@@ -528,6 +542,10 @@ class MainApp:
                 _dbg_print("[TABS] SpotifyTab wird erstellt...")
                 self.tabview.add("Spotify")
                 spotify_frame = self.tabview.tab("Spotify")
+                try:
+                    spotify_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 self.spotify_tab = SpotifyTab(self.root, self.notebook, tab_frame=spotify_frame)
                 _dbg_print("[TABS] SpotifyTab erfolgreich hinzugefügt.")
             except Exception as e:
@@ -539,6 +557,10 @@ class MainApp:
                 _dbg_print("[TABS] TadoTab wird erstellt...")
                 self.tabview.add(emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
                 tado_frame = self.tabview.tab(emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
+                try:
+                    tado_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 self.tado_tab = TadoTab(self.root, self.notebook, tab_frame=tado_frame)
                 _dbg_print("[TABS] TadoTab erfolgreich hinzugefügt.")
             except Exception as e:
@@ -552,6 +574,10 @@ class MainApp:
                 _dbg_print("[TABS] CalendarTab wird erstellt...")
                 self.tabview.add(emoji("📅 Kalender", "Kalender"))
                 calendar_frame = self.tabview.tab(emoji("📅 Kalender", "Kalender"))
+                try:
+                    calendar_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 self.calendar_tab = CalendarTab(self.root, self.notebook, tab_frame=calendar_frame)
                 _dbg_print("[TABS] CalendarTab erfolgreich hinzugefügt.")
             except Exception as e:
@@ -563,6 +589,10 @@ class MainApp:
                 _dbg_print("[TABS] HistoricalTab wird erstellt...")
                 self.tabview.add(emoji("📈 Historie", "Historie"))
                 historical_frame = self.tabview.tab(emoji("📈 Historie", "Historie"))
+                try:
+                    historical_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore, tab_frame=historical_frame)
                 _dbg_print("[TABS] HistoricalTab erfolgreich hinzugefügt.")
             except Exception as e:
@@ -574,6 +604,10 @@ class MainApp:
                 _dbg_print("[TABS] ErtragTab wird erstellt...")
                 self.tabview.add(emoji("🔆 Ertrag", "Ertrag"))
                 ertrag_frame = self.tabview.tab(emoji("🔆 Ertrag", "Ertrag"))
+                try:
+                    ertrag_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 self.ertrag_tab = ErtragTab(self.root, self.notebook, tab_frame=ertrag_frame)
                 _dbg_print("[TABS] ErtragTab erfolgreich hinzugefügt.")
             except Exception as e:
@@ -586,6 +620,10 @@ class MainApp:
                 _dbg_print("[TABS] SystemTab wird erstellt...")
                 self.tabview.add(emoji("⚙️ System", "System"))
                 system_frame = self.tabview.tab(emoji("⚙️ System", "System"))
+                try:
+                    system_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 self.system_tab = SystemTab(self.root, self.notebook, tab_frame=system_frame)
                 _dbg_print("[TABS] SystemTab erfolgreich hinzugefügt.")
             except Exception as e:
@@ -598,6 +636,10 @@ class MainApp:
                 _dbg_print("[TABS] StatusTab wird erstellt...")
                 self.tabview.add("Status")
                 status_frame = self.tabview.tab("Status")
+                try:
+                    status_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
                 self.status_tab = StatusTab(self.root, tab_frame=status_frame)
                 _dbg_print("[TABS] StatusTab erfolgreich hinzugefügt.")
             except Exception as e:
@@ -1076,6 +1118,12 @@ def run():
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
     root = ctk.CTk()
+    root._set_appearance_mode("dark")  # Force dark mode
+    # Setze root Hintergrund auf dunkel - behebt hellgraue Flächen
+    try:
+        root.configure(fg_color="#0E0F12")
+    except:
+        pass  # Falls fg_color nicht unterstützt wird
     app = MainApp(root)
     root.mainloop()
 

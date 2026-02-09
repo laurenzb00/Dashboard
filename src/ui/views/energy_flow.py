@@ -120,10 +120,10 @@ class EnergyFlowView(tk.Frame):
         self._request_redraw()
 
     def __init__(self, parent: tk.Widget, width: int = 420, height: int = 400):
-        super().__init__(parent, bg=COLOR_CARD)
+        super().__init__(parent, bg=COLOR_ROOT)
         self._last_missing_log = {"pv": 0.0, "batt": 0.0}
         self._start_time = time.time()
-        self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_CARD)
+        self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_ROOT)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self._resize_pending = False  # Debounce Configure events
         self.canvas.bind("<Configure>", self._on_canvas_resize)

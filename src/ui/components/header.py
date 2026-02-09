@@ -18,13 +18,13 @@ class HeaderBar(ctk.CTkFrame):
 
 
     def __init__(self, parent: tk.Widget, datastore=None, on_toggle_a=None, on_toggle_b=None, on_exit=None):
-        super().__init__(parent, height=44, fg_color=COLOR_HEADER, corner_radius=16)
+        super().__init__(parent, height=55, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self.datastore = datastore
 
         # Innerer Container mit Grid-Layout
         inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
+        inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
 
         inner.grid_columnconfigure(0, weight=1, minsize=160, uniform="hdr")
         inner.grid_columnconfigure(1, weight=2, uniform="hdr")
@@ -52,7 +52,7 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.weekday_label.pack(anchor="w", side=tk.TOP, pady=(2, 0))
 
-        # Mitte: Uhrzeit + Light Switch - kompakter
+        # Mitte: Uhrzeit + Light Switch - horizontal, vertikal zentriert
         center = ctk.CTkFrame(inner, fg_color="transparent")
         center.grid(row=0, column=1, sticky="nsew")
         center.grid_columnconfigure(0, weight=1)
@@ -61,37 +61,37 @@ class HeaderBar(ctk.CTkFrame):
         self.clock_label = ctk.CTkLabel(
             center, 
             text="--:--", 
-            font=("Segoe UI", 38, "bold"), 
+            font=("Segoe UI", 30, "bold"), 
             text_color=COLOR_PRIMARY
         )
         self.clock_label.grid(row=0, column=0, sticky="ew", padx=(0, 16))
 
-        # Light Control - kompakter mit Switch
+        # Light Control - Icon und Switch horizontal nebeneinander
         light_control = ctk.CTkFrame(center, fg_color="transparent")
         light_control.grid(row=0, column=1, sticky="ns", padx=8)
         
         ctk.CTkLabel(
             light_control,
             text="💡",
-            font=("Segoe UI", 16),
+            font=("Segoe UI", 18),
             text_color=COLOR_WARNING,
-            width=30
-        ).pack(side=tk.TOP, pady=(0, 4))
+            width=24
+        ).pack(side=tk.LEFT, padx=(0, 6))
         
         self.light_switch = ctk.CTkSwitch(
             light_control,
             text="",
-            width=46,
-            height=24,
-            switch_width=46,
-            switch_height=24,
+            width=44,
+            height=22,
+            switch_width=44,
+            switch_height=22,
             fg_color=COLOR_BORDER,
             progress_color=COLOR_WARNING,
             button_color="#FFFFFF",
             button_hover_color="#E0E0E0",
             command=self._on_light_switch_toggle
         )
-        self.light_switch.pack(side=tk.TOP)
+        self.light_switch.pack(side=tk.LEFT)
         self.light_switch.select()
         
         # Callbacks speichern

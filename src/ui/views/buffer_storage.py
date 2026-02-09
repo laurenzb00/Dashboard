@@ -16,6 +16,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 try:
     from ui.styles import (
         COLOR_CARD,
+        COLOR_ROOT,
         COLOR_BORDER,
         COLOR_DANGER,
         COLOR_INFO,
@@ -28,8 +29,9 @@ try:
     )
 except ImportError:
     # Fallback Farben, falls Import fehlschlägt
-    COLOR_CARD = "#171A20"
-    COLOR_BORDER = "#242833"
+    COLOR_ROOT = "#0E0F12"
+    COLOR_CARD = "#0E0F12"
+    COLOR_BORDER = "#0E0F12"
     COLOR_PRIMARY = "#3B82F6"
     COLOR_SUCCESS = "#10B981"
     COLOR_WARNING = "#F59E0B"
@@ -167,10 +169,10 @@ class BufferStorageView(tk.Frame):
         ax2.spines['bottom'].set_color(COLOR_BORDER)
         ax2.spines['right'].set_linewidth(0.5)
         ax2.spines['bottom'].set_linewidth(0.5)
-        self.spark_ax.tick_params(axis='both', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        ax2.tick_params(axis='y', which='major', labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        self.spark_ax.set_ylabel('kW', fontsize=7, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
-        ax2.set_ylabel('°C', fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
+        self.spark_ax.tick_params(axis='both', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        ax2.tick_params(axis='y', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.spark_ax.set_ylabel('kW', fontsize=8, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
+        ax2.set_ylabel('°C', fontsize=8, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
         self.spark_ax.yaxis.set_major_locator(plt.MaxNLocator(4))
         ax2.yaxis.set_major_locator(plt.MaxNLocator(4))
         self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
@@ -236,15 +238,14 @@ class BufferStorageView(tk.Frame):
         pass
 
     def __init__(self, parent: tk.Widget, height: int = 280, datastore=None):
-        super().__init__(parent, bg=COLOR_CARD)
+        super().__init__(parent, bg=COLOR_ROOT)
         self._start_time = time.time()
         self.height = height
         if datastore is not None:
             self.datastore = datastore
         else:
             self.datastore = get_shared_datastore()
-        self.configure(height=self.height)
-        self.pack_propagate(False)
+        # Entfernt: configure(height) und pack_propagate(False) für flexibles Layout
 
         self.data = np.array([[60.0], [50.0], [40.0]])
         self._last_temps = None  # type: ignore
@@ -256,43 +257,45 @@ class BufferStorageView(tk.Frame):
         self._spark_cache_temp = []
         self._spark_cache_ts = 0.0
 
-        self.layout = tk.Frame(self, bg=COLOR_CARD)
+        self.layout = tk.Frame(self, bg=COLOR_ROOT)
         self.layout.pack(fill=tk.BOTH, expand=True)
         self.layout.grid_columnconfigure(0, weight=1)
         self.layout.grid_rowconfigure(0, weight=1)
         self.layout.grid_rowconfigure(1, weight=0)
 
-        self.plot_frame = tk.Frame(self.layout, bg=COLOR_CARD)
+        self.plot_frame = tk.Frame(self.layout, bg=COLOR_ROOT)
         self.plot_frame.grid(row=0, column=0, sticky="nsew")
 
         self.val_texts = []
 
-        self.spark_frame = tk.Frame(self.layout, bg=COLOR_CARD)
+        self.spark_frame = tk.Frame(self.layout, bg=COLOR_ROOT)
         self.spark_frame.grid(row=1, column=0, sticky="ew", pady=(2, 0))
         tk.Label(
             self.spark_frame,
             text="PV & Außentemp. (24h)",
             fg=COLOR_TITLE,
-            bg=COLOR_CARD,
+            bg=COLOR_ROOT,
             font=("Segoe UI", 10),
         ).pack(anchor="w")
 
-        # Fester Platz für das Diagramm, da Bildschirmgröße bekannt ist
-        fig_width = 9.0  # optimal für ca. 1200px Breite
-        fig_height = 2.0 # Heatmap größer für bessere Lesbarkeit
+        # Reduzierte Figures für 60:40 Layout
+        fig_width = 3.8  # kleiner für 40% Breite
+        fig_height = 2.0
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
-        # --- Sparkline Figure (PV & Außentemp) vergrößert für bessere Lesbarkeit ---
-        self.spark_fig = Figure(figsize=(6.0, 1.5), dpi=100)
-        self.spark_fig.patch.set_alpha(0)  # Make figure background transparent
+        # --- Sparkline Figure (PV & Außentemp) - kompakter für 40% Breite ---
+        self.spark_fig = Figure(figsize=(3.5, 1.2), dpi=100)
+        self.spark_fig.patch.set_facecolor(COLOR_ROOT)  # Explizit setzen
         self.spark_ax = self.spark_fig.add_subplot(111)
-        self.spark_ax.set_facecolor(COLOR_CARD)  # Match card color
-        self.spark_ax.patch.set_alpha(0)  # Make axes background transparent
+        self.spark_ax.set_facecolor(COLOR_ROOT)  # Match card color
+        self.spark_ax.patch.set_facecolor(COLOR_ROOT)  # Explizit setzen
         self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
         self.spark_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self.spark_ax.tick_params(axis='both', which='major', labelsize=9, colors=COLOR_SUBTEXT)
         self.spark_ax.set_axisbelow(True)
         self.spark_ax.grid(True, alpha=0.12)
+        # Tight layout verhindert Clipping
+        self.spark_fig.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.20)
         # ---
         self._create_sparkline()
 
@@ -302,27 +305,25 @@ class BufferStorageView(tk.Frame):
         if DEBUG_LOG:
             print(f"[BUFFER] resize() at {elapsed:.3f}s -> {height}")
         self.height = max(160, int(height))
-        self.configure(height=self.height)
+        # Entfernt: configure(height) für flexibles Layout
 
     def _create_figure(self, fig_width: float, fig_height: float) -> None:
         if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
             self.canvas_widget.destroy()
         self.fig = Figure(figsize=(fig_width, fig_height), dpi=100)
-        self.fig.patch.set_alpha(0)
+        self.fig.patch.set_facecolor(COLOR_ROOT)  # Explizit auf COLOR_ROOT setzen
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor("none")
+        self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
-        # Enforce minimum figure size for scaling
-        min_width, min_height = 320, 180
-        self.canvas_widget.configure(width=max(int(fig_width * 100), min_width), height=max(int(fig_height * 100), min_height))
+        # Flexible Skalierung ohne min_width Constraint für 50/50 Layout
         self.canvas_widget.pack(fill=tk.BOTH, expand=True)
 
     def _setup_plot(self) -> None:
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
         self.ax.set_axis_off()
-        self.ax.set_facecolor("none")
+        self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
 
         self.norm = Normalize(vmin=45, vmax=75)
         self.im = self.ax.imshow(
@@ -342,18 +343,17 @@ class BufferStorageView(tk.Frame):
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
             linewidth=1.3,
-            edgecolor="#2A3446",
+            edgecolor=COLOR_ROOT,
             facecolor="none",
             alpha=0.75,
         )
         self.im.set_clip_path(puffer_cyl)
         self.ax.add_patch(puffer_cyl)
         self.ax.add_patch(Ellipse((0.20, 0.92), 0.24, 0.08, transform=self.ax.transAxes,
-                                  edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         self.ax.add_patch(Ellipse((0.20, 0.08), 0.24, 0.08, transform=self.ax.transAxes,
-                                  edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
-        self.ax.add_patch(Rectangle((0.10, 0.10), 0.03, 0.80, transform=self.ax.transAxes,
-                                    facecolor="#ffffff", alpha=0.07, linewidth=0))
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
+        # Entfernt: Helles weißes Overlay-Rectangle
         # Feste Schriftgröße und feste Ränder für optimalen Sitz
         self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
         self.ax.text(0.20, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
@@ -373,17 +373,16 @@ class BufferStorageView(tk.Frame):
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
             linewidth=1.1,
-            edgecolor="#2A3446",
+            edgecolor=COLOR_ROOT,
             facecolor=self._temp_color(60),
             alpha=0.95,
         )
         self.ax.add_patch(self.boiler_rect)
         self.ax.add_patch(Ellipse((0.69, 0.53), 0.22, 0.08, transform=self.ax.transAxes,
-                                  edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         self.ax.add_patch(Ellipse((0.69, 0.08), 0.22, 0.08, transform=self.ax.transAxes,
-                                  edgecolor="#2A3446", facecolor="none", linewidth=1.0, alpha=0.7))
-        self.ax.add_patch(Rectangle((0.60, 0.10), 0.03, 0.41, transform=self.ax.transAxes,
-                                    facecolor="#ffffff", alpha=0.06, linewidth=0))
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
+        # Entfernt: Helles weißes Overlay-Rectangle
         self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes,
                      color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
         # Boiler-Temperaturtext
@@ -393,7 +392,7 @@ class BufferStorageView(tk.Frame):
         cax = divider.append_axes("right", size="4%", pad=0.15)
         cbar = self.fig.colorbar(self.im, cax=cax, orientation="vertical")
         cbar.set_label("°C", rotation=0, labelpad=10, color=COLOR_TEXT, fontsize=9)
-        cbar.ax.tick_params(labelsize=8, colors=COLOR_TEXT)
+        cbar.ax.tick_params(labelsize=9, colors=COLOR_TEXT)
         cbar.outline.set_edgecolor(COLOR_BORDER)
         cbar.outline.set_linewidth(0.8)
 

@@ -193,9 +193,9 @@ class HistoricalTab(tk.Frame):
         current = self._period_var.get()
         for period, btn in self._period_buttons.items():
             if period == current:
-                btn.configure(fg_color=COLOR_PRIMARY, text_color="white", hover_color=COLOR_PRIMARY)
+                btn.configure(fg_color=COLOR_PRIMARY, text_color="#ffffff", hover_color=COLOR_PRIMARY)
             else:
-                btn.configure(fg_color=COLOR_CARD, text_color=COLOR_TEXT, hover_color=COLOR_BORDER)
+                btn.configure(fg_color=COLOR_BORDER, text_color=COLOR_TEXT, hover_color=COLOR_PRIMARY)
 
     def _schedule_update(self) -> None:
         if self.after_job is not None:
@@ -253,10 +253,10 @@ class HistoricalTab(tk.Frame):
         self.ax.spines["bottom"].set_linewidth(0.5)
 
         self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        self.ax.tick_params(axis="both", which="major", labelsize=10, colors=COLOR_SUBTEXT, length=3, width=0.5)
+        self.ax.tick_params(axis="both", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=3, width=0.5)
         # X-Achsen-Labels mit Padding, damit sie nicht abgeschnitten werden
         self.ax.tick_params(axis="x", pad=5)
-        self.ax.set_ylabel("°C", fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va="center")
+        self.ax.set_ylabel("°C", fontsize=9, color=COLOR_INFO, rotation=0, labelpad=10, va="center")
         try:
             self.ax.xaxis.get_offset_text().set_visible(False)
         except Exception:
@@ -408,7 +408,7 @@ class HistoricalTab(tk.Frame):
         # Legend: keep it compact and out of the way (avoid overlapping the newest data at the right).
         self.ax.legend(
             loc="upper left",
-            fontsize=8,
+            fontsize=9,
             frameon=False,
             labelcolor=COLOR_SUBTEXT,
             ncol=3,

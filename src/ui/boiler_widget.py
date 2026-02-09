@@ -36,13 +36,13 @@ try:
     )
 except Exception:
     COLOR_DARK_BG = "#0E0F12"
-    COLOR_GLASS_BG = "#171A20"
+    COLOR_GLASS_BG = "#0E0F12"
     COLOR_PRIMARY = "#3b82f6"
     COLOR_SUCCESS = "#10b981"
     COLOR_WARNING = "#f59e0b"
     COLOR_TEXT = "#e2e8f0"
     COLOR_SUBTEXT = "#64748b"
-    COLOR_BORDER = "#242833"
+    COLOR_BORDER = "#0E0F12"
 
 class ModernBoilerWidget:
     """Moderne Pufferspeicher-Visualisierung mit Heatmap"""

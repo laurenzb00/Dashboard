@@ -62,6 +62,11 @@ class ErtragTab:
                 width=5,
                 height=1,
                 relief=tk.FLAT,
+                bg=COLOR_BORDER,
+                fg=COLOR_TEXT,
+                activebackground=COLOR_PRIMARY,
+                activeforeground="#ffffff",
+                borderwidth=0,
                 command=lambda p=period: self._select_period(p)
             )
             btn.pack(side=tk.LEFT, padx=2)
@@ -238,7 +243,7 @@ class ErtragTab:
             self.ax.spines[spine].set_linewidth(0.5)
 
         self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        self.ax.tick_params(axis="both", which="major", labelsize=10, colors=COLOR_SUBTEXT, length=3, width=0.5)
+        self.ax.tick_params(axis="both", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=3, width=0.5)
 
     def _select_period(self, period: str) -> None:
         """Wechselt Zeitraum und aktualisiert Button-Farben."""
@@ -251,9 +256,9 @@ class ErtragTab:
         current = self._period_var.get()
         for period, btn in self._period_buttons.items():
             if period == current:
-                btn.configure(bg=COLOR_PRIMARY, fg="white", activebackground=COLOR_PRIMARY)
+                btn.configure(bg=COLOR_PRIMARY, fg="#ffffff", activebackground=COLOR_PRIMARY)
             else:
-                btn.configure(bg=COLOR_CARD, fg=COLOR_TEXT, activebackground=COLOR_BORDER)
+                btn.configure(bg=COLOR_BORDER, fg=COLOR_TEXT, activebackground=COLOR_PRIMARY)
 
     def _update_plot(self):
         if not self.alive:

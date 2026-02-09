@@ -24,8 +24,8 @@ except ImportError:
     print("[!] Plotly nicht installiert. Installiere mit: pip install plotly")
 
 # --- FARBEN ---
-COLOR_DARK_BG = "#0b1220"
-COLOR_CARD_BG = "#0f172a"
+COLOR_DARK_BG = "#0E0F12"
+COLOR_CARD_BG = "#0E0F12"
 COLOR_ACCENT = "#1f2a44"
 COLOR_PV = "#38bdf8"
 COLOR_LOAD = "#f472b6"

@@ -25,7 +25,7 @@ from ui.styles import (
 from ui.components.card import Card
 from ui.components.rounded import RoundedFrame
 
-class StatusTab(ttk.Frame):
+class StatusTab(ctk.CTkFrame):
     def _on_light_on(self):
         # TODO: Hier Logik für Licht AN einfügen
         self.light_icon.config(fg=COLOR_PRIMARY)
@@ -63,8 +63,8 @@ class StatusTab(ttk.Frame):
 
     def _build_layout(self):
         """Minimalistisches Status-Dashboard mit großen Kacheln."""
-        self.configure(style="TFrame")
-        main = tk.Frame(self, bg=COLOR_ROOT)
+        self.configure(fg_color=COLOR_ROOT)
+        main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         
         # Grid: 3 Zeilen × 4 Spalten
@@ -85,15 +85,14 @@ class StatusTab(ttk.Frame):
             card = Card(main, padding=12)
             card.grid(row=0, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
-            inner.configure(bg=COLOR_CARD)
             
             # Icon
-            icon_lbl = tk.Label(inner, text=icon, font=("Segoe UI", 32), bg=COLOR_CARD, fg=COLOR_TEXT)
+            icon_lbl = ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 32), text_color=COLOR_TEXT)
             icon_lbl.pack(pady=(8, 4))
             # Label
-            tk.Label(inner, text=label, font=("Segoe UI", 11, "bold"), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack(pady=(0, 4))
+            ctk.CTkLabel(inner, text=label, font=("Segoe UI", 11, "bold"), text_color=COLOR_SUBTEXT).pack(pady=(0, 4))
             # Status-Ampel
-            lamp = tk.Canvas(inner, width=24, height=24, bg=COLOR_CARD, highlightthickness=0)
+            lamp = tk.Canvas(inner, width=24, height=24, bg=COLOR_ROOT, highlightthickness=0)
             lamp.pack(pady=(4, 8))
             
             self.ampel_cards.append({"label": label, "lamp": lamp, "icon": icon_lbl})
@@ -110,12 +109,11 @@ class StatusTab(ttk.Frame):
             card = Card(main, padding=12)
             card.grid(row=1, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
-            inner.configure(bg=COLOR_CARD)
             
-            tk.Label(inner, text=icon, font=("Segoe UI", 24), bg=COLOR_CARD, fg=COLOR_PRIMARY).pack(pady=(6, 2))
-            val = tk.Label(inner, text="--", font=("Segoe UI", 22, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
+            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 24), text_color=COLOR_PRIMARY).pack(pady=(6, 2))
+            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 22, "bold"), text_color=COLOR_TEXT)
             val.pack(pady=(0, 2))
-            tk.Label(inner, text=f"{label} ({unit})", font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack(pady=(0, 6))
+            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 10), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
             
             self.snapshot_labels[key] = val
         
@@ -129,39 +127,37 @@ class StatusTab(ttk.Frame):
             card = Card(main, padding=12)
             card.grid(row=2, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
-            inner.configure(bg=COLOR_CARD)
             
-            tk.Label(inner, text=icon, font=("Segoe UI", 24), bg=COLOR_CARD, fg=COLOR_WARNING).pack(pady=(6, 2))
-            val = tk.Label(inner, text="--", font=("Segoe UI", 22, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
+            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 24), text_color=COLOR_WARNING).pack(pady=(6, 2))
+            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 22, "bold"), text_color=COLOR_TEXT)
             val.pack(pady=(0, 2))
-            tk.Label(inner, text=f"{label} ({unit})", font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack(pady=(0, 6))
+            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 10), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
             
             self.snapshot_labels[key] = val
         
         # Zusätzliche Puffer-Werte (versteckt in den Daten, werden aber nicht explizit angezeigt)
         # Wir initialisieren die Labels trotzdem für update_data
         for key in [BUF_MID_C, BUF_BOTTOM_C]:
-            dummy_label = tk.Label(main, text="--")
+            dummy_label = ctk.CTkLabel(main, text="--")
             self.snapshot_labels[key] = dummy_label
 
     def _make_health_tile(self, parent, col, title, icon):
-        outer = RoundedFrame(parent, bg=COLOR_CARD, border=None, radius=18, padding=0)
+        outer = RoundedFrame(parent, bg=COLOR_ROOT, border=None, radius=18, padding=0)
         outer.grid(row=0, column=col, sticky="nsew", padx=8, pady=0)
         inner = outer.content()
-        inner.configure(bg=COLOR_CARD)
         inner.grid_columnconfigure(0, weight=0)
         inner.grid_columnconfigure(1, weight=1)
 
-        header = tk.Frame(inner, bg=COLOR_CARD)
+        header = ctk.CTkFrame(inner, fg_color="transparent")
         header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 2))
-        tk.Label(header, text=icon, bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 12)).pack(side=tk.LEFT)
-        tk.Label(header, text=title, bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(6, 0))
+        ctk.CTkLabel(header, text=icon, text_color=COLOR_TEXT, font=("Segoe UI", 12)).pack(side=tk.LEFT)
+        ctk.CTkLabel(header, text=title, text_color=COLOR_SUBTEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(6, 0))
 
-        lamp = tk.Canvas(inner, width=18, height=18, bg=COLOR_CARD, highlightthickness=0)
+        lamp = tk.Canvas(inner, width=18, height=18, bg=COLOR_ROOT, highlightthickness=0)
         lamp.grid(row=1, column=0, sticky="w", padx=(12, 8), pady=(2, 10))
-        line1 = tk.Label(inner, text="--", bg=COLOR_CARD, fg=COLOR_TEXT, font=("Segoe UI", 12, "bold"))
+        line1 = ctk.CTkLabel(inner, text="--", text_color=COLOR_TEXT, font=("Segoe UI", 12, "bold"))
         line1.grid(row=1, column=1, sticky="w", pady=(2, 0), padx=(0, 12))
-        line2 = tk.Label(inner, text="--", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", 9))
+        line2 = ctk.CTkLabel(inner, text="--", text_color=COLOR_SUBTEXT, font=("Segoe UI", 9))
         line2.grid(row=2, column=1, sticky="w", pady=(0, 10), padx=(0, 12))
 
         return SimpleNamespace(lamp=lamp, line1=line1, line2=line2)
@@ -185,7 +181,7 @@ class StatusTab(ttk.Frame):
     def _set_health(self, card, color, status_text, line2=""):
         try:
             card.lamp.delete("all")
-            card.lamp.create_oval(4, 4, 22, 22, fill=color, outline="#222")
+            card.lamp.create_oval(4, 4, 22, 22, fill=color, outline=COLOR_ROOT)
             card.line1.config(text=status_text)
             card.line2.config(text=line2 if line2 else "")
         except Exception:
@@ -286,7 +282,12 @@ class StatusTab(ttk.Frame):
         # Ampel-Defaults (grau)
         for card in self.ampel_cards:
             card["lamp"].delete("all")
-            card["lamp"].create_oval(6, 6, 18, 18, fill="#555", outline="#333")
+            card["lamp"].create_oval(6, 6, 18, 18, fill="#555", outline=COLOR_ROOT)
+        
+        # Initialize age variables
+        db_age = None
+        pv_age = None
+        heat_age = None
         
         # DB-Status
         try:
@@ -295,7 +296,7 @@ class StatusTab(ttk.Frame):
             db_age = self._age_seconds(now, db_dt)
             db_color = self._simple_status_color(db_age)
             self.ampel_cards[0]["lamp"].delete("all")
-            self.ampel_cards[0]["lamp"].create_oval(6, 6, 18, 18, fill=db_color, outline="#333")
+            self.ampel_cards[0]["lamp"].create_oval(6, 6, 18, 18, fill=db_color, outline=COLOR_ROOT)
         except Exception:
             pass
         
@@ -315,7 +316,7 @@ class StatusTab(ttk.Frame):
             pv_age = self._age_seconds(now, pv_dt)
             pv_color = self._simple_status_color(pv_age)
             self.ampel_cards[1]["lamp"].delete("all")
-            self.ampel_cards[1]["lamp"].create_oval(6, 6, 18, 18, fill=pv_color, outline="#333")
+            self.ampel_cards[1]["lamp"].create_oval(6, 6, 18, 18, fill=pv_color, outline=COLOR_ROOT)
         except Exception:
             pass
         
@@ -338,7 +339,7 @@ class StatusTab(ttk.Frame):
             heat_age = self._age_seconds(now, heat_dt)
             heat_color = self._simple_status_color(heat_age)
             self.ampel_cards[2]["lamp"].delete("all")
-            self.ampel_cards[2]["lamp"].create_oval(6, 6, 18, 18, fill=heat_color, outline="#333")
+            self.ampel_cards[2]["lamp"].create_oval(6, 6, 18, 18, fill=heat_color, outline=COLOR_ROOT)
         except Exception:
             pass
         
@@ -346,7 +347,7 @@ class StatusTab(ttk.Frame):
         overall_ok = db_age is not None and db_age < 120 and pv_age is not None and pv_age < 120 and heat_age is not None and heat_age < 120
         overall_color = COLOR_SUCCESS if overall_ok else COLOR_WARNING
         self.ampel_cards[3]["lamp"].delete("all")
-        self.ampel_cards[3]["lamp"].create_oval(6, 6, 18, 18, fill=overall_color, outline="#333")
+        self.ampel_cards[3]["lamp"].create_oval(6, 6, 18, 18, fill=overall_color, outline=COLOR_ROOT)
         
         self._schedule_update()
     

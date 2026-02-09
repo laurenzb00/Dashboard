@@ -2,6 +2,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
+import customtkinter as ctk
 import psutil
 import platform
 import os
@@ -42,7 +43,7 @@ class SystemTab:
         if tab_frame is not None:
             self.tab_frame = tab_frame
         else:
-            self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
+            self.tab_frame = ctk.CTkFrame(self.notebook, fg_color=COLOR_ROOT)
             self.notebook.add(self.tab_frame, text=emoji("⚙️ System", "System"))
         
         self._build_ui()
@@ -54,7 +55,7 @@ class SystemTab:
     def _build_ui(self):
         """Modern Dashboard-style UI mit Cards."""
         # Main container with padding
-        main = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        main = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
         main.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
         
         # Grid layout: 2 rows x 3 columns
@@ -85,8 +86,8 @@ class SystemTab:
         self.cpu_canvas.pack(pady=4)
         
         # Value label
-        self.cpu_label = tk.Label(card.content(), textvariable=self.var_cpu, 
-                                   font=("Segoe UI", 20, "bold"), fg=COLOR_TEXT, bg=COLOR_CARD)
+        self.cpu_label = ctk.CTkLabel(card.content(), textvariable=self.var_cpu, 
+                                   font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
         self.cpu_label.pack()
         
         tk.Label(card.content(), text="%", font=("Segoe UI", 10), 

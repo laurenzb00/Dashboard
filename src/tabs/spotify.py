@@ -8,6 +8,7 @@ from io import BytesIO
 from typing import Optional
 
 import requests
+from ui.styles import COLOR_ROOT, COLOR_TEXT, COLOR_SUBTEXT
 try:
     import ttkbootstrap as ttk
     from ttkbootstrap.constants import BOTH, LEFT, RIGHT, W
@@ -49,19 +50,19 @@ class SpotifyTab:
         except Exception:
             return None
     def _build_devices_tab(self) -> None:
-        header = ttk.Frame(self.devices_frame)
+        header = tk.Frame(self.devices_frame, bg=COLOR_ROOT)
         header.pack(fill=tk.X)
-        ttk.Label(header, text="Geräteauswahl", font=("Arial", 14, "bold")).pack(anchor=W)
-        ttk.Label(header, text="Wähle hier das Ausgabegerät für Spotify.",
-                  font=("Arial", 10), foreground="#94a3b8").pack(anchor=W, pady=(2, 6))
+        tk.Label(header, text="Geräteauswahl", font=("Arial", 14, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
+        tk.Label(header, text="Wähle hier das Ausgabegerät für Spotify.",
+                  font=("Arial", 10), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(2, 6))
         ttk.Button(header, text="Geräte aktualisieren", command=self._refresh_devices,
                    bootstyle="info-outline").pack(anchor=W)
 
-        body = ttk.Frame(self.devices_frame)
+        body = tk.Frame(self.devices_frame, bg=COLOR_ROOT)
         body.pack(fill=BOTH, expand=True, pady=(12, 0))
-        self.device_container = ttk.Frame(body)
+        self.device_container = tk.Frame(body, bg=COLOR_ROOT)
         self.device_container.pack(fill=BOTH, expand=True)
-        ttk.Label(self.device_container, text="Keine Geräte geladen", padding=12).pack()
+        tk.Label(self.device_container, text="Keine Geräte geladen", bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=12)
 
     def _update_login_url(self, url: str) -> None:
         """Speichert die aktuelle Login-URL und aktualisiert die UI-Variable."""
@@ -91,7 +92,7 @@ class SpotifyTab:
         col_count = 6
         row = idx // col_count
         col_idx = idx % col_count
-        cell = ttk.Frame(self.playlist_inner, padding=2)
+        cell = tk.Frame(self.playlist_inner, bg=COLOR_ROOT)
         cell.grid(row=row, column=col_idx, padx=8, pady=8, sticky="n")
         image_url = (playlist.get("images") or [{}])[0].get("url")
         photo = self._get_playlist_photo(playlist.get("id"), image_url)
@@ -151,9 +152,9 @@ class SpotifyTab:
         )
         btn.pack()
         name = playlist.get("name", "Unbenannte Playlist")
-        ttk.Label(cell, text=name, font=("Arial", 11, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10).pack(pady=(2,0))
+        tk.Label(cell, text=name, font=("Arial", 11, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10, bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(2,0))
         tracks_total = playlist.get("tracks", {}).get("total", 0)
-        ttk.Label(cell, text=f"{tracks_total} Titel", font=("Arial", 9), foreground="#9ca3af").pack()
+        tk.Label(cell, text=f"{tracks_total} Titel", font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack()
 
     def __init__(self, root, notebook, tab_frame=None):
         self.root = root
@@ -164,7 +165,7 @@ class SpotifyTab:
         if tab_frame is not None:
             self.tab_frame = tab_frame
         else:
-            self.tab_frame = ttk.Frame(self.notebook)
+            self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
             self.notebook.add(self.tab_frame, text="Spotify")
 
         self.status_var = tk.StringVar(value="Spotify Integration bereit")
@@ -211,9 +212,9 @@ class SpotifyTab:
     # ------------------------------------------------------------------
     def _build_header(self) -> None:
         self.status_var = tk.StringVar(value="Spotify Integration bereit")
-        ttk.Label(self.tab_frame, textvariable=self.status_var, font=("Arial", 12)).pack(pady=(12, 4))
+        tk.Label(self.tab_frame, textvariable=self.status_var, font=("Arial", 12), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(12, 4))
 
-        control_frame = ttk.Frame(self.tab_frame)
+        control_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         control_frame.pack(pady=(0, 6))
         ttk.Button(control_frame, text="Browser-Login öffnen", command=self._open_browser_login,
                    bootstyle="success-outline").pack(side=LEFT, padx=4)
@@ -225,23 +226,23 @@ class SpotifyTab:
         # Login link UI removed for local-only use
         callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
         self.redirect_var = tk.StringVar(value=f"Callback-URL: {callback_uri}")
-        ttk.Label(self.tab_frame, textvariable=self.redirect_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W, pady=(6, 0))
+        tk.Label(self.tab_frame, textvariable=self.redirect_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(6, 0))
 
-        info_frame = ttk.Frame(self.tab_frame)
+        info_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         info_frame.pack(fill=tk.X, padx=20, pady=(0, 8))
         self.status_detail_var = tk.StringVar(value="Konfiguration wird geprüft…")
         self.token_info_var = tk.StringVar(value="Noch kein Token gefunden")
-        ttk.Label(info_frame, textvariable=self.status_detail_var, font=("Arial", 10)).pack(anchor=W)
-        ttk.Label(info_frame, textvariable=self.token_info_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W)
+        tk.Label(info_frame, textvariable=self.status_detail_var, font=("Arial", 10), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
+        tk.Label(info_frame, textvariable=self.token_info_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W)
 
     def _build_content(self) -> None:
         self.content_notebook = ttk.Notebook(self.tab_frame, bootstyle="dark")
         self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
 
-        self.now_playing_frame = ttk.Frame(self.content_notebook, padding=12)
-        self.library_frame = ttk.Frame(self.content_notebook, padding=12)
-        self.recent_frame = ttk.Frame(self.content_notebook, padding=12)
-        self.devices_frame = ttk.Frame(self.content_notebook, padding=12)
+        self.now_playing_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
+        self.library_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
+        self.recent_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
+        self.devices_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
         self.content_notebook.add(self.now_playing_frame, text="Now Playing")
         self.content_notebook.add(self.library_frame, text="Playlists")
         self.content_notebook.add(self.recent_frame, text="Zuletzt gespielt")
@@ -253,25 +254,25 @@ class SpotifyTab:
         self._build_devices_tab()
 
     def _build_recent_tab(self) -> None:
-        top = ttk.Frame(self.recent_frame)
+        top = tk.Frame(self.recent_frame, bg=COLOR_ROOT)
         top.pack(fill=tk.X)
-        ttk.Label(top, text="Zuletzt gespielt", font=("Arial", 14, "bold")).pack(anchor=W)
+        tk.Label(top, text="Zuletzt gespielt", font=("Arial", 14, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
 
-        list_wrapper = ttk.Frame(self.recent_frame)
+        list_wrapper = tk.Frame(self.recent_frame, bg=COLOR_ROOT)
         list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
-        self.recent_canvas = tk.Canvas(list_wrapper, highlightthickness=0)
+        self.recent_canvas = tk.Canvas(list_wrapper, highlightthickness=0, bg=COLOR_ROOT)
         v_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=self.recent_canvas.yview)
         self.recent_canvas.configure(yscrollcommand=v_scrollbar.set)
         self.recent_canvas.pack(side=tk.LEFT, fill=BOTH, expand=True)
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.recent_inner = ttk.Frame(self.recent_canvas)
+        self.recent_inner = tk.Frame(self.recent_canvas, bg=COLOR_ROOT)
         self.recent_canvas.create_window((0, 0), window=self.recent_inner, anchor="nw")
         self.recent_inner.bind(
             "<Configure>",
             lambda e: self.recent_canvas.configure(scrollregion=self.recent_canvas.bbox("all")),
         )
-        self.recent_empty = ttk.Label(self.recent_inner, text="Noch keine Daten geladen", padding=16)
-        self.recent_empty.pack()
+        self.recent_empty = tk.Label(self.recent_inner, text="Noch keine Daten geladen", bg=COLOR_ROOT, fg=COLOR_TEXT)
+        self.recent_empty.pack(pady=16)
         # Automatisch laden, wenn Tab aktiviert wird
         self.content_notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed_recent)
 
@@ -291,7 +292,7 @@ class SpotifyTab:
         for child in self.recent_inner.winfo_children():
             child.destroy()
         if not items:
-            ttk.Label(self.recent_inner, text="Keine zuletzt gespielten Titel gefunden", padding=16).pack()
+            tk.Label(self.recent_inner, text="Keine zuletzt gespielten Titel gefunden", bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=16)
             return
         for idx, entry in enumerate(items):
             track = entry.get("track", {})
@@ -299,37 +300,37 @@ class SpotifyTab:
             artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
             album = track.get("album", {}).get("name", "")
             played_at = entry.get("played_at", "")
-            label = ttk.Label(self.recent_inner, text=f"{name} – {artists}\n{album}", anchor="w", justify="left", font=("Arial", 11))
+            label = tk.Label(self.recent_inner, text=f"{name} – {artists}\n{album}", anchor="w", justify="left", font=("Arial", 11), bg=COLOR_ROOT, fg=COLOR_TEXT)
             label.pack(fill=tk.X, padx=8, pady=4)
 
     def _build_now_playing_tab(self) -> None:
-        container = ttk.Frame(self.now_playing_frame)
-        container.pack(fill=BOTH, expand=True)
+        container = tk.Frame(self.now_playing_frame, bg=COLOR_ROOT)
+        container.pack(fill=BOTH, expand=True, padx=12, pady=12)
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
 
-        left = ttk.Frame(container)
+        left = tk.Frame(container, bg=COLOR_ROOT)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
-        self.cover_label = ttk.Label(left, text="Kein Cover", anchor="center", width=28, padding=8)
-        self.cover_label.pack(fill=tk.BOTH, expand=True)
+        self.cover_label = tk.Label(left, text="Kein Cover", anchor="center", width=28, bg=COLOR_ROOT, fg=COLOR_TEXT)
+        self.cover_label.pack(fill=tk.BOTH, expand=True, pady=8)
 
-        info_box = ttk.Frame(left)
+        info_box = tk.Frame(left, bg=COLOR_ROOT)
         info_box.pack(fill=tk.X, pady=8)
         self.track_var = tk.StringVar(value="–")
         self.artist_var = tk.StringVar(value="")
         self.album_var = tk.StringVar(value="")
-        ttk.Label(info_box, textvariable=self.track_var, font=("Arial", 18, "bold"), wraplength=360).pack(anchor=W)
-        ttk.Label(info_box, textvariable=self.artist_var, font=("Arial", 14), foreground="#99c1ff").pack(anchor=W, pady=(2, 0))
-        ttk.Label(info_box, textvariable=self.album_var, font=("Arial", 12), foreground="#9ca3af").pack(anchor=W)
+        tk.Label(info_box, textvariable=self.track_var, font=("Arial", 18, "bold"), wraplength=360, bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
+        tk.Label(info_box, textvariable=self.artist_var, font=("Arial", 14), bg=COLOR_ROOT, fg="#99c1ff").pack(anchor=W, pady=(2, 0))
+        tk.Label(info_box, textvariable=self.album_var, font=("Arial", 12), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W)
 
-        right = ttk.Frame(container)
+        right = tk.Frame(container, bg=COLOR_ROOT)
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
 
         volume_box = ttk.Labelframe(right, text="Lautstärke")
         volume_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         self.volume_var = tk.IntVar(value=50)
-        volume_controls = ttk.Frame(volume_box)
+        volume_controls = tk.Frame(volume_box, bg=COLOR_ROOT)
         volume_controls.pack(fill=tk.X, pady=4)
         ttk.Button(volume_controls, text="-", width=4, command=lambda: self._adjust_volume(-10), bootstyle="secondary").pack(side=LEFT, padx=3)
         self.volume_scale = ttk.Scale(volume_controls, from_=0, to=100, orient=tk.HORIZONTAL,
@@ -361,9 +362,9 @@ class SpotifyTab:
 
         # Progress bar and controls now below quick actions
         self.progress_var = tk.StringVar(value="0:00 / 0:00")
-        ttk.Label(right, textvariable=self.progress_var, font=("Arial", 11), foreground="#94a3b8").grid(row=2, column=0, sticky="ew", pady=(16, 4))
+        tk.Label(right, textvariable=self.progress_var, font=("Arial", 11), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).grid(row=2, column=0, sticky="ew", pady=(16, 4))
 
-        controls = ttk.Frame(right)
+        controls = tk.Frame(right, bg=COLOR_ROOT)
         controls.grid(row=3, column=0, pady=(0, 0))
         ttk.Button(controls, text="⏮", width=5, command=self._prev_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
         self.play_button = ttk.Button(controls, text="Play", width=8, command=self._toggle_playback, bootstyle="success")
@@ -371,25 +372,25 @@ class SpotifyTab:
         ttk.Button(controls, text="⏭", width=5, command=self._next_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
 
     def _build_library_tab(self) -> None:
-        top = ttk.Frame(self.library_frame)
-        top.pack(fill=tk.X)
-        ttk.Label(top, text="Playlists & Favoriten", font=("Arial", 14, "bold")).pack(anchor=W)
+        top = tk.Frame(self.library_frame, bg=COLOR_ROOT)
+        top.pack(fill=tk.X, padx=12, pady=12)
+        tk.Label(top, text="Playlists & Favoriten", font=("Arial", 14, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
 
-        list_wrapper = ttk.Frame(self.library_frame)
-        list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
-        self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0)
+        list_wrapper = tk.Frame(self.library_frame, bg=COLOR_ROOT)
+        list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0), padx=12)
+        self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0, bg=COLOR_ROOT)
         v_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=self.playlist_canvas.yview)
         self.playlist_canvas.configure(yscrollcommand=v_scrollbar.set)
         self.playlist_canvas.pack(side=tk.LEFT, fill=BOTH, expand=True)
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.playlist_inner = ttk.Frame(self.playlist_canvas)
+        self.playlist_inner = tk.Frame(self.playlist_canvas, bg=COLOR_ROOT)
         self.playlist_canvas.create_window((0, 0), window=self.playlist_inner, anchor="nw")
         self.playlist_inner.bind(
             "<Configure>",
             lambda e: self.playlist_canvas.configure(scrollregion=self.playlist_canvas.bbox("all")),
         )
-        self.playlist_empty = ttk.Label(self.playlist_inner, text="Noch keine Playlists geladen", padding=16)
-        self.playlist_empty.pack()
+        self.playlist_empty = tk.Label(self.playlist_inner, text="Noch keine Playlists geladen", bg=COLOR_ROOT, fg=COLOR_TEXT)
+        self.playlist_empty.pack(pady=16)
 
     # ------------------------------------------------------------------
     # Spotify API Helpers
@@ -621,18 +622,18 @@ class SpotifyTab:
         self._sync_like_button()
 
     def _build_ui(self) -> None:
-        wrapper = ttk.Frame(self.tab_frame)
+        wrapper = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         wrapper.pack(fill=BOTH, expand=True)
 
-        ttk.Label(wrapper, textvariable=self.status_var, font=("Arial", 12), padding=6).pack(fill=tk.X, padx=12, pady=(10, 6))
+        tk.Label(wrapper, textvariable=self.status_var, font=("Arial", 12), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(fill=tk.X, padx=12, pady=(10, 6))
 
         self.content_notebook = ttk.Notebook(wrapper, bootstyle="dark")
         self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
 
-        self.now_playing_frame = ttk.Frame(self.content_notebook, padding=12)
-        self.library_frame = ttk.Frame(self.content_notebook, padding=12)
-        self.devices_frame = ttk.Frame(self.content_notebook, padding=12)
-        self.status_frame = ttk.Frame(self.content_notebook, padding=16)
+        self.now_playing_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
+        self.library_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
+        self.devices_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
+        self.status_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
         # Add tabs in desired order: Status last
         self.content_notebook.add(self.now_playing_frame, text="Now Playing")
         self.content_notebook.add(self.library_frame, text="Playlists")
@@ -647,8 +648,8 @@ class SpotifyTab:
 
     def _build_status_tab(self) -> None:
         frame = self.status_frame
-        control_frame = ttk.Frame(frame)
-        control_frame.pack(fill=tk.X, pady=(0, 10))
+        control_frame = tk.Frame(frame, bg=COLOR_ROOT)
+        control_frame.pack(fill=tk.X, pady=(12, 10), padx=12)
         ttk.Button(control_frame, text="Browser-Login öffnen", command=self._open_browser_login,
                    bootstyle="success-outline").pack(side=LEFT, padx=4)
         ttk.Button(control_frame, text="Status aktualisieren", command=self._refresh_status,
@@ -657,12 +658,12 @@ class SpotifyTab:
                    bootstyle="danger-outline").pack(side=LEFT, padx=4)
 
         # Login link UI and browser logic removed for local-only use
-        ttk.Label(frame, textvariable=self.redirect_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W)
+        tk.Label(frame, textvariable=self.redirect_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, padx=12)
 
         info_frame = ttk.Labelframe(frame, text="Status & Token")
-        info_frame.pack(fill=tk.X)
-        ttk.Label(info_frame, textvariable=self.status_detail_var, font=("Arial", 10)).pack(anchor=W, pady=(4, 2))
-        ttk.Label(info_frame, textvariable=self.token_info_var, font=("Arial", 9), foreground="#94a3b8").pack(anchor=W, pady=(0, 4))
+        info_frame.pack(fill=tk.X, padx=12, pady=8)
+        tk.Label(info_frame, textvariable=self.status_detail_var, font=("Arial", 10), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W, pady=(4, 2))
+        tk.Label(info_frame, textvariable=self.token_info_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(0, 4))
     # ------------------------------------------------------------------
     def _update_devices(self, devices: list[dict]) -> None:
         if devices == self._devices:
@@ -671,7 +672,7 @@ class SpotifyTab:
         for child in self.device_container.winfo_children():
             child.destroy()
         if not devices:
-            ttk.Label(self.device_container, text="Keine Geräte", padding=8).pack()
+            tk.Label(self.device_container, text="Keine Ger\u00e4te", bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=8)
             return
         active_id = next((dev.get("id") for dev in devices if dev.get("is_active")), None)
         for dev in devices:
@@ -709,7 +710,7 @@ class SpotifyTab:
                 return pl.get('id', '')
             filtered = sorted(self._playlists_data, key=id_key)
         if not filtered:
-            ttk.Label(self.playlist_inner, text="Keine Playlists gefunden", padding=16).pack()
+            tk.Label(self.playlist_inner, text="Keine Playlists gefunden", bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=16)
             return
         # Horizontal layout: each playlist is a column
         for idx, playlist in enumerate(filtered):
