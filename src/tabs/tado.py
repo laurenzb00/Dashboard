@@ -15,6 +15,7 @@ from ui.styles import (
     COLOR_DANGER,
     COLOR_TEXT,
     COLOR_SUBTEXT,
+    COLOR_TITLE,
     emoji,
 )
 from ui.components.card import Card
@@ -87,8 +88,8 @@ class TadoTab:
         header = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
         
-        ttk.Label(header, text="Schlafzimmer Klima", font=("Arial", 14, "bold")).pack(side=tk.LEFT)
-        ttk.Label(header, textvariable=self.var_status, foreground=COLOR_SUBTEXT, font=("Arial", 9)).pack(side=tk.RIGHT)
+        ttk.Label(header, text="Schlafzimmer Klima", font=("Segoe UI", 15, "bold"), foreground=COLOR_TITLE).pack(side=tk.LEFT)
+        ttk.Label(header, textvariable=self.var_status, foreground=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.RIGHT)
 
         # Hauptgrid: 2 Cards nebeneinander
         content = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
@@ -105,21 +106,21 @@ class TadoTab:
         temp_frame = tk.Frame(card1.content(), bg=COLOR_CARD)
         temp_frame.pack(fill=tk.X, pady=(0, 12))
         
-        ttk.Label(temp_frame, text="Temperatur", font=("Arial", 10), foreground=COLOR_SUBTEXT).pack(anchor="w", padx=6, pady=(0, 2))
-        ttk.Label(temp_frame, textvariable=self.var_temp_ist, font=("Arial", 32, "bold"), foreground=COLOR_PRIMARY).pack(anchor="w", padx=6)
+        ttk.Label(temp_frame, text="Temperatur", font=("Segoe UI", 11), foreground=COLOR_SUBTEXT).pack(anchor="w", padx=6, pady=(0, 2))
+        ttk.Label(temp_frame, textvariable=self.var_temp_ist, font=("Segoe UI", 32, "bold"), foreground=COLOR_PRIMARY).pack(anchor="w", padx=6)
         
         # Luftfeuchtigkeit
         hum_frame = tk.Frame(card1.content(), bg=COLOR_CARD)
         hum_frame.pack(fill=tk.X, pady=6)
         
-        ttk.Label(hum_frame, text="Luftfeuchtigkeit", font=("Arial", 10), foreground=COLOR_SUBTEXT).pack(anchor="w", padx=6, pady=(0, 2))
-        ttk.Label(hum_frame, textvariable=self.var_humidity, font=("Arial", 20, "bold")).pack(anchor="w", padx=6)
+        ttk.Label(hum_frame, text="Luftfeuchtigkeit", font=("Segoe UI", 11), foreground=COLOR_SUBTEXT).pack(anchor="w", padx=6, pady=(0, 2))
+        ttk.Label(hum_frame, textvariable=self.var_humidity, font=("Segoe UI", 20, "bold")).pack(anchor="w", padx=6)
         
         # Heizleistung
         power_frame = tk.Frame(card1.content(), bg=COLOR_CARD)
         power_frame.pack(fill=tk.X, pady=6)
         
-        ttk.Label(power_frame, text="Heizleistung", font=("Arial", 10), foreground=COLOR_SUBTEXT).pack(anchor="w", padx=6, pady=(0, 2))
+        ttk.Label(power_frame, text="Heizleistung", font=("Segoe UI", 11), foreground=COLOR_SUBTEXT).pack(anchor="w", padx=6, pady=(0, 2))
         ttk.Progressbar(power_frame, variable=self.var_power, maximum=100, length=200).pack(fill=tk.X, padx=6)
 
         # Card 2: Steuerung
@@ -128,7 +129,7 @@ class TadoTab:
         card2.add_title("Steuerung", icon="⚙️")
         
         # Zieltemperatur Regler
-        ctrl_label = ttk.Label(card2.content(), text="Zieltemperatur", font=("Arial", 10), foreground=COLOR_SUBTEXT)
+        ctrl_label = ttk.Label(card2.content(), text="Zieltemperatur", font=("Segoe UI", 11), foreground=COLOR_SUBTEXT)
         ctrl_label.pack(pady=(0, 8))
         
         ctrl_frame = tk.Frame(card2.content(), bg=COLOR_CARD)
@@ -137,7 +138,7 @@ class TadoTab:
         minus_btn = ttk.Button(ctrl_frame, text="−", width=3, command=lambda: self._change_temp(-1))
         minus_btn.pack(side=tk.LEFT, padx=8)
         
-        ttk.Label(ctrl_frame, textvariable=self.var_temp_soll, font=("Arial", 28, "bold"), foreground=COLOR_WARNING).pack(side=tk.LEFT, padx=16)
+        ttk.Label(ctrl_frame, textvariable=self.var_temp_soll, font=("Segoe UI", 28, "bold"), foreground=COLOR_WARNING).pack(side=tk.LEFT, padx=16)
         
         plus_btn = ttk.Button(ctrl_frame, text="+", width=3, command=lambda: self._change_temp(+1))
         plus_btn.pack(side=tk.LEFT, padx=8)

@@ -14,6 +14,7 @@ from ui.styles import (
     COLOR_TEXT,
     COLOR_SUBTEXT,
     COLOR_PRIMARY,
+    COLOR_TITLE,
     emoji,
 )
 from ui.components.card import Card
@@ -46,6 +47,14 @@ class ErtragTab:
 
         topbar = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+
+        tk.Label(
+            topbar,
+            text="PV-Ertrag",
+            bg=COLOR_ROOT,
+            fg=COLOR_TITLE,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(side=tk.LEFT, padx=(2, 10))
 
         # Zeitraum-Wahl: Touch-freundliche Buttons statt Combobox
         period_frame = tk.Frame(topbar, bg=COLOR_ROOT)

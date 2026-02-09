@@ -468,8 +468,8 @@ class MainApp:
         _dbg_print("[INIT] MainApp: Body-Frame für Dashboard wird erstellt...")
         self.body = ctk.CTkFrame(self.dashboard_tab, fg_color=COLOR_ROOT, corner_radius=0, border_width=0)
         self.body.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
-        self.body.grid_columnconfigure(0, weight=3)  # 60% Energiefluss
-        self.body.grid_columnconfigure(1, weight=2)  # 40% Heatmap
+        self.body.grid_columnconfigure(0, weight=4)  # Mehr Platz für Energiefluss
+        self.body.grid_columnconfigure(1, weight=1, minsize=320)  # Schmalere Heatmap-Spalte
         self.body.grid_rowconfigure(0, weight=1)
 
         # Energy Card (60:40 Grid) - flexible Größe

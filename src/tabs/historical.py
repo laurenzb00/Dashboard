@@ -79,6 +79,14 @@ class HistoricalTab(tk.Frame):
         topbar = tk.Frame(self, bg=COLOR_ROOT)
         topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
 
+        tk.Label(
+            topbar,
+            text="Historie",
+            bg=COLOR_ROOT,
+            fg=COLOR_TITLE,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(side=tk.LEFT, padx=(2, 10))
+
         self.topbar_status = tk.Label(
             topbar,
             text="",

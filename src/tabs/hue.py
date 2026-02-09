@@ -39,6 +39,16 @@ class HueTab:
         self.status_var = tk.StringVar(value="🔌 Verbinde...")
         self.last_refresh_var = tk.StringVar(value="")
         self._bridge_lock = threading.Lock()
+        # Cache UI/state to avoid unnecessary redraws and flicker.
+        self._refresh_inflight = False
+        self._scene_snapshot = None
+        self._scene_cards = {}
+        self._scene_sections = {}
+        self._active_scene_by_group = {}
+        self._light_snapshot = None
+        self._light_structure = None
+        self._light_cards = {}
+        self._light_state = {}
         
         # UI-Komponenten speichern
         self.status_label = None
@@ -128,10 +138,11 @@ class HueTab:
             )
             self.bright_label.pack(pady=(0, 8))
             
-            # Moderner CustomTkinter Slider (vertikal: oben=100, unten=0)
+            # Moderner CustomTkinter Slider (vertikal: unten=0, oben=100)
+            tk.Label(slider_frame, text="100%", font=("Segoe UI", 9), fg=COLOR_SUBTEXT, bg=COLOR_ROOT, width=5).pack(pady=(0, 6))
             self.bright_slider = ctk.CTkSlider(
                 slider_frame,
-                from_=100, to=0,
+                from_=0, to=100,
                 orientation="vertical",
                 variable=self.master_bright_var,
                 command=self._on_master_brightness_changed,
@@ -265,130 +276,166 @@ class HueTab:
                 time.sleep(5)
 
     def _refresh_content(self, force=False):
-        """Refresh Szenen oder Lichter je nach Mode."""
-        try:
-            # Timestamp für UI
-            try:
-                self.last_refresh_var.set(time.strftime("%H:%M:%S"))
-            except Exception:
-                pass
-            if self.mode.get() == "scenes":
-                self._refresh_scenes(force=force)
-            else:
-                self._refresh_lights()
-        except Exception as e:
-            print(f"[HUE] Refresh error: {e}")
+        """Refresh Szenen oder Lichter je nach Mode.
 
-    def _refresh_scenes(self, force=False):
-        """Zeige Szenen."""
-        if not self.bridge:
-            self._show_error("Keine Verbindung")
+        WICHTIG: Keine blockierenden Bridge-Calls im UI-Thread.
+        Nur updaten, wenn sich der Zustand aendert oder force=True ist.
+        """
+        if self._refresh_inflight:
             return
-            
+        self._refresh_inflight = True
+        mode = self.mode.get()
+
+        def worker():
+            try:
+                if mode == "scenes":
+                    data = self._fetch_scenes_data()
+                    self._ui_call(self._apply_scenes, data, force)
+                else:
+                    data = self._fetch_lights_data()
+                    self._ui_call(self._apply_lights, data, force)
+            except Exception as e:
+                print(f"[HUE] Refresh error: {e}")
+            finally:
+                self._ui_call(self._set_refresh_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_refresh_done(self):
+        self._refresh_inflight = False
+
+    def _fetch_scenes_data(self):
+        """Hole Szenen-Daten in einem Worker-Thread."""
+        if not self.bridge:
+            return {"error": "Keine Verbindung"}
+
+        scenes = self.bridge.get_scene()
+        if not scenes:
+            return {"error": "Keine Szenen"}
+
         try:
-            scenes = self.bridge.get_scene()
-            if not scenes:
-                self._show_error("Keine Szenen")
-                return
+            groups = self.bridge.get_group() or {}
+        except Exception:
+            groups = {}
+        try:
+            lights = self.bridge.get_light() or {}
+        except Exception:
+            lights = {}
 
-            # Gruppen (Rooms/Zones) + Lights für Validierung
+        light_ids = set(str(k) for k in lights.keys())
+        group_names = {}
+        for gid, gdata in (groups or {}).items():
             try:
-                groups = self.bridge.get_group() or {}
+                group_names[str(gid)] = gdata.get("name", f"Gruppe {gid}")
             except Exception:
-                groups = {}
+                group_names[str(gid)] = f"Gruppe {gid}"
+
+        per_group = defaultdict(list)
+        other_key = "__other__"
+        for scene_id, scene_data in (scenes or {}).items():
             try:
-                lights = self.bridge.get_light() or {}
-            except Exception:
-                lights = {}
+                if scene_data.get("recycle") is True:
+                    continue
 
-            light_ids = set(str(k) for k in lights.keys())
-            group_names = {}
-            for gid, gdata in (groups or {}).items():
-                try:
-                    group_names[str(gid)] = gdata.get("name", f"Gruppe {gid}")
-                except Exception:
-                    group_names[str(gid)] = f"Gruppe {gid}"
+                name = scene_data.get("name", "Unbenannt")
+                scene_group = scene_data.get("group")
+                if scene_group is not None:
+                    scene_group = str(scene_group)
 
-            # Szenen pro Gruppe sammeln (max 10 pro Raum)
-            per_group = defaultdict(list)  # gid -> [(name, scene_id, gid)]
-            other_key = "__other__"
-            for scene_id, scene_data in (scenes or {}).items():
-                try:
-                    if scene_data.get("recycle") is True:
+                scene_lights = scene_data.get("lights") or []
+                if scene_lights:
+                    if not any(str(lid) in light_ids for lid in scene_lights):
                         continue
 
-                    name = scene_data.get("name", "Unbenannt")
-                    scene_group = scene_data.get("group")
-                    if scene_group is not None:
-                        scene_group = str(scene_group)
-
-                    # Manche Szenen referenzieren Lights direkt (validiere, um "alte" Szenen zu vermeiden)
-                    scene_lights = scene_data.get("lights") or []
-                    if scene_lights:
-                        if not any(str(lid) in light_ids for lid in scene_lights):
-                            continue
-
-                    if scene_group and scene_group in group_names:
-                        per_group[scene_group].append((name, scene_id, scene_group))
-                    else:
-                        per_group[other_key].append((name, scene_id, None))
-                except Exception:
-                    continue
-
-            # Sortieren + pro Gruppe limitieren
-            for gid in list(per_group.keys()):
-                per_group[gid].sort(key=lambda x: x[0])
-                if gid != other_key:
-                    per_group[gid] = per_group[gid][:10]
+                if scene_group and scene_group in group_names:
+                    per_group[scene_group].append((name, scene_id, scene_group))
                 else:
-                    per_group[gid] = per_group[gid][:10]
-            
-            # UI aufräumen
-            for w in self.scroll_frame.winfo_children():
-                w.destroy()
+                    per_group[other_key].append((name, scene_id, None))
+            except Exception:
+                continue
 
-            if not per_group:
-                self._show_error("Keine Szenen")
-                return
+        for gid in list(per_group.keys()):
+            per_group[gid].sort(key=lambda x: x[0])
+            per_group[gid] = per_group[gid][:10]
 
-            # Gruppen-Order: nach Name, dann "Andere"
-            ordered_group_ids = sorted([gid for gid in per_group.keys() if gid != other_key], key=lambda gid: group_names.get(gid, gid))
-            if other_key in per_group and per_group[other_key]:
-                ordered_group_ids.append(other_key)
+        ordered_group_ids = sorted([gid for gid in per_group.keys() if gid != other_key], key=lambda gid: group_names.get(gid, gid))
+        if other_key in per_group and per_group[other_key]:
+            ordered_group_ids.append(other_key)
 
-            # Render: pro Gruppe ein Abschnitt
-            for section_idx, gid in enumerate(ordered_group_ids):
-                section = tk.Frame(self.scroll_frame, bg=COLOR_ROOT)
-                section.pack(fill="x", pady=(0, 12))
+        return {
+            "group_names": group_names,
+            "per_group": per_group,
+            "ordered_group_ids": ordered_group_ids,
+        }
 
-                title = group_names.get(gid, "Andere Szenen") if gid != other_key else "Andere Szenen"
-                tk.Label(
-                    section, text=title,
-                    font=("Segoe UI", 10, "bold"), fg=COLOR_TEXT, bg=COLOR_ROOT
-                ).pack(anchor="w", padx=2, pady=(0, 6))
+    def _scene_structure_key(self, per_group, ordered_group_ids):
+        return tuple((gid, tuple(scene_id for _, scene_id, _ in per_group.get(gid, []))) for gid in ordered_group_ids)
 
-                grid = tk.Frame(section, bg=COLOR_ROOT)
-                grid.pack(fill="x")
+    def _apply_scenes(self, data, force=False):
+        """Render Szenen nur, wenn sich der Zustand aendert."""
+        if not data or data.get("error"):
+            self._show_error(data.get("error", "Keine Szenen"))
+            return
 
-                cols = 5
-                for c in range(cols):
-                    try:
-                        grid.grid_columnconfigure(c, weight=1, uniform="scene")
-                    except Exception:
-                        pass
+        group_names = data["group_names"]
+        per_group = data["per_group"]
+        ordered_group_ids = data["ordered_group_ids"]
 
-                items = per_group.get(gid, [])
-                if not items:
-                    continue
+        structure_key = self._scene_structure_key(per_group, ordered_group_ids)
+        active_key = tuple(sorted(self._active_scene_by_group.items()))
+        snapshot = (structure_key, active_key)
 
-                for idx, (name, scene_id, scene_group) in enumerate(items):
-                    row = idx // cols
-                    col = idx % cols
-                    self._create_scene_card(grid, name, scene_id, scene_group, row, col)
-                
-        except Exception as e:
-            print(f"[HUE] Scene refresh error: {e}")
-            self._show_error(f"Fehler: {str(e)[:30]}")
+        if not force and snapshot == self._scene_snapshot:
+            return
+
+        # If only active scene changed, update highlight without rebuild.
+        if not force and self._scene_snapshot and self._scene_snapshot[0] == structure_key:
+            self._scene_snapshot = snapshot
+            self._update_scene_highlights()
+            return
+
+        self._scene_snapshot = snapshot
+
+        for w in self.scroll_frame.winfo_children():
+            w.destroy()
+        self._scene_cards.clear()
+        self._scene_sections.clear()
+
+        if not per_group:
+            self._show_error("Keine Szenen")
+            return
+
+        for gid in ordered_group_ids:
+            section = tk.Frame(self.scroll_frame, bg=COLOR_ROOT)
+            section.pack(fill="x", pady=(0, 12))
+            self._scene_sections[gid] = section
+
+            title = group_names.get(gid, "Andere Szenen") if gid != "__other__" else "Andere Szenen"
+            tk.Label(
+                section,
+                text=title,
+                font=("Segoe UI", 12, "bold"),
+                fg=COLOR_TITLE,
+                bg=COLOR_ROOT,
+            ).pack(anchor="w", padx=2, pady=(0, 6))
+
+            grid = tk.Frame(section, bg=COLOR_ROOT)
+            grid.pack(fill="x")
+
+            cols = 5
+            for c in range(cols):
+                try:
+                    grid.grid_columnconfigure(c, weight=1, uniform="scene")
+                except Exception:
+                    pass
+
+            items = per_group.get(gid, [])
+            for idx, (name, scene_id, scene_group) in enumerate(items):
+                row = idx // cols
+                col = idx % cols
+                self._create_scene_card(grid, name, scene_id, scene_group, row, col)
+
+        self.last_refresh_var.set(time.strftime("%H:%M:%S"))
 
     def _create_scene_card(self, parent, name, scene_id, group_id, row, col):
         """Erstelle eine Scene Card."""
@@ -409,9 +456,36 @@ class HueTab:
                 relief="flat", padx=15, pady=8
             )
             btn.pack(pady=(5, 10), padx=10, fill="x")
+
+            self._scene_cards[str(scene_id)] = {
+                "card": card,
+                "button": btn,
+                "group_id": str(group_id) if group_id is not None else None,
+            }
+            self._set_scene_active_style(str(scene_id))
             
         except Exception as e:
             print(f"[HUE] Scene card error: {e}")
+
+    def _set_scene_active_style(self, scene_id: str):
+        info = self._scene_cards.get(scene_id)
+        if not info:
+            return
+        gid = info.get("group_id")
+        is_active = gid in self._active_scene_by_group and self._active_scene_by_group.get(gid) == scene_id
+        try:
+            if is_active:
+                info["card"].configure(highlightthickness=2, highlightbackground=COLOR_PRIMARY)
+                info["button"].configure(bg=COLOR_SUCCESS)
+            else:
+                info["card"].configure(highlightthickness=1, highlightbackground=COLOR_BORDER)
+                info["button"].configure(bg=COLOR_PRIMARY)
+        except Exception:
+            pass
+
+    def _update_scene_highlights(self):
+        for scene_id in list(self._scene_cards.keys()):
+            self._set_scene_active_style(scene_id)
 
     def _threaded_activate_scene(self, group_id, scene_id, scene_name=""):
         """Aktiviere eine Szene (nicht-blockierend, mit UI-Feedback)."""
@@ -439,49 +513,83 @@ class HueTab:
                     resp = self.bridge.activate_scene(group_id=gid, scene_id=scene_id)
                 print(f"[HUE] Activated scene {scene_id} (group={gid}) -> {resp}")
                 self._ui_call(self.status_var.set, "✓ Szene aktiviert")
+                # UI-only update: mark active scene without full refresh.
+                self._ui_call(self._set_active_scene, str(group_id) if group_id is not None else None, str(scene_id))
             except Exception as e:
                 print(f"[HUE] Scene activation error: {e}")
                 self._ui_call(self.status_var.set, f"⚠ Szene Fehler: {str(e)[:40]}")
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _refresh_lights(self):
-        """Zeige einzelne Lichter mit Helligkeitsreglern."""
-        if not self.bridge:
-            self._show_error("Keine Verbindung")
+    def _set_active_scene(self, group_id: str | None, scene_id: str):
+        if group_id is None:
             return
-            
-        try:
-            lights = self.bridge.get_light()
-            if not lights:
-                self._show_error("Keine Lichter")
-                return
-            
-            # UI aufräumen
+        self._active_scene_by_group[str(group_id)] = str(scene_id)
+        self._update_scene_highlights()
+
+    def _fetch_lights_data(self):
+        """Hole Light-Daten in einem Worker-Thread."""
+        if not self.bridge:
+            return {"error": "Keine Verbindung"}
+
+        lights = self.bridge.get_light()
+        if not lights:
+            return {"error": "Keine Lichter"}
+
+        light_list = []
+        for light_id, light_data in lights.items():
+            state = light_data.get("state", {})
+            light_list.append(
+                {
+                    "id": int(light_id),
+                    "name": light_data.get("name", f"Light {light_id}"),
+                    "on": bool(state.get("on", False)),
+                    "bri": int(state.get("bri", 0)),
+                }
+            )
+
+        light_list.sort(key=lambda x: x["name"])
+        return {"lights": light_list}
+
+    def _light_structure_key(self, light_list):
+        return tuple(item["id"] for item in light_list)
+
+    def _apply_lights(self, data, force=False):
+        """Render Light Cards nur, wenn sich der Zustand aendert."""
+        if not data or data.get("error"):
+            self._show_error(data.get("error", "Keine Lichter"))
+            return
+
+        light_list = data["lights"]
+        snapshot = tuple((l["id"], l["on"], l["bri"]) for l in light_list)
+        structure_key = self._light_structure_key(light_list)
+
+        if not force and snapshot == self._light_snapshot:
+            return
+
+        # Rebuild only if the set of lights changed.
+        if self._light_structure != structure_key:
             for w in self.scroll_frame.winfo_children():
                 w.destroy()
-            
-            # Lichter als Liste
-            light_list = sorted([(light_id, light_data.get("name", f"Light {light_id}")) for light_id, light_data in lights.items()])
-            
-            # Lichter Grid (2 Spalten - genug Platz für Slider)
+            self._light_cards.clear()
+
             cols = 2
-            for idx, (light_id, name) in enumerate(light_list):
+            for idx, light in enumerate(light_list):
                 row = idx // cols
                 col = idx % cols
-                self._create_light_card(name, light_id, row, col)
-                
-        except Exception as e:
-            print(f"[HUE] Lights refresh error: {e}")
-            self._show_error(f"Fehler: {str(e)[:30]}")
+                self._create_light_card(light["name"], light["id"], row, col)
+            self._light_structure = structure_key
+
+        for light in light_list:
+            self._light_state[light["id"]] = light
+            self._update_light_card(light["id"], light)
+
+        self._light_snapshot = snapshot
+        self.last_refresh_var.set(time.strftime("%H:%M:%S"))
 
     def _create_light_card(self, name, light_id, row, col):
         """Erstelle eine Licht-Card mit Toggle + Brightness."""
         try:
-            light_data = self.bridge.get_light(light_id)
-            is_on = light_data.get("state", {}).get("on", False)
-            brightness = light_data.get("state", {}).get("bri", 128)
-
             card = tk.Frame(self.scroll_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
             card.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
             self.scroll_frame.grid_columnconfigure(col, weight=1)
@@ -490,64 +598,122 @@ class HueTab:
             header = tk.Frame(card, bg=COLOR_CARD)
             header.pack(fill="x", padx=10, pady=(10, 5))
             
-            tk.Label(
+            name_label = tk.Label(
                 header, text=name, font=("Segoe UI", 10, "bold"),
                 fg=COLOR_TEXT, bg=COLOR_CARD
-            ).pack(side="left")
+            )
+            name_label.pack(side="left")
             
-            status_text = "An" if is_on else "Aus"
-            status_color = COLOR_SUCCESS if is_on else COLOR_SUBTEXT
-            tk.Label(
-                header, text=f"[{status_text}]", font=("Segoe UI", 9),
-                fg=status_color, bg=COLOR_CARD
-            ).pack(side="right")
+            status_label = tk.Label(
+                header, text="[--]", font=("Segoe UI", 9),
+                fg=COLOR_SUBTEXT, bg=COLOR_CARD
+            )
+            status_label.pack(side="right")
             
             # Unten: Toggle Button + Brightness Slider
             control = tk.Frame(card, bg=COLOR_CARD)
             control.pack(fill="x", padx=10, pady=(5, 10))
             
-            def toggle_light():
-                try:
-                    self.bridge.set_light(light_id, "on", not is_on)
-                except:
-                    pass
-            
             btn = tk.Button(
                 control, text="An/Aus", font=("Segoe UI", 9),
-                bg=COLOR_PRIMARY if is_on else COLOR_SUBTEXT,
+                bg=COLOR_SUBTEXT,
                 fg=COLOR_ROOT, activebackground=COLOR_SUCCESS,
-                command=toggle_light, relief="flat", width=10
+                command=lambda lid=light_id: self._toggle_light(lid), relief="flat", width=10
             )
             btn.pack(side="left", padx=(0, 10))
-            
-            if is_on:
-                def set_brightness(val):
-                    try:
-                        bri_val = int((int(val) / 100) * 254)
-                        self.bridge.set_light(light_id, "bri", bri_val)
-                    except:
-                        pass
-                
-                brightness_percent = int((brightness / 254) * 100)
-                
-                # Moderner horizontaler CustomTkinter Slider
-                slider = ctk.CTkSlider(
-                    control,
-                    from_=0, to=100,
-                    orientation="horizontal",
-                    command=set_brightness,
-                    width=150,
-                    height=20,
-                    button_color=COLOR_PRIMARY,
-                    button_hover_color=COLOR_SUCCESS,
-                    progress_color=COLOR_PRIMARY,
-                    fg_color=COLOR_CARD
-                )
-                slider.set(brightness_percent)
-                slider.pack(side="left", fill="x", expand=True, padx=5)
+
+            slider = ctk.CTkSlider(
+                control,
+                from_=0, to=100,
+                orientation="horizontal",
+                command=lambda val, lid=light_id: self._on_light_brightness(lid, val),
+                width=150,
+                height=20,
+                button_color=COLOR_PRIMARY,
+                button_hover_color=COLOR_SUCCESS,
+                progress_color=COLOR_PRIMARY,
+                fg_color=COLOR_CARD
+            )
+            slider.set(0)
+            slider.pack(side="left", fill="x", expand=True, padx=5)
+
+            self._light_cards[int(light_id)] = {
+                "card": card,
+                "name_label": name_label,
+                "status_label": status_label,
+                "button": btn,
+                "slider": slider,
+            }
             
         except Exception as e:
             print(f"[HUE] Light card error: {e}")
+
+    def _update_light_card(self, light_id: int, state: dict):
+        info = self._light_cards.get(int(light_id))
+        if not info:
+            return
+        is_on = bool(state.get("on", False))
+        bri = int(state.get("bri", 0))
+        brightness_percent = int((bri / 254) * 100) if bri else 0
+
+        status_text = "An" if is_on else "Aus"
+        status_color = COLOR_SUCCESS if is_on else COLOR_SUBTEXT
+        try:
+            info["status_label"].configure(text=f"[{status_text}]", fg=status_color)
+            info["button"].configure(bg=COLOR_PRIMARY if is_on else COLOR_SUBTEXT)
+            info["slider"].set(brightness_percent)
+            try:
+                info["slider"].configure(state="normal" if is_on else "disabled")
+            except Exception:
+                pass
+            if not is_on:
+                try:
+                    info["slider"].configure(progress_color=COLOR_SUBTEXT)
+                except Exception:
+                    pass
+            else:
+                try:
+                    info["slider"].configure(progress_color=COLOR_PRIMARY)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _toggle_light(self, light_id: int):
+        state = self._light_state.get(int(light_id), {})
+        target = not bool(state.get("on", False))
+
+        def worker():
+            if not self.bridge:
+                return
+            try:
+                self.bridge.set_light(light_id, "on", target)
+                state["on"] = target
+                self._light_state[int(light_id)] = state
+                self._ui_call(self._update_light_card, int(light_id), state)
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_light_brightness(self, light_id: int, val):
+        state = self._light_state.get(int(light_id), {})
+        try:
+            bri_val = int((int(val) / 100) * 254)
+        except Exception:
+            return
+
+        def worker():
+            if not self.bridge:
+                return
+            try:
+                self.bridge.set_light(light_id, "bri", bri_val)
+                state["bri"] = bri_val
+                self._light_state[int(light_id)] = state
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _set_master_brightness(self, percent):
         """Setze Helligkeit für alle Lampen (Group 0)."""

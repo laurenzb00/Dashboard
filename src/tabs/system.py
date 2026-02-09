@@ -56,7 +56,7 @@ class SystemTab:
         """Modern Dashboard-style UI mit Cards."""
         # Main container with padding
         main = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        main.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         
         # Grid layout: 2 rows x 3 columns
         main.grid_rowconfigure(0, weight=1)
@@ -66,18 +66,18 @@ class SystemTab:
         main.grid_columnconfigure(2, weight=1)
         
         # Row 1: CPU, RAM, Disk
-        self._create_cpu_card(main).grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
-        self._create_ram_card(main).grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
-        self._create_disk_card(main).grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
+        self._create_cpu_card(main).grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        self._create_ram_card(main).grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
+        self._create_disk_card(main).grid(row=0, column=2, sticky="nsew", padx=4, pady=4)
         
         # Row 2: Temperature, Uptime, Network
-        self._create_temp_card(main).grid(row=1, column=0, sticky="nsew", padx=2, pady=2)
-        self._create_uptime_card(main).grid(row=1, column=1, sticky="nsew", padx=2, pady=2)
-        self._create_network_card(main).grid(row=1, column=2, sticky="nsew", padx=2, pady=2)
+        self._create_temp_card(main).grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+        self._create_uptime_card(main).grid(row=1, column=1, sticky="nsew", padx=4, pady=4)
+        self._create_network_card(main).grid(row=1, column=2, sticky="nsew", padx=4, pady=4)
 
     def _create_cpu_card(self, parent) -> Card:
         """CPU Usage Card with circular progress."""
-        card = Card(parent, padding=8)
+        card = Card(parent, padding=10)
         card.add_title("CPU", icon="⚙️")
         
         # Canvas for circular progress
@@ -90,14 +90,14 @@ class SystemTab:
                                    font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
         self.cpu_label.pack()
         
-        tk.Label(card.content(), text="%", font=("Segoe UI", 10), 
+        tk.Label(card.content(), text="%", font=("Segoe UI", 9), 
                  fg=COLOR_SUBTEXT, bg=COLOR_CARD).pack()
         
         return card
 
     def _create_ram_card(self, parent) -> Card:
         """RAM Usage Card with circular progress."""
-        card = Card(parent, padding=8)
+        card = Card(parent, padding=10)
         card.add_title("RAM", icon="💾")
         
         # Canvas for circular progress
@@ -110,14 +110,14 @@ class SystemTab:
                                    font=("Segoe UI", 20, "bold"), fg=COLOR_TEXT, bg=COLOR_CARD)
         self.ram_label.pack()
         
-        tk.Label(card.content(), text="%", font=("Segoe UI", 10), 
+        tk.Label(card.content(), text="%", font=("Segoe UI", 9), 
                  fg=COLOR_SUBTEXT, bg=COLOR_CARD).pack()
         
         return card
 
     def _create_disk_card(self, parent) -> Card:
         """Disk Usage Card with circular progress."""
-        card = Card(parent, padding=8)
+        card = Card(parent, padding=10)
         card.add_title("SD-Karte", icon="💿")
         
         # Canvas for circular progress
@@ -130,14 +130,14 @@ class SystemTab:
                                     font=("Segoe UI", 20, "bold"), fg=COLOR_TEXT, bg=COLOR_CARD)
         self.disk_label.pack()
         
-        tk.Label(card.content(), text="%", font=("Segoe UI", 10), 
+        tk.Label(card.content(), text="%", font=("Segoe UI", 9), 
                  fg=COLOR_SUBTEXT, bg=COLOR_CARD).pack()
         
         return card
 
     def _create_temp_card(self, parent) -> Card:
         """Temperature Card."""
-        card = Card(parent, padding=8)
+        card = Card(parent, padding=10)
         card.add_title("Temperatur", icon="🌡️")
         
         temp_label = tk.Label(card.content(), textvariable=self.var_temp, 
@@ -148,7 +148,7 @@ class SystemTab:
 
     def _create_uptime_card(self, parent) -> Card:
         """Uptime Card."""
-        card = Card(parent, padding=8)
+        card = Card(parent, padding=10)
         card.add_title("Uptime", icon="⏱️")
         
         uptime_label = tk.Label(card.content(), textvariable=self.var_uptime, 
@@ -167,7 +167,7 @@ class SystemTab:
 
     def _create_network_card(self, parent) -> Card:
         """Network Traffic Card."""
-        card = Card(parent, padding=8)
+        card = Card(parent, padding=10)
         card.add_title("Netzwerk", icon="📡")
         
         # Upload

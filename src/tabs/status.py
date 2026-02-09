@@ -87,10 +87,10 @@ class StatusTab(ctk.CTkFrame):
             inner = card.content()
             
             # Icon
-            icon_lbl = ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 32), text_color=COLOR_TEXT)
+            icon_lbl = ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 28), text_color=COLOR_TEXT)
             icon_lbl.pack(pady=(8, 4))
             # Label
-            ctk.CTkLabel(inner, text=label, font=("Segoe UI", 11, "bold"), text_color=COLOR_SUBTEXT).pack(pady=(0, 4))
+            ctk.CTkLabel(inner, text=label, font=("Segoe UI", 10, "bold"), text_color=COLOR_TITLE).pack(pady=(0, 4))
             # Status-Ampel
             lamp = tk.Canvas(inner, width=24, height=24, bg=COLOR_ROOT, highlightthickness=0)
             lamp.pack(pady=(4, 8))
@@ -110,10 +110,10 @@ class StatusTab(ctk.CTkFrame):
             card.grid(row=1, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
             
-            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 24), text_color=COLOR_PRIMARY).pack(pady=(6, 2))
-            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 22, "bold"), text_color=COLOR_TEXT)
+            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 22), text_color=COLOR_PRIMARY).pack(pady=(6, 2))
+            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
             val.pack(pady=(0, 2))
-            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 10), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
+            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
             
             self.snapshot_labels[key] = val
         
@@ -128,10 +128,10 @@ class StatusTab(ctk.CTkFrame):
             card.grid(row=2, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
             
-            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 24), text_color=COLOR_WARNING).pack(pady=(6, 2))
-            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 22, "bold"), text_color=COLOR_TEXT)
+            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 22), text_color=COLOR_WARNING).pack(pady=(6, 2))
+            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
             val.pack(pady=(0, 2))
-            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 10), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
+            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
             
             self.snapshot_labels[key] = val
         

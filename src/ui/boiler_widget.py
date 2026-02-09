@@ -34,6 +34,8 @@ try:
         COLOR_SUBTEXT,
         COLOR_BORDER,
     )
+    COLOR_CARD_BG = COLOR_GLASS_BG
+    COLOR_ACCENT = COLOR_PRIMARY
 except Exception:
     COLOR_DARK_BG = "#0E0F12"
     COLOR_GLASS_BG = "#0E0F12"
@@ -43,6 +45,8 @@ except Exception:
     COLOR_TEXT = "#e2e8f0"
     COLOR_SUBTEXT = "#64748b"
     COLOR_BORDER = "#0E0F12"
+    COLOR_CARD_BG = COLOR_GLASS_BG
+    COLOR_ACCENT = COLOR_PRIMARY
 
 class ModernBoilerWidget:
     """Moderne Pufferspeicher-Visualisierung mit Heatmap"""
@@ -81,7 +85,7 @@ class ModernBoilerWidget:
         """Erstellt detaillierte Heatmap mit Glasmorphism"""
         
         # Figure erstellen (klein und kompakt)
-        self.fig, self.ax = plt.subplots(figsize=(2.2, 2.8), dpi=85)
+        self.fig, self.ax = plt.subplots(figsize=(1.9, 2.6), dpi=85)
         self.fig.patch.set_facecolor(COLOR_GLASS_BG)
         self.ax.set_facecolor(COLOR_GLASS_BG)
         
@@ -95,93 +99,14 @@ class ModernBoilerWidget:
     def _update_heatmap(self, temp_top, temp_mid, temp_bot, temp_warmwasser=None):
         """Aktualisiert die Heatmap mit modernen Chip-Style Labels"""
         self.ax.clear()
-        
-        # Erstelle simulierte Temperaturverteilung (24 Schichten - glatterer Gradient)
+
         layers = 24
         temps = np.linspace(temp_bot, temp_top, layers)
-        
-        # 2D Array für Heatmap (etwas breiter für bessere Visualisierung)
-        heatmap_data = np.tile(temps[:, np.newaxis], (1, 5))
-        
-        # Verbesserte Normalisierung für besseren Kontrast
+        heatmap_data = np.tile(temps[:, np.newaxis], (1, 3))
+
         from matplotlib.colors import TwoSlopeNorm
         norm = TwoSlopeNorm(vmin=35, vcenter=57, vmax=75)
-        
-        # Imshow mit verbesserter Colormap
-        self.ax.imshow(
-            heatmap_data,
-            aspect='auto',
-            cmap='RdYlBu_r',  # Rot=heiß, Blau=kalt
-            norm=norm,
-            interpolation='gaussian',  # Weicher als bilinear
-            origin='lower'
-        )
-        
-        # Moderne Chip-Style Temperature Labels (kompakt & elegant)
-        mid_layer = layers // 2
-        
-        # Funktion für Chip-Style Badge
-        def add_temp_chip(y_pos, temp, label):
-            """Fügt moderne Chip-Style Temperature Badge hinzu"""
-            # Hintergrund-Box (rounded)
-            from matplotlib.patches import FancyBboxPatch
-            
-            # Farbe basierend auf Temperatur
-            if temp >= 65:
-                chip_color = COLOR_SUCCESS
-                text_color = 'white'
-            elif temp >= 55:
-                chip_color = COLOR_WARNING
-                text_color = 'white'
-            else:
-                chip_color = COLOR_BORDER
-                text_color = COLOR_SUBTEXT
-            
-            # Chip Position rechts neben Heatmap
-            chip_x = 5.5
-            chip_width = 1.8
-            chip_height = 1.6
-            
-            box = FancyBboxPatch(
-                (chip_x, y_pos - chip_height/2),
-                chip_width,
-                chip_height,
-                boxstyle="round,pad=0.05",
-                facecolor=chip_color,
-                edgecolor='none',
-                alpha=0.9
-            )
-            self.ax.add_patch(box)
-            
-            # Temperatur-Text (fett, weiß)
-            self.ax.text(
-                chip_x + chip_width/2, y_pos,
-                f"{temp:.0f}°",
-                ha='center', va='center',
-                fontsize=9, fontweight='bold',
-                color=text_color
-            )
-            
-            # Label (klein, gedimmt) - links von der Heatmap
-            self.ax.text(
-                -0.5, y_pos,
-                label,
-                ha='right', va='center',
-                fontsize=8,
-                color=COLOR_SUBTEXT
-            )
-        
-        # Temperature Chips hinzufügen
-        add_temp_chip(layers - 1.5, temp_top, "Oben")
-        add_temp_chip(mid_layer, temp_mid, "Mitte")
-        self.ax.clear()
-        layers = 24
-        # Titel links: Warmwasser
-        self.ax.text(2.5, layers + 2, "Warmwasser", ha='center', va='bottom', fontsize=12, fontweight='bold', color=COLOR_TEXT)
-        temps = np.linspace(temp_bot, temp_top, layers)
-        heatmap_data = np.tile(temps[:, np.newaxis], (1, 5))
-        from matplotlib.colors import TwoSlopeNorm
-        norm = TwoSlopeNorm(vmin=35, vcenter=57, vmax=75)
+
         self.ax.imshow(
             heatmap_data,
             aspect='auto',
@@ -190,9 +115,23 @@ class ModernBoilerWidget:
             interpolation='gaussian',
             origin='lower'
         )
+
+        self.ax.text(
+            2.5,
+            layers + 2,
+            "Warmwasser",
+            ha='center',
+            va='bottom',
+            fontsize=12,
+            fontweight='bold',
+            color=COLOR_TEXT,
+        )
+
         mid_layer = layers // 2
+
         def add_temp_chip(y_pos, temp, label):
             from matplotlib.patches import FancyBboxPatch
+
             if temp >= 65:
                 chip_color = COLOR_SUCCESS
                 text_color = 'white'
@@ -202,11 +141,13 @@ class ModernBoilerWidget:
             else:
                 chip_color = COLOR_BORDER
                 text_color = COLOR_SUBTEXT
-            chip_x = 5.5
-            chip_width = 1.8
+
+            chip_x = 3.8
+            chip_width = 1.4
             chip_height = 1.6
+
             box = FancyBboxPatch(
-                (chip_x, y_pos - chip_height/2),
+                (chip_x, y_pos - chip_height / 2),
                 chip_width,
                 chip_height,
                 boxstyle="round,pad=0.05",
@@ -216,27 +157,35 @@ class ModernBoilerWidget:
             )
             self.ax.add_patch(box)
             self.ax.text(
-                chip_x + chip_width/2, y_pos,
+                chip_x + chip_width / 2,
+                y_pos,
                 f"{temp:.0f}°",
-                ha='center', va='center',
-                fontsize=9, fontweight='bold',
+                ha='center',
+                va='center',
+                fontsize=9,
+                fontweight='bold',
                 color=text_color
             )
             self.ax.text(
-                -0.5, y_pos,
+                -0.5,
+                y_pos,
                 label,
-                ha='right', va='center',
+                ha='right',
+                va='center',
                 fontsize=8,
                 color=COLOR_SUBTEXT
             )
+
         add_temp_chip(layers - 1.5, temp_top, "Oben")
         add_temp_chip(mid_layer, temp_mid, "Mitte")
         add_temp_chip(1.5, temp_bot, "Unten")
-        # Rechts: Warmwasser-Badge
+
         if temp_warmwasser is not None:
             from matplotlib.patches import FancyBboxPatch
             box = FancyBboxPatch(
-                (8.2, layers // 2 - 1), 2.2, 2.2,
+                (5.7, layers // 2 - 1),
+                1.8,
+                2.2,
                 boxstyle="round,pad=0.08",
                 facecolor=COLOR_PRIMARY,
                 edgecolor='none',
@@ -244,27 +193,67 @@ class ModernBoilerWidget:
             )
             self.ax.add_patch(box)
             self.ax.text(
-                9.3, layers // 2,
+                6.6,
+                layers // 2,
                 f"💧 Warmwasser\n{temp_warmwasser:.0f}°",
-                ha='center', va='center',
-                fontsize=10, fontweight='bold',
+                ha='center',
+                va='center',
+                fontsize=10,
+                fontweight='bold',
                 color='white'
             )
+
         self.ax.set_xticks([])
         self.ax.set_yticks([])
         for spine in self.ax.spines.values():
             spine.set_visible(False)
-        self.ax.set_xlim(-1.5, 11)
+        self.ax.set_xlim(-1.0, 7.5)
         self.ax.set_ylim(-4, layers + 4)
         self.fig.tight_layout(pad=0.1)
         self.canvas.draw()
-        draw.text((w // 2, 5 * h // 6), f"{temp_bot:.0f}°C",
-                  fill='white', anchor='mm', font=None)
-        
-        # Blur für smooth look
-        img = img.filter(ImageFilter.GaussianBlur(radius=2))
-        
-        # Zu TkImage
+
+    def _create_pil_gradient(self):
+        self.gradient_label = tk.Label(self.frame, bg=COLOR_GLASS_BG)
+        self.gradient_label.pack(fill=tk.BOTH, expand=True)
+        self._update_gradient(0, 0, 0)
+
+    def _temp_to_color(self, temp: float) -> str:
+        if temp < 20:
+            return "#3b82f6"
+        if temp < 35:
+            return "#10b981"
+        if temp < 50:
+            return "#f59e0b"
+        if temp < 65:
+            return "#ef4444"
+        return "#dc2626"
+
+    def _update_gradient(self, temp_top, temp_mid, temp_bot):
+        w = max(1, int(self.width))
+        h = max(1, int(self.height))
+        img = Image.new("RGB", (w, h), COLOR_DARK_BG)
+        draw = ImageDraw.Draw(img)
+
+        section_h = max(1, h // 3)
+        colors = [
+            self._temp_to_color(temp_top),
+            self._temp_to_color(temp_mid),
+            self._temp_to_color(temp_bot),
+        ]
+        for i, color in enumerate(colors):
+            y0 = i * section_h
+            y1 = h if i == 2 else (i + 1) * section_h
+            draw.rectangle([0, y0, w, y1], fill=color)
+
+        draw.text((w // 2, section_h // 2), f"{temp_top:.0f}°C", fill="white", anchor="mm")
+        draw.text((w // 2, section_h + section_h // 2), f"{temp_mid:.0f}°C", fill="white", anchor="mm")
+        draw.text((w // 2, 2 * section_h + section_h // 2), f"{temp_bot:.0f}°C", fill="white", anchor="mm")
+
+        draw.text((6, 6), "Oben", fill=COLOR_SUBTEXT, anchor="la")
+        draw.text((6, section_h + 6), "Mitte", fill=COLOR_SUBTEXT, anchor="la")
+        draw.text((6, 2 * section_h + 6), "Unten", fill=COLOR_SUBTEXT, anchor="la")
+
+        img = img.filter(ImageFilter.GaussianBlur(radius=1))
         self.tk_img = ImageTk.PhotoImage(img)
         self.gradient_label.configure(image=self.tk_img)
         self.gradient_label.image = self.tk_img

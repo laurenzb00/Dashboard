@@ -8,7 +8,7 @@ from io import BytesIO
 from typing import Optional
 
 import requests
-from ui.styles import COLOR_ROOT, COLOR_TEXT, COLOR_SUBTEXT
+from ui.styles import COLOR_ROOT, COLOR_TEXT, COLOR_SUBTEXT, COLOR_TITLE
 try:
     import ttkbootstrap as ttk
     from ttkbootstrap.constants import BOTH, LEFT, RIGHT, W
@@ -52,11 +52,26 @@ class SpotifyTab:
     def _build_devices_tab(self) -> None:
         header = tk.Frame(self.devices_frame, bg=COLOR_ROOT)
         header.pack(fill=tk.X)
-        tk.Label(header, text="Geräteauswahl", font=("Arial", 14, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
-        tk.Label(header, text="Wähle hier das Ausgabegerät für Spotify.",
-                  font=("Arial", 10), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(2, 6))
-        ttk.Button(header, text="Geräte aktualisieren", command=self._refresh_devices,
-                   bootstyle="info-outline").pack(anchor=W)
+        tk.Label(
+            header,
+            text="Geräteauswahl",
+            font=("Arial", 15, "bold"),
+            bg=COLOR_ROOT,
+            fg=COLOR_TITLE,
+        ).pack(anchor=W)
+        tk.Label(
+            header,
+            text="Wähle hier das Ausgabegerät für Spotify.",
+            font=("Arial", 11),
+            bg=COLOR_ROOT,
+            fg=COLOR_SUBTEXT,
+        ).pack(anchor=W, pady=(2, 6))
+        ttk.Button(
+            header,
+            text="Geräte aktualisieren",
+            command=self._refresh_devices,
+            bootstyle="secondary-outline",
+        ).pack(anchor=W)
 
         body = tk.Frame(self.devices_frame, bg=COLOR_ROOT)
         body.pack(fill=BOTH, expand=True, pady=(12, 0))
@@ -256,10 +271,16 @@ class SpotifyTab:
     def _build_recent_tab(self) -> None:
         top = tk.Frame(self.recent_frame, bg=COLOR_ROOT)
         top.pack(fill=tk.X)
-        tk.Label(top, text="Zuletzt gespielt", font=("Arial", 14, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
+        tk.Label(
+            top,
+            text="Zuletzt gespielt",
+            font=("Arial", 15, "bold"),
+            bg=COLOR_ROOT,
+            fg=COLOR_TITLE,
+        ).pack(anchor=W)
 
         list_wrapper = tk.Frame(self.recent_frame, bg=COLOR_ROOT)
-        list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0))
+        list_wrapper.pack(fill=BOTH, expand=True, pady=(8, 0))
         self.recent_canvas = tk.Canvas(list_wrapper, highlightthickness=0, bg=COLOR_ROOT)
         v_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=self.recent_canvas.yview)
         self.recent_canvas.configure(yscrollcommand=v_scrollbar.set)
@@ -304,14 +325,40 @@ class SpotifyTab:
             label.pack(fill=tk.X, padx=8, pady=4)
 
     def _build_now_playing_tab(self) -> None:
-        container = tk.Frame(self.now_playing_frame, bg=COLOR_ROOT)
-        container.pack(fill=BOTH, expand=True, padx=12, pady=12)
+        outer = tk.Frame(self.now_playing_frame, bg=COLOR_ROOT)
+        outer.pack(fill=BOTH, expand=True)
+        header = tk.Frame(outer, bg=COLOR_ROOT)
+        header.pack(fill=tk.X, padx=12, pady=(12, 6))
+        tk.Label(
+            header,
+            text="Aktuelle Wiedergabe",
+            font=("Arial", 15, "bold"),
+            bg=COLOR_ROOT,
+            fg=COLOR_TITLE,
+        ).pack(anchor=W)
+        tk.Label(
+            header,
+            text="Titel, Lautstärke und Schnellaktionen",
+            font=("Arial", 11),
+            bg=COLOR_ROOT,
+            fg=COLOR_SUBTEXT,
+        ).pack(anchor=W, pady=(2, 0))
+
+        container = tk.Frame(outer, bg=COLOR_ROOT)
+        container.pack(fill=BOTH, expand=True, padx=12, pady=(6, 12))
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
 
         left = tk.Frame(container, bg=COLOR_ROOT)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
-        self.cover_label = tk.Label(left, text="Kein Cover", anchor="center", width=28, bg=COLOR_ROOT, fg=COLOR_TEXT)
+        self.cover_label = tk.Label(
+            left,
+            text="Kein Cover",
+            anchor="center",
+            width=28,
+            bg=COLOR_ROOT,
+            fg=COLOR_TEXT,
+        )
         self.cover_label.pack(fill=tk.BOTH, expand=True, pady=8)
 
         info_box = tk.Frame(left, bg=COLOR_ROOT)
@@ -319,9 +366,28 @@ class SpotifyTab:
         self.track_var = tk.StringVar(value="–")
         self.artist_var = tk.StringVar(value="")
         self.album_var = tk.StringVar(value="")
-        tk.Label(info_box, textvariable=self.track_var, font=("Arial", 18, "bold"), wraplength=360, bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
-        tk.Label(info_box, textvariable=self.artist_var, font=("Arial", 14), bg=COLOR_ROOT, fg="#99c1ff").pack(anchor=W, pady=(2, 0))
-        tk.Label(info_box, textvariable=self.album_var, font=("Arial", 12), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W)
+        tk.Label(
+            info_box,
+            textvariable=self.track_var,
+            font=("Arial", 20, "bold"),
+            wraplength=360,
+            bg=COLOR_ROOT,
+            fg=COLOR_TEXT,
+        ).pack(anchor=W)
+        tk.Label(
+            info_box,
+            textvariable=self.artist_var,
+            font=("Arial", 13),
+            bg=COLOR_ROOT,
+            fg="#99c1ff",
+        ).pack(anchor=W, pady=(2, 0))
+        tk.Label(
+            info_box,
+            textvariable=self.album_var,
+            font=("Arial", 11),
+            bg=COLOR_ROOT,
+            fg=COLOR_SUBTEXT,
+        ).pack(anchor=W)
 
         right = tk.Frame(container, bg=COLOR_ROOT)
         right.grid(row=0, column=1, sticky="nsew")
@@ -353,8 +419,12 @@ class SpotifyTab:
             ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
                             command=self._set_shuffle).pack(side=LEFT, padx=8)
         self.repeat_mode = tk.StringVar(value="off")
-        self.repeat_button = ttk.Button(quick_box, text="Repeat: off", command=self._cycle_repeat,
-                                        bootstyle="outline-secondary")
+        self.repeat_button = ttk.Button(
+            quick_box,
+            text="Repeat: off",
+            command=self._cycle_repeat,
+            bootstyle="outline-secondary",
+        )
         self.repeat_button.pack(side=LEFT, padx=8)
         self.like_button = ttk.Button(quick_box, text="❤ Like", command=self._toggle_like,
                                       bootstyle="outline-success")
@@ -362,22 +432,48 @@ class SpotifyTab:
 
         # Progress bar and controls now below quick actions
         self.progress_var = tk.StringVar(value="0:00 / 0:00")
-        tk.Label(right, textvariable=self.progress_var, font=("Arial", 11), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).grid(row=2, column=0, sticky="ew", pady=(16, 4))
+        tk.Label(
+            right,
+            textvariable=self.progress_var,
+            font=("Arial", 11),
+            bg=COLOR_ROOT,
+            fg=COLOR_SUBTEXT,
+            anchor="w",
+        ).grid(row=2, column=0, sticky="ew", pady=(16, 4))
 
         controls = tk.Frame(right, bg=COLOR_ROOT)
         controls.grid(row=3, column=0, pady=(0, 0))
         ttk.Button(controls, text="⏮", width=5, command=self._prev_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
-        self.play_button = ttk.Button(controls, text="Play", width=8, command=self._toggle_playback, bootstyle="success")
+        self.play_button = ttk.Button(
+            controls,
+            text="Play",
+            width=9,
+            command=self._toggle_playback,
+            bootstyle="success",
+        )
         self.play_button.pack(side=LEFT, padx=4)
         ttk.Button(controls, text="⏭", width=5, command=self._next_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
 
     def _build_library_tab(self) -> None:
         top = tk.Frame(self.library_frame, bg=COLOR_ROOT)
         top.pack(fill=tk.X, padx=12, pady=12)
-        tk.Label(top, text="Playlists & Favoriten", font=("Arial", 14, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
+        tk.Label(
+            top,
+            text="Playlists & Favoriten",
+            font=("Arial", 15, "bold"),
+            bg=COLOR_ROOT,
+            fg=COLOR_TITLE,
+        ).pack(anchor=W)
+        tk.Label(
+            top,
+            text="Tippe auf ein Cover, um die Wiedergabe zu starten.",
+            font=("Arial", 11),
+            bg=COLOR_ROOT,
+            fg=COLOR_SUBTEXT,
+        ).pack(anchor=W, pady=(2, 0))
 
         list_wrapper = tk.Frame(self.library_frame, bg=COLOR_ROOT)
-        list_wrapper.pack(fill=BOTH, expand=True, pady=(6, 0), padx=12)
+        list_wrapper.pack(fill=BOTH, expand=True, pady=(8, 0), padx=12)
         self.playlist_canvas = tk.Canvas(list_wrapper, highlightthickness=0, bg=COLOR_ROOT)
         v_scrollbar = ttk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=self.playlist_canvas.yview)
         self.playlist_canvas.configure(yscrollcommand=v_scrollbar.set)
@@ -625,7 +721,13 @@ class SpotifyTab:
         wrapper = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         wrapper.pack(fill=BOTH, expand=True)
 
-        tk.Label(wrapper, textvariable=self.status_var, font=("Arial", 12), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(fill=tk.X, padx=12, pady=(10, 6))
+        tk.Label(
+            wrapper,
+            textvariable=self.status_var,
+            font=("Arial", 11),
+            bg=COLOR_ROOT,
+            fg=COLOR_SUBTEXT,
+        ).pack(fill=tk.X, padx=12, pady=(10, 6))
 
         self.content_notebook = ttk.Notebook(wrapper, bootstyle="dark")
         self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
@@ -648,8 +750,24 @@ class SpotifyTab:
 
     def _build_status_tab(self) -> None:
         frame = self.status_frame
+        header = tk.Frame(frame, bg=COLOR_ROOT)
+        header.pack(fill=tk.X, padx=12, pady=(12, 2))
+        tk.Label(
+            header,
+            text="Login & Status",
+            font=("Arial", 15, "bold"),
+            bg=COLOR_ROOT,
+            fg=COLOR_TITLE,
+        ).pack(anchor=W)
+        tk.Label(
+            header,
+            text="Verbindung, Token und Berechtigungen",
+            font=("Arial", 11),
+            bg=COLOR_ROOT,
+            fg=COLOR_SUBTEXT,
+        ).pack(anchor=W, pady=(2, 0))
         control_frame = tk.Frame(frame, bg=COLOR_ROOT)
-        control_frame.pack(fill=tk.X, pady=(12, 10), padx=12)
+        control_frame.pack(fill=tk.X, pady=(10, 10), padx=12)
         ttk.Button(control_frame, text="Browser-Login öffnen", command=self._open_browser_login,
                    bootstyle="success-outline").pack(side=LEFT, padx=4)
         ttk.Button(control_frame, text="Status aktualisieren", command=self._refresh_status,

@@ -123,6 +123,11 @@ class EnergyFlowView(tk.Frame):
         super().__init__(parent, bg=COLOR_ROOT)
         self._last_missing_log = {"pv": 0.0, "batt": 0.0}
         self._start_time = time.time()
+        # UI-only animation to make flow direction clearer (no data changes).
+        self._anim_enabled = True
+        self._anim_interval_ms = 140
+        self._anim_job = None
+        self._anim_phase = 0.0
         self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_ROOT)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self._resize_pending = False  # Debounce Configure events
@@ -147,6 +152,34 @@ class EnergyFlowView(tk.Frame):
         self._canvas_img = self.canvas.create_image(0, 0, anchor="nw")
         # Performance optimization: track last values to skip rendering when unchanged
         self._last_flows = None
+        self._start_animation()
+
+    def _start_animation(self):
+        if not self._anim_enabled:
+            return
+        if self._anim_job is None:
+            self._anim_tick()
+
+    def _anim_tick(self):
+        if not self._anim_enabled:
+            self._anim_job = None
+            return
+        if not self.winfo_exists():
+            self._anim_job = None
+            return
+        now = time.time()
+        # Slow, subtle pulse: ~0.7 Hz
+        self._anim_phase = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 0.7)
+        if self._last_flows:
+            pv, load, grid, batt, soc = self._last_flows
+            if max(abs(pv), abs(load), abs(grid), abs(batt)) < 50:
+                self._anim_job = self.after(self._anim_interval_ms, self._anim_tick)
+                return
+            frame = self.render_frame(pv, load, grid, batt, soc)
+            self._tk_img = ImageTk.PhotoImage(frame)
+            self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
+            self._request_redraw()
+        self._anim_job = self.after(self._anim_interval_ms, self._anim_tick)
 
     def _on_canvas_resize(self, event):
         """Re-render background and last frame when the canvas grows."""
@@ -379,6 +412,30 @@ class EnergyFlowView(tk.Frame):
         # Draw main text on top
         draw.text((text_x, text_y), text, font=font, fill=color)
 
+    def _draw_value_unit(self, draw: ImageDraw.ImageDraw, value: str, unit: str, x: int, y: int, value_size: int, unit_size: int, value_color: str, unit_color: str):
+        """Draw a dominant value with a smaller unit underneath for clear hierarchy."""
+        try:
+            value_font = ImageFont.truetype("arial.ttf", value_size, weight="bold")
+        except Exception:
+            value_font = self._font_big if self._font_big else ImageFont.load_default()
+        try:
+            unit_font = ImageFont.truetype("arial.ttf", unit_size)
+        except Exception:
+            unit_font = self._font_tiny if self._font_tiny else ImageFont.load_default()
+
+        vbox = draw.textbbox((0, 0), value, font=value_font)
+        ubox = draw.textbbox((0, 0), unit, font=unit_font)
+        vw, vh = vbox[2] - vbox[0], vbox[3] - vbox[1]
+        uw, uh = ubox[2] - ubox[0], ubox[3] - ubox[1]
+
+        value_x = x - vw / 2
+        value_y = y - (vh + uh + 4) / 2
+        unit_x = x - uw / 2
+        unit_y = value_y + vh + 4
+
+        draw.text((value_x, value_y), value, font=value_font, fill=value_color)
+        draw.text((unit_x, unit_y), unit, font=unit_font, fill=unit_color)
+
     def _edge_points(self, src, dst, offset: float):
         x0, y0 = src
         x1, y1 = dst
@@ -390,16 +447,23 @@ class EnergyFlowView(tk.Frame):
             (x1 - ux * offset, y1 - uy * offset),
         )
 
-    def _draw_arrow(self, draw: ImageDraw.ImageDraw, src, dst, color: str, width: float):
+    def _draw_arrow(self, draw: ImageDraw.ImageDraw, src, dst, color: str, width: float, pulse: float = 0.0):
         start, end = self._edge_points(src, dst, self.node_radius)
         x0, y0 = start
         x1, y1 = end
-        draw.line((x0, y0, x1, y1), fill=color, width=int(width))
+        base_w = int(width)
+        pulse_w = int(max(1, base_w + 1 + 2 * pulse))
+        glow_alpha = int(30 + 70 * pulse)
+        glow_color = self._with_alpha(self._tint(color, 0.35), glow_alpha)
+        draw.line((x0, y0, x1, y1), fill=glow_color, width=pulse_w + 2)
+        draw.line((x0, y0, x1, y1), fill=color, width=base_w)
+        # Start cap to make source/direction clearer (visual-only)
+        draw.ellipse([x0 - 3, y0 - 3, x0 + 3, y0 + 3], fill=color, outline=None)
         # Arrow head
         vx, vy = x1 - x0, y1 - y0
         length = max((vx ** 2 + vy ** 2) ** 0.5, 1e-3)
         ux, uy = vx / length, vy / length
-        size = 12 + width
+        size = 14 + width
         left = (x1 - ux * size + uy * size * 0.6, y1 - uy * size - ux * size * 0.6)
         right = (x1 - ux * size - uy * size * 0.6, y1 - uy * size + ux * size * 0.6)
         draw.polygon([left, right, (x1, y1)], fill=color)
@@ -466,6 +530,10 @@ class EnergyFlowView(tk.Frame):
         b = int(b + (255 - b) * amount)
         return f"#{r:02x}{g:02x}{b:02x}"
 
+    def _with_alpha(self, color: str, alpha: int) -> tuple[int, int, int, int]:
+        r, g, b = self._hex_to_rgb(color)
+        return (r, g, b, max(0, min(255, alpha)))
+
     def _draw_soft_shadow(self, draw: ImageDraw.ImageDraw, x: int, y: int, r: int, color: str):
         """Very soft multi-layer shadow with smooth falloff."""
         # Shadow offset slightly down and right
@@ -518,7 +586,8 @@ class EnergyFlowView(tk.Frame):
         r = self.node_radius + self.ring_gap
         bbox = [x - r, y - r, x + r, y + r]
         extent = max(0, min(360, 360 * soc / 100))
-        color = COLOR_SUCCESS if soc >= 70 else (COLOR_WARNING if soc >= 35 else COLOR_DANGER)
+        # Neutral in normal range, warn only when low
+        color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_SUBTEXT)
         draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=4)
 
     def render_frame(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float) -> Image.Image:
@@ -534,47 +603,74 @@ class EnergyFlowView(tk.Frame):
         def clamp(val, lo, hi):
             return max(lo, min(hi, val))
 
+        def flow_strength(watts: float) -> float:
+            return clamp(abs(watts) / 3000, 0.0, 1.0)
+
         def thickness(watts):
             return clamp(2 + abs(watts) / 1500, 2, 8)
 
+        min_flow_w = 50
+
         # PV -> Haus
-        if pv_w > 0:
-            self._draw_arrow(draw, pv, home, COLOR_SUCCESS, thickness(pv_w))
+        if pv_w > min_flow_w:
+            pulse = self._anim_phase * flow_strength(pv_w)
+            self._draw_arrow(draw, pv, home, COLOR_SUCCESS, thickness(pv_w), pulse=pulse)
             self._draw_flow_label(img, pv, home, pv_w, offset=28, along=0, color=COLOR_SUCCESS)
 
         # Grid Import/Export
-        if grid_w > 0:
-            self._draw_arrow(draw, grid, home, COLOR_INFO, thickness(grid_w))
+        if grid_w > min_flow_w:
+            pulse = self._anim_phase * flow_strength(grid_w)
+            self._draw_arrow(draw, grid, home, COLOR_INFO, thickness(grid_w), pulse=pulse)
             self._draw_flow_label(img, grid, home, grid_w, offset=28, along=0, color=COLOR_INFO)
-        elif grid_w < 0:
-            self._draw_arrow(draw, home, grid, COLOR_INFO, thickness(grid_w))
+        elif grid_w < -min_flow_w:
+            pulse = self._anim_phase * flow_strength(grid_w)
+            self._draw_arrow(draw, home, grid, COLOR_INFO, thickness(grid_w), pulse=pulse)
             self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_INFO)
 
         # Batterie Laden/Entladen (batt_w > 0 = Entladen)
-        if batt_w > 0:
+        if batt_w > min_flow_w:
             # Entladen: Batterie -> Haus (rot)
-            self._draw_arrow(draw, bat, home, COLOR_DANGER, thickness(batt_w))
+            pulse = self._anim_phase * flow_strength(batt_w)
+            self._draw_arrow(draw, bat, home, COLOR_DANGER, thickness(batt_w), pulse=pulse)
             self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_DANGER)
-        elif batt_w < 0:
+        elif batt_w < -min_flow_w:
             # Laden: Haus -> Batterie (grün)
-            self._draw_arrow(draw, home, bat, COLOR_SUCCESS, thickness(batt_w))
+            pulse = self._anim_phase * flow_strength(batt_w)
+            self._draw_arrow(draw, home, bat, COLOR_SUCCESS, thickness(batt_w), pulse=pulse)
             self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_SUCCESS)
 
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)
 
-        # Load-Wert anzeigen ohne "Haus" Text für cleaneres Design
-        self._text_center(draw, f"{self._format_power(load_w)}", home[0], home[1] + 70, size=16, color=COLOR_PRIMARY)
+        # Hausverbrauch: Zahl dominant, Einheit sekundär
+        load_val, load_unit = self._format_power_parts(load_w)
+        self._draw_value_unit(
+            draw,
+            load_val,
+            load_unit,
+            home[0],
+            home[1] + 72,
+            value_size=9,
+            unit_size=6,
+            value_color=COLOR_TEXT,
+            unit_color=COLOR_SUBTEXT,
+        )
 
         # SoC inside battery with outline for readability - moved down to avoid emoji overlap
-        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1] + 8, size=20, color=COLOR_TEXT, outline=True)
-        self._text_center(draw, "SoC", bat[0], bat[1] + 28, size=12, color=COLOR_TEXT, outline=True)
+        soc_color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_TEXT)
+        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1] + 8, size=20, color=soc_color, outline=True)
         print(f"[ENERGY_FLOW] render_frame: fertig", flush=True)
         return img
 
     def stop(self):
         """Cleanup resources to prevent memory leaks and segfaults."""
         try:
+            if self._anim_job is not None:
+                try:
+                    self.after_cancel(self._anim_job)
+                except Exception:
+                    pass
+                self._anim_job = None
             if hasattr(self, '_tk_img') and self._tk_img:
                 self._tk_img = None  # Remove reference to PhotoImage
             if hasattr(self, 'canvas') and self.canvas:
