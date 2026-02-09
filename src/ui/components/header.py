@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+import customtkinter as ctk
 from ui.styles import (
     COLOR_CARD,
     COLOR_HEADER,
@@ -25,8 +26,8 @@ class HeaderBar(tk.Frame):
         self.datastore = datastore
 
         # Rounded container
-        rounded = RoundedFrame(self, bg=COLOR_CARD, border=None, radius=18, padding=0)
-        rounded.pack(fill=tk.BOTH, expand=True, padx=6, pady=3)
+        rounded = RoundedFrame(self, bg=COLOR_CARD, border=None, radius=16, padding=0)
+        rounded.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
         inner = rounded.content()
 
         inner.grid_columnconfigure(0, weight=1, minsize=140, uniform="hdr")

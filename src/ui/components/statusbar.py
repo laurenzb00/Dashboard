@@ -1,5 +1,6 @@
 import tkinter as tk
 import time
+import customtkinter as ctk
 
 from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_DANGER, COLOR_SUBTEXT
 from ui.components.rounded import RoundedFrame
@@ -27,8 +28,8 @@ class StatusBar(tk.Frame):
         self._start_monotonic = time.monotonic()
         self._uptime_after_id: str | None = None
 
-        rounded = RoundedFrame(self, bg=COLOR_CARD, border=None, radius=18, padding=0)
-        rounded.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+        rounded = RoundedFrame(self, bg=COLOR_CARD, border=None, radius=16, padding=0)
+        rounded.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
         inner = rounded.content()
 
         inner.grid_columnconfigure(0, weight=1)
@@ -49,19 +50,32 @@ class StatusBar(tk.Frame):
         )
         self.uptime_label.grid(row=0, column=0, sticky="w", padx=(10, 6), pady=0)
 
-        # Window and Exit Buttons (once)
-        from ui.components.rounded_button import RoundedButton
-        self.window_btn = RoundedButton(
-            inner, text="⊡", command=on_toggle_fullscreen,
-            bg=COLOR_BORDER, fg=COLOR_TEXT,
-            radius=10, padding=(10, 4), font_size=11, width=44, height=26
+        # Window and Exit Buttons mit CustomTkinter
+        self.window_btn = ctk.CTkButton(
+            inner, 
+            text="⊡", 
+            command=on_toggle_fullscreen,
+            fg_color=COLOR_BORDER,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            corner_radius=10,
+            font=("Segoe UI", 11),
+            width=44,
+            height=26
         )
         self.window_btn.grid(row=0, column=1, sticky="e", padx=(6, 4), pady=0)
 
-        self.exit_btn = RoundedButton(
-            inner, text="⏻", command=on_exit,
-            bg=COLOR_DANGER, fg="#fff",
-            radius=10, padding=(10, 4), font_size=11, width=44, height=26
+        self.exit_btn = ctk.CTkButton(
+            inner, 
+            text="⏻", 
+            command=on_exit,
+            fg_color=COLOR_DANGER,
+            text_color="#fff",
+            hover_color=COLOR_DANGER,
+            corner_radius=10,
+            font=("Segoe UI", 11),
+            width=44,
+            height=26
         )
         self.exit_btn.grid(row=0, column=2, sticky="e", padx=(4, 8), pady=0)
 

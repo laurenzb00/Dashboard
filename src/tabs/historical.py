@@ -99,16 +99,17 @@ class HistoricalTab(tk.Frame):
             font=("Segoe UI", 12),
         ).pack(side=tk.LEFT, padx=(0, 8))
         
-        # Touch-freundliche Button-Gruppe
+        # Touch-freundliche Button-Gruppe mit CustomTkinter
+        import customtkinter as ctk
         self._period_buttons = {}
         for period in ["24h", "7d", "30d", "90d", "180d", "365d"]:
-            btn = tk.Button(
+            btn = ctk.CTkButton(
                 period_frame,
                 text=period,
                 font=("Segoe UI", 11, "bold"),
-                width=5,
-                height=1,
-                relief=tk.FLAT,
+                width=50,
+                height=28,
+                corner_radius=8,
                 command=lambda p=period: self._select_period(p)
             )
             btn.pack(side=tk.LEFT, padx=2)
@@ -126,20 +127,25 @@ class HistoricalTab(tk.Frame):
         self.card.grid_rowconfigure(0, weight=1)
         self.card.grid_columnconfigure(0, weight=1)
 
-        self.fig = Figure(figsize=(8.0, 3.0), dpi=100)
+        # Zusätzlicher Chart-Frame für Padding zwischen Card-Border und Canvas
+        self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
+        self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+
+        # Figur schmaler machen, um rechtes Abschneiden zu vermeiden
+        self.fig = Figure(figsize=(8.2, 4.5), dpi=100)
         # Solid background prevents redraw artifacts that can look like "two diagrams".
         self.fig.patch.set_facecolor(COLOR_ROOT)
         self.fig.patch.set_alpha(1.0)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(COLOR_ROOT)
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.card)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
         try:
             self.canvas_widget.configure(bg=COLOR_ROOT, highlightthickness=0)
         except Exception:
             pass
-        self.canvas_widget.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
         self.canvas_widget.bind("<Configure>", self._on_canvas_resize)
 
         self.statusbar = tk.Label(
@@ -187,9 +193,9 @@ class HistoricalTab(tk.Frame):
         current = self._period_var.get()
         for period, btn in self._period_buttons.items():
             if period == current:
-                btn.configure(bg=COLOR_PRIMARY, fg="white", activebackground=COLOR_PRIMARY)
+                btn.configure(fg_color=COLOR_PRIMARY, text_color="white", hover_color=COLOR_PRIMARY)
             else:
-                btn.configure(bg=COLOR_CARD, fg=COLOR_TEXT, activebackground=COLOR_BORDER)
+                btn.configure(fg_color=COLOR_CARD, text_color=COLOR_TEXT, hover_color=COLOR_BORDER)
 
     def _schedule_update(self) -> None:
         if self.after_job is not None:
@@ -213,9 +219,9 @@ class HistoricalTab(tk.Frame):
 
     def _apply_layout(self) -> None:
         # Extra padding to avoid right/bottom clipping of tick labels.
-        # Increased right margin to prevent cutoff on 10" display
+        # Mehr Platz rechts und links für bessere Darstellung
         try:
-            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.24)
+            self.fig.subplots_adjust(left=0.08, right=0.95, top=0.90, bottom=0.18)
         except Exception:
             pass
 
@@ -328,9 +334,16 @@ class HistoricalTab(tk.Frame):
         except Exception:
             pass
 
-        # Always show the full window for the selected period.
+        # Zeitachse etwas über "jetzt" hinaus erweitern für bessere Darstellung des letzten Wertes
+        future_margin = timedelta(hours=hours * 0.02)  # 2% der Gesamtzeit als Puffer
         try:
-            self.ax.set_xlim(cutoff, now)
+            self.ax.set_xlim(cutoff, now + future_margin)
+        except Exception:
+            pass
+        
+        # Vertikale "Jetzt"-Linie
+        try:
+            self.ax.axvline(now, color=COLOR_PRIMARY, linewidth=1.5, linestyle='--', alpha=0.6, label='Jetzt')
         except Exception:
             pass
 
@@ -393,12 +406,13 @@ class HistoricalTab(tk.Frame):
         # Legend: keep it compact and out of the way (avoid overlapping the newest data at the right).
         self.ax.legend(
             loc="upper left",
-            fontsize=9,
+            fontsize=8,
             frameon=False,
             labelcolor=COLOR_SUBTEXT,
             ncol=3,
-            handlelength=1.6,
-            columnspacing=1.0,
+            handlelength=1.2,
+            columnspacing=0.8,
+            handletextpad=0.4,
         )
 
         try:

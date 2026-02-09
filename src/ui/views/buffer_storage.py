@@ -268,7 +268,7 @@ class BufferStorageView(tk.Frame):
         self.val_texts = []
 
         self.spark_frame = tk.Frame(self.layout, bg=COLOR_CARD)
-        self.spark_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self.spark_frame.grid(row=1, column=0, sticky="ew", pady=(2, 0))
         tk.Label(
             self.spark_frame,
             text="PV & Außentemp. (24h)",
@@ -279,7 +279,7 @@ class BufferStorageView(tk.Frame):
 
         # Fester Platz für das Diagramm, da Bildschirmgröße bekannt ist
         fig_width = 9.0  # optimal für ca. 1200px Breite
-        fig_height = 1.4 # optimal für ca. 140px Höhe (Rest des Containers nach Sparkline)
+        fig_height = 2.0 # Heatmap größer für bessere Lesbarkeit
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
         # --- Sparkline Figure (PV & Außentemp) vergrößert für bessere Lesbarkeit ---
@@ -433,8 +433,19 @@ class BufferStorageView(tk.Frame):
     def update_temperatures(self, top, mid, bot, boiler):
         # Update heatmap with stratified 2D array
         self.data = self._build_stratified_data(top, mid, bot)
+        
+        # Dynamische Normalisierung basierend auf aktuellen Werten
+        data_min = min(top, mid, bot)
+        data_max = max(top, mid, bot)
+        vmin = max(30, data_min - 5)  # Mindestens 30°C
+        vmax = min(80, data_max + 5)  # Maximal 80°C
+        
         if hasattr(self, 'im'):
             self.im.set_data(self.data)
+            # Erneuere Colormap UND Normalisierung mit dynamischen Grenzen
+            from matplotlib.colors import Normalize
+            self.norm = Normalize(vmin=vmin, vmax=vmax)
+            self.im.set_cmap(self._build_cmap())
             self.im.set_norm(self.norm)
         # Update left temperature texts
         if hasattr(self, 'val_texts') and len(self.val_texts) == 3:

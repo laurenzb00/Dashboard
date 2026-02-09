@@ -417,7 +417,7 @@ class MainApp:
             on_toggle_b=self.on_toggle_b,
             on_exit=self.on_exit,
         )
-        self.header.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 2))
+        self.header.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 2))
         _dbg_print("[INIT] MainApp: HeaderBar erstellt und platziert.")
 
         # Start periodic header update for date/time
@@ -425,8 +425,8 @@ class MainApp:
 
         # CTkTabview (Tabs) inside rounded container
         _dbg_print("[INIT] MainApp: CustomTkinter Tabview wird erstellt...")
-        self.notebook_container = RoundedFrame(self.root, bg=COLOR_HEADER, border=None, radius=18, padding=0)
-        self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=0)
+        self.notebook_container = RoundedFrame(self.root, bg=COLOR_HEADER, border=None, radius=16, padding=0)
+        self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=4, pady=0)
         self.tabview = ctk.CTkTabview(self.notebook_container.content(), fg_color=COLOR_ROOT, segmented_button_fg_color=COLOR_HEADER, segmented_button_selected_color=COLOR_PRIMARY, segmented_button_unselected_color=COLOR_HEADER, text_color=COLOR_TEXT)
         self.tabview.pack(fill=tk.BOTH, expand=True)
         # Backward-Compat Wrapper für alte notebook.add() API
@@ -465,7 +465,7 @@ class MainApp:
 
         # Statusbar
         self.status = StatusBar(self.root, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
-        self.status.grid(row=2, column=0, sticky="nsew", padx=8, pady=(2, 4))
+        self.status.grid(row=2, column=0, sticky="nsew", padx=4, pady=(2, 4))
         self._apply_fullscreen()
         self.build_tabs()
         self.root.after(500, self.update_tick)

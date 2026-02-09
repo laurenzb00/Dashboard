@@ -128,7 +128,7 @@ class HueTab:
             )
             self.bright_label.pack(pady=(0, 8))
             
-            # Moderner CustomTkinter Slider
+            # Moderner CustomTkinter Slider (vertikal: oben=100, unten=0)
             self.bright_slider = ctk.CTkSlider(
                 slider_frame,
                 from_=100, to=0,
