@@ -65,28 +65,47 @@ class HeaderBar(tk.Frame):
         btn_row.grid(row=0, column=2, sticky="n", padx=(8, 8), pady=0)
         btn_row.grid_propagate(False)
 
-        tk.Label(
+        ctk.CTkLabel(
             btn_row,
             text="💡 Licht",
-            bg=COLOR_CARD,
-            fg=COLOR_SUBTEXT,
-            font=("Segoe UI", 10),
+            fg_color="transparent",
+            text_color=COLOR_SUBTEXT,
+            font=("Segoe UI", 10, "bold"),
         ).pack(side=tk.LEFT, padx=(0, 8))
 
-        self.btn_a = RoundedButton(
-            btn_row, text="An", command=on_toggle_a,
-            bg=COLOR_PRIMARY, fg="#fff",
-            radius=12, padding=(12, 4), font_size=12, width=64, height=30
+        # Switch für Licht An/Aus
+        self.light_switch = ctk.CTkSwitch(
+            btn_row,
+            text="",
+            width=50,
+            height=28,
+            switch_width=50,
+            switch_height=28,
+            fg_color=COLOR_BORDER,
+            progress_color=COLOR_PRIMARY,
+            button_color="#FFFFFF",
+            button_hover_color="#E0E0E0",
+            command=self._on_light_switch_toggle
         )
-        self.btn_a.pack(side=tk.LEFT, padx=4, pady=0)
-        self.btn_b = RoundedButton(
-            btn_row, text="Aus", command=on_toggle_b,
-            bg=COLOR_BORDER, fg=COLOR_TEXT,
-            radius=12, padding=(12, 4), font_size=12, width=64, height=30
-        )
-        self.btn_b.pack(side=tk.LEFT, padx=4, pady=0)
+        self.light_switch.pack(side=tk.LEFT, padx=4, pady=0)
+        self.light_switch.select()  # Default: An
+        
+        # Callbacks speichern
+        self._on_toggle_a = on_toggle_a
+        self._on_toggle_b = on_toggle_b
 
         # Outdoor temp is updated via MainApp.update_header(...), single source of truth.
+
+    def _on_light_switch_toggle(self):
+        """Handler für Light Switch - ruft entsprechenden Callback auf."""
+        if self.light_switch.get():
+            # Switch ist An
+            if self._on_toggle_a:
+                self._on_toggle_a()
+        else:
+            # Switch ist Aus
+            if self._on_toggle_b:
+                self._on_toggle_b()
 
     def update_header(self, date_text: str, weekday: str, time_text: str, out_temp: str):
         self.date_label.config(text=date_text)

@@ -2,7 +2,7 @@ import tkinter as tk
 import time
 import customtkinter as ctk
 
-from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_DANGER, COLOR_SUBTEXT
+from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_DANGER, COLOR_SUBTEXT, COLOR_PRIMARY
 from ui.components.rounded import RoundedFrame
 
 
@@ -50,32 +50,34 @@ class StatusBar(tk.Frame):
         )
         self.uptime_label.grid(row=0, column=0, sticky="w", padx=(10, 6), pady=0)
 
-        # Window and Exit Buttons mit CustomTkinter
+        # Window and Exit Buttons mit CustomTkinter - schönerer Style
         self.window_btn = ctk.CTkButton(
             inner, 
-            text="⊡", 
+            text="⧖",  # Hübscheres Fenster-Symbol
             command=on_toggle_fullscreen,
             fg_color=COLOR_BORDER,
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            corner_radius=10,
-            font=("Segoe UI", 11),
-            width=44,
-            height=26
+            text_color=COLOR_PRIMARY,
+            hover_color=COLOR_PRIMARY,
+            corner_radius=8,
+            font=("Segoe UI", 14, "bold"),
+            width=50,
+            height=28,
+            border_width=0
         )
         self.window_btn.grid(row=0, column=1, sticky="e", padx=(6, 4), pady=0)
 
         self.exit_btn = ctk.CTkButton(
             inner, 
-            text="⏻", 
+            text="✕",  # X-Symbol
             command=on_exit,
             fg_color=COLOR_DANGER,
-            text_color="#fff",
-            hover_color=COLOR_DANGER,
-            corner_radius=10,
-            font=("Segoe UI", 11),
-            width=44,
-            height=26
+            text_color="#FFFFFF",
+            hover_color="#DC2626",  # Dunkleres Rot beim Hover
+            corner_radius=8,
+            font=("Segoe UI", 13, "bold"),
+            width=50,
+            height=28,
+            border_width=0
         )
         self.exit_btn.grid(row=0, column=2, sticky="e", padx=(4, 8), pady=0)
 

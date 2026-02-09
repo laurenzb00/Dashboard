@@ -129,10 +129,10 @@ class HistoricalTab(tk.Frame):
 
         # Zusätzlicher Chart-Frame für Padding zwischen Card-Border und Canvas
         self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
-        self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
 
-        # Figur schmaler machen, um rechtes Abschneiden zu vermeiden
-        self.fig = Figure(figsize=(8.2, 4.5), dpi=100)
+        # Figur groß genug für vollständige Darstellung ohne Abschneiden
+        self.fig = Figure(figsize=(10.0, 4.8), dpi=100)
         # Solid background prevents redraw artifacts that can look like "two diagrams".
         self.fig.patch.set_facecolor(COLOR_ROOT)
         self.fig.patch.set_alpha(1.0)
@@ -218,10 +218,9 @@ class HistoricalTab(tk.Frame):
             pass
 
     def _apply_layout(self) -> None:
-        # Extra padding to avoid right/bottom clipping of tick labels.
-        # Mehr Platz rechts und links für bessere Darstellung
+        # Optimierte Margins: Links für Y-Achse, rechts großzügig für letzte Labels
         try:
-            self.fig.subplots_adjust(left=0.08, right=0.95, top=0.90, bottom=0.18)
+            self.fig.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.16)
         except Exception:
             pass
 
@@ -255,6 +254,8 @@ class HistoricalTab(tk.Frame):
 
         self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
         self.ax.tick_params(axis="both", which="major", labelsize=10, colors=COLOR_SUBTEXT, length=3, width=0.5)
+        # X-Achsen-Labels mit Padding, damit sie nicht abgeschnitten werden
+        self.ax.tick_params(axis="x", pad=5)
         self.ax.set_ylabel("°C", fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va="center")
         try:
             self.ax.xaxis.get_offset_text().set_visible(False)
@@ -334,16 +335,17 @@ class HistoricalTab(tk.Frame):
         except Exception:
             pass
 
-        # Zeitachse etwas über "jetzt" hinaus erweitern für bessere Darstellung des letzten Wertes
-        future_margin = timedelta(hours=hours * 0.02)  # 2% der Gesamtzeit als Puffer
+        # "Jetzt" bei 75% der Breite: zeige 33% zusätzliche Zeit in die Zukunft
+        # Damit: cutoff bis now = 75% der Breite, now bis future_end = 25% der Breite
+        future_extension = timedelta(hours=hours * 0.33)  # 1/3 der Vergangenheit = 25% der Gesamtbreite
         try:
-            self.ax.set_xlim(cutoff, now + future_margin)
+            self.ax.set_xlim(cutoff, now + future_extension)
         except Exception:
             pass
         
-        # Vertikale "Jetzt"-Linie
+        # Vertikale "Jetzt"-Linie bei ~75%
         try:
-            self.ax.axvline(now, color=COLOR_PRIMARY, linewidth=1.5, linestyle='--', alpha=0.6, label='Jetzt')
+            self.ax.axvline(now, color=COLOR_PRIMARY, linewidth=1.8, linestyle='--', alpha=0.7, label='Jetzt', zorder=10)
         except Exception:
             pass
 
@@ -415,8 +417,9 @@ class HistoricalTab(tk.Frame):
             handletextpad=0.4,
         )
 
+        # Keine automatischen X-Margins verwenden, da wir xlim explizit setzen
         try:
-            self.ax.margins(x=0.01)
+            self.ax.margins(x=0, y=0.05)
         except Exception:
             pass
 
