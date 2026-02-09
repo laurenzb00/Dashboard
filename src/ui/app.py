@@ -1,4 +1,5 @@
 import tkinter as tk
+import customtkinter as ctk
 import os
 
 DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
@@ -24,6 +25,8 @@ from ui.styles import (
     init_style,
     COLOR_ROOT,
     COLOR_HEADER,
+    COLOR_PRIMARY,
+    COLOR_TEXT,
     emoji,
     EMOJI_OK,
 )
@@ -105,25 +108,47 @@ except ImportError:
     StatusTab = None
 
 
+class TabviewWrapper:
+    """Wrapper für CTkTabview, der die alte ttk.Notebook API emuliert."""
+    def __init__(self, tabview: ctk.CTkTabview):
+        self._tabview = tabview
+        self._tabs = {}  # tab_name -> frame
+    
+    @property
+    def tk(self):
+        """Tkinter root für Kompatibilität mit Tabs."""
+        return self._tabview.winfo_toplevel().tk
+    
+    def add(self, frame, text=""):
+        """Emuliert notebook.add(frame, text='...')"""
+        # Erstelle Tab in CTkTabview
+        self._tabview.add(text)
+        # Hole das Tab-Frame von CTkTabview
+        tab_frame = self._tabview.tab(text)
+        # Kopiere frame-Inhalt in tab_frame
+        frame.pack(in_=tab_frame, fill=tk.BOTH, expand=True)
+        self._tabs[text] = frame
+        return text
+    
+    def tabs(self):
+        """Gibt Liste aller Tab-Namen zurück."""
+        return list(self._tabs.keys())
+    
+    def forget(self, tab_id):
+        """Entfernt einen Tab (für CTkTabview nicht implementiert)."""
+        pass
+
+
 
 class MainApp:
     def build_tabs(self):
         """Robustly rebuilds all tabs, ensuring correct references after UI changes (fullscreen, etc)."""
-        # Remove all tabs from notebook
+        # CTkTabview: Tabs können nicht dynamisch entfernt werden, daher nur _add_other_tabs aufrufen
+        # Dashboard-Tab wurde bereits in __init__ erstellt
         try:
-            for tab_id in self.notebook.tabs():
-                self.notebook.forget(tab_id)
+            self._add_other_tabs()
         except Exception as e:
-            print(f"[build_tabs] Error removing tabs: {e}")
-
-        # Re-add dashboard tab
-        try:
-            self.notebook.add(self.dashboard_tab, text=emoji("⚡ Energie", "Energie"))
-        except Exception as e:
-            print(f"[build_tabs] Error adding dashboard tab: {e}")
-
-        # Rebuild and re-add all other tabs
-        self._add_other_tabs()
+            print(f"[build_tabs] Error adding tabs: {e}")
         # Ensure all tab references are up to date
         if hasattr(self, 'historical_tab') and self.historical_tab:
             _dbg_print("[build_tabs] historical_tab is set.")
@@ -302,7 +327,7 @@ class MainApp:
         except Exception:
             return 0
 
-    def __init__(self, root: tk.Tk, datastore: DataStore | None = None):
+    def __init__(self, root: ctk.CTk, datastore: DataStore | None = None):
         _dbg_print("[INIT] MainApp: Initialisierung gestartet")
         self._start_time = time.time()
         _dbg_print("[INIT] MainApp: Zeitstempel gesetzt")
@@ -311,7 +336,7 @@ class MainApp:
         self._last_size = (0, 0)
         self._resize_enabled = False
         self.root = root
-        _dbg_print("[INIT] MainApp: Tkinter root gesetzt")
+        _dbg_print("[INIT] MainApp: CustomTkinter root gesetzt")
         self.root.title("Smart Home Dashboard")
         self._tick_count = 0
         self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
@@ -398,19 +423,20 @@ class MainApp:
         # Start periodic header update for date/time
         self._update_header_datetime()
 
-        # Notebook (Tabs) inside rounded container
-        _dbg_print("[INIT] MainApp: Notebook-Container und Tabs werden erstellt...")
+        # CTkTabview (Tabs) inside rounded container
+        _dbg_print("[INIT] MainApp: CustomTkinter Tabview wird erstellt...")
         self.notebook_container = RoundedFrame(self.root, bg=COLOR_HEADER, border=None, radius=18, padding=0)
         self.notebook_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=0)
-        self.notebook = ttk.Notebook(self.notebook_container.content())
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-        self.notebook.grid_propagate(False)
+        self.tabview = ctk.CTkTabview(self.notebook_container.content(), fg_color=COLOR_ROOT, segmented_button_fg_color=COLOR_HEADER, segmented_button_selected_color=COLOR_PRIMARY, segmented_button_unselected_color=COLOR_HEADER, text_color=COLOR_TEXT)
+        self.tabview.pack(fill=tk.BOTH, expand=True)
+        # Backward-Compat Wrapper für alte notebook.add() API
+        self.notebook = TabviewWrapper(self.tabview)
 
         # Energy Dashboard Tab
         _dbg_print("[INIT] MainApp: Dashboard-Tab wird erstellt...")
-        self.dashboard_tab = tk.Frame(self.notebook, bg=COLOR_ROOT)
-        self.notebook.add(self.dashboard_tab, text=emoji("⚡ Energie", "Energie"))
-        self.dashboard_tab.pack_propagate(False)
+        self.tabview.add(emoji("⚡ Energie", "Energie"))
+        self.dashboard_tab = self.tabview.tab(emoji("⚡ Energie", "Energie"))
+        self.dashboard_tab.configure(fg_color=COLOR_ROOT)
         _dbg_print("[INIT] MainApp: Dashboard-Tab hinzugefügt.")
 
         # Body (Energy + Buffer)
@@ -434,7 +460,7 @@ class MainApp:
         self.buffer_card = Card(self.body, padding=6)
         self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0), pady=0)
         self.buffer_card.add_title("Warmwasser", icon="🔥")
-        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=180, datastore=self.datastore)
+        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=320, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True)
 
         # Statusbar
@@ -463,21 +489,41 @@ class MainApp:
     def _add_other_tabs(self):
         _dbg_print("[TABS] Starte Initialisierung aller weiteren Tabs...")
         """Integriert alle weiteren Tabs, StatusTab immer als letzter Tab (rechts)."""
+        
+        # Hue Tab (direkt mit CTk Tabview)
+        if HueTab:
+            try:
+                _dbg_print("[TABS] HueTab wird erstellt...")
+                # Tab in Tabview erstellen
+                self.tabview.add(emoji("💡 Licht", "Licht"))
+                hue_frame = self.tabview.tab(emoji("💡 Licht", "Licht"))
+                # HueTab initialisieren mit direktem Frame
+                self.hue_tab = HueTab(self.root, self.notebook, tab_frame=hue_frame)
+                _dbg_print("[TABS] HueTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] HueTab initialization failed: {e}")
+                import traceback
+                traceback.print_exc()
+                self.hue_tab = None
+        
+        # Andere Tabs (Portierung zu CustomTkinter fortlaufend)
         if SpotifyTab:
             try:
                 _dbg_print("[TABS] SpotifyTab wird erstellt...")
-                self.spotify_tab = SpotifyTab(self.root, self.notebook)
+                self.tabview.add("Spotify")
+                spotify_frame = self.tabview.tab("Spotify")
+                self.spotify_tab = SpotifyTab(self.root, self.notebook, tab_frame=spotify_frame)
                 _dbg_print("[TABS] SpotifyTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] SpotifyTab initialization failed: {e}")
-                import traceback
-                traceback.print_exc()
                 self.spotify_tab = None
 
         if TadoTab:
             try:
                 _dbg_print("[TABS] TadoTab wird erstellt...")
-                self.tado_tab = TadoTab(self.root, self.notebook)
+                self.tabview.add(emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
+                tado_frame = self.tabview.tab(emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
+                self.tado_tab = TadoTab(self.root, self.notebook, tab_frame=tado_frame)
                 _dbg_print("[TABS] TadoTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] TadoTab initialization failed: {e}")
@@ -485,19 +531,12 @@ class MainApp:
         else:
             _dbg_print(f"[TABS] TadoTab nicht verfügbar (Import fehlgeschlagen)")
 
-        if HueTab:
-            try:
-                _dbg_print("[TABS] HueTab wird erstellt...")
-                self.hue_tab = HueTab(self.root, self.notebook)
-                _dbg_print("[TABS] HueTab erfolgreich hinzugefügt.")
-            except Exception as e:
-                print(f"[ERROR] HueTab initialization failed: {e}")
-                self.hue_tab = None
-
         if CalendarTab:
             try:
                 _dbg_print("[TABS] CalendarTab wird erstellt...")
-                self.calendar_tab = CalendarTab(self.root, self.notebook)
+                self.tabview.add(emoji("📅 Kalender", "Kalender"))
+                calendar_frame = self.tabview.tab(emoji("📅 Kalender", "Kalender"))
+                self.calendar_tab = CalendarTab(self.root, self.notebook, tab_frame=calendar_frame)
                 _dbg_print("[TABS] CalendarTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] CalendarTab init failed: {e}")
@@ -506,7 +545,9 @@ class MainApp:
         if HistoricalTab:
             try:
                 _dbg_print("[TABS] HistoricalTab wird erstellt...")
-                self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore)
+                self.tabview.add(emoji("📈 Historie", "Historie"))
+                historical_frame = self.tabview.tab(emoji("📈 Historie", "Historie"))
+                self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore, tab_frame=historical_frame)
                 _dbg_print("[TABS] HistoricalTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] HistoricalTab init failed: {e}")
@@ -515,7 +556,9 @@ class MainApp:
         if ErtragTab:
             try:
                 _dbg_print("[TABS] ErtragTab wird erstellt...")
-                self.ertrag_tab = ErtragTab(self.root, self.notebook)
+                self.tabview.add(emoji("🔆 Ertrag", "Ertrag"))
+                ertrag_frame = self.tabview.tab(emoji("🔆 Ertrag", "Ertrag"))
+                self.ertrag_tab = ErtragTab(self.root, self.notebook, tab_frame=ertrag_frame)
                 _dbg_print("[TABS] ErtragTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] ErtragTab init failed: {e}")
@@ -525,7 +568,9 @@ class MainApp:
         if SystemTab:
             try:
                 _dbg_print("[TABS] SystemTab wird erstellt...")
-                self.system_tab = SystemTab(self.root, self.notebook)
+                self.tabview.add(emoji("⚙️ System", "System"))
+                system_frame = self.tabview.tab(emoji("⚙️ System", "System"))
+                self.system_tab = SystemTab(self.root, self.notebook, tab_frame=system_frame)
                 _dbg_print("[TABS] SystemTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] SystemTab init failed: {e}")
@@ -535,8 +580,9 @@ class MainApp:
         if StatusTab:
             try:
                 _dbg_print("[TABS] StatusTab wird erstellt...")
-                self.status_tab = StatusTab(self.notebook)
-                self.notebook.add(self.status_tab, text="Status")
+                self.tabview.add("Status")
+                status_frame = self.tabview.tab("Status")
+                self.status_tab = StatusTab(self.root, tab_frame=status_frame)
                 _dbg_print("[TABS] StatusTab erfolgreich hinzugefügt.")
             except Exception as e:
                 print(f"[ERROR] StatusTab init failed: {e}")
@@ -1011,7 +1057,9 @@ class MainApp:
 
 
 def run():
-    root = tk.Tk()
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")
+    root = ctk.CTk()
     app = MainApp(root)
     root.mainloop()
 

@@ -8,6 +8,7 @@ import recurring_ical_events
 import datetime
 import calendar
 import pytz
+import customtkinter as ctk
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -17,6 +18,7 @@ from ui.styles import (
     COLOR_WARNING,
     COLOR_TEXT,
     COLOR_SUBTEXT,
+    COLOR_TITLE,
     emoji,
 )
 from ui.components.card import Card
@@ -32,7 +34,7 @@ ICAL_URLS = [
 class CalendarTab:
     """Moderne Kalenderansicht mit Card-Layout."""
     
-    def __init__(self, root: tk.Tk, notebook: ttk.Notebook):
+    def __init__(self, root: tk.Tk, notebook: ttk.Notebook, tab_frame=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
@@ -41,21 +43,45 @@ class CalendarTab:
         self.status_var = tk.StringVar(value="Lade Kalender...")
         self.events_data = []
         
-        # Tab Frame
-        self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
-        notebook.add(self.tab_frame, text=emoji("📅 Kalender", "Kalender"))
+        # Tab Frame - Use provided frame or create legacy one
+        if tab_frame is not None:
+            self.tab_frame = tab_frame
+        else:
+            self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
+            notebook.add(self.tab_frame, text=emoji("📅 Kalender", "Kalender"))
         
         self.tab_frame.grid_columnconfigure(0, weight=1)
         self.tab_frame.grid_rowconfigure(1, weight=1)
 
-        # Header mit Navigation
+        # Header mit Navigation - modernere Buttons
         header = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
         
-        ttk.Button(header, text="◀ Vorheriger", command=self._prev_month, width=12).pack(side=tk.LEFT, padx=4)
-        ttk.Label(header, text="Kalender", font=("Arial", 14, "bold")).pack(side=tk.LEFT, padx=20, expand=True)
-        ttk.Label(header, textvariable=self.status_var, foreground=COLOR_SUBTEXT, font=("Arial", 9)).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(header, text="Nächster ▶", command=self._next_month, width=12).pack(side=tk.LEFT, padx=4)
+        # Navigation Buttons mit CustomTkinter
+        ctk.CTkButton(
+            header, text="◀ Zurück", 
+            command=self._prev_month, 
+            width=120,
+            height=36,
+            font=("Segoe UI", 12, "bold"),
+            fg_color=COLOR_CARD,
+            hover_color=COLOR_PRIMARY,
+            text_color=COLOR_TEXT
+        ).pack(side=tk.LEFT, padx=4)
+        
+        tk.Label(header, text="Kalender", font=("Segoe UI", 16, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(side=tk.LEFT, padx=20, expand=True)
+        tk.Label(header, textvariable=self.status_var, font=("Segoe UI", 11), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(side=tk.RIGHT, padx=4)
+        
+        ctk.CTkButton(
+            header, text="Weiter ▶", 
+            command=self._next_month, 
+            width=120,
+            height=36,
+            font=("Segoe UI", 12, "bold"),
+            fg_color=COLOR_CARD,
+            hover_color=COLOR_PRIMARY,
+            text_color=COLOR_TEXT
+        ).pack(side=tk.LEFT, padx=4)
 
         # Scrollable Content
         self.canvas = tk.Canvas(self.tab_frame, highlightthickness=0, bg=COLOR_ROOT)
@@ -167,20 +193,20 @@ class CalendarTab:
         # Load events
         all_events = list(self.events_data)
         
-        # Title
+        # Title mit größerer Schrift
         month_name = self.displayed_month.strftime("%B %Y")
-        title_label = ttk.Label(self.scroll_frame, text=month_name, font=("Arial", 14, "bold"))
+        title_label = tk.Label(self.scroll_frame, text=month_name, font=("Segoe UI", 18, "bold"), bg=COLOR_ROOT, fg=COLOR_TITLE)
         title_label.pack(pady=12)
         
-        # Wochentage Header mit Grid
+        # Wochentage Header mit Grid - größere Schrift
         weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
         header_frame = tk.Frame(self.scroll_frame, bg=COLOR_ROOT)
-        header_frame.pack(fill=tk.X, pady=4, padx=6)
+        header_frame.pack(fill=tk.X, pady=6, padx=6)
         
         for col, day in enumerate(weekdays):
             header_frame.grid_columnconfigure(col, weight=1)
-            day_label = ttk.Label(header_frame, text=day, font=("Arial", 9, "bold"))
-            day_label.grid(row=0, column=col, sticky="ew", padx=1)
+            day_label = tk.Label(header_frame, text=day, font=("Segoe UI", 12, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT)
+            day_label.grid(row=0, column=col, sticky="ew", padx=2)
         
         # Kalender-Grid
         cal = calendar.monthcalendar(self.displayed_month.year, self.displayed_month.month)
@@ -201,34 +227,35 @@ class CalendarTab:
                 else:
                     day_date = datetime.date(self.displayed_month.year, self.displayed_month.month, day_num)
                     
-                    # Card für jeden Tag
-                    day_card = tk.Frame(grid_frame, bg=COLOR_CARD, relief=tk.RAISED, bd=1)
-                    day_card.configure(highlightthickness=0)
+                    # Card für jeden Tag - moderneres Design
+                    day_card = tk.Frame(grid_frame, bg=COLOR_CARD, relief=tk.FLAT, bd=0)
+                    day_card.configure(highlightthickness=1, highlightbackground=COLOR_BORDER)
                     
                     # Styling für heute
                     if day_date == today:
-                        day_card.configure(bg=COLOR_PRIMARY, bd=2)
+                        day_card.configure(bg=COLOR_PRIMARY, highlightthickness=2, highlightbackground=COLOR_SUCCESS)
                         day_label_color = "white"
                     else:
                         day_label_color = COLOR_TEXT
                     
-                    # Tag-Nummer
-                    day_num_label = tk.Label(day_card, text=str(day_num), font=("Arial", 10, "bold"), 
+                    # Tag-Nummer - größere Schrift
+                    day_num_label = tk.Label(day_card, text=str(day_num), font=("Segoe UI", 14, "bold"), 
                                             bg=day_card.cget("bg"), fg=day_label_color)
-                    day_num_label.pack(anchor="ne", padx=3, pady=2)
+                    day_num_label.pack(anchor="ne", padx=4, pady=3)
                     
                     # Events für diesen Tag
                     day_events = [e for e in all_events if e['start'].date() == day_date]
                     for i, event in enumerate(day_events[:2]):  # Nur erste 2 Events
-                        event_text = event['title'][:14]  # Kürzen
-                        event_label = tk.Label(day_card, text=event_text, font=("Arial", 7), 
-                                             bg=day_card.cget("bg"), fg=COLOR_SUBTEXT, wraplength=45, justify=tk.LEFT)
-                        event_label.pack(anchor="w", padx=2, pady=1, fill=tk.X)
+                        event_text = event['title'][:16]  # Länger
+                        event_label = tk.Label(day_card, text=event_text, font=("Segoe UI", 9), 
+                                             bg=day_card.cget("bg"), fg=COLOR_SUBTEXT if day_date != today else "white", 
+                                             wraplength=55, justify=tk.LEFT)
+                        event_label.pack(anchor="w", padx=3, pady=1, fill=tk.X)
                     
                     if len(day_events) > 2:
-                        more_label = tk.Label(day_card, text=f"+{len(day_events) - 2}", font=("Arial", 7, "italic"),
-                                            bg=day_card.cget("bg"), fg=COLOR_SUBTEXT)
-                        more_label.pack(anchor="w", padx=2)
+                        more_label = tk.Label(day_card, text=f"+{len(day_events) - 2} mehr", font=("Segoe UI", 8, "italic"),
+                                            bg=day_card.cget("bg"), fg=COLOR_SUBTEXT if day_date != today else "white")
+                        more_label.pack(anchor="w", padx=3)
                     
                     day_card.grid(row=row, column=col, sticky="nsew", padx=1, pady=1)
 

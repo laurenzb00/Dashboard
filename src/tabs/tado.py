@@ -58,7 +58,7 @@ TADO_SCOPE = os.getenv("TADO_SCOPE", "home.user")
 class TadoTab:
     """Klima-Steuerung mit modernem Card-Layout."""
     
-    def __init__(self, root: tk.Tk, notebook: ttk.Notebook):
+    def __init__(self, root: tk.Tk, notebook: ttk.Notebook, tab_frame=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
@@ -73,9 +73,12 @@ class TadoTab:
         self.var_status = tk.StringVar(value="Verbinde...")
         self.var_power = tk.IntVar(value=0)
 
-        # Tab Frame
-        self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
-        notebook.add(self.tab_frame, text=emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
+        # Tab Frame - Use provided frame or create legacy one
+        if tab_frame is not None:
+            self.tab_frame = tab_frame
+        else:
+            self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
+            notebook.add(self.tab_frame, text=emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
         
         self.tab_frame.grid_columnconfigure(0, weight=1)
         self.tab_frame.grid_rowconfigure(2, weight=1)

@@ -1,10 +1,13 @@
 import tkinter as tk
 import tkinter.font as tkfont
+import customtkinter as ctk
 from ttkbootstrap import Style
 
-# Farbpalette gemäß Vorgabe
-# Hinweis: ttkbootstrap "darkly" hat standardmäßig einen bläulichen Grundton.
-# Wir setzen hier bewusst neutralere Dark-Töne, damit nicht überall ein "blauer" Background durchscheint.
+# CustomTkinter Theme-Konfiguration
+ctk.set_appearance_mode("dark")  # "dark" oder "light"
+ctk.set_default_color_theme("blue")  # "blue", "green", "dark-blue"
+
+# Farbpalette (angepasst für CustomTkinter)
 COLOR_ROOT = "#0E0F12"       # Hintergrund/root (neutral dark)
 COLOR_HEADER = "#0E0F12"     # Header/Notebook
 COLOR_BG = COLOR_HEADER       # alias für bestehende Verwendungen
@@ -115,10 +118,15 @@ def configure_styles(style: Style) -> None:
     )
 
 
-def init_style(root: tk.Tk) -> Style:
-    """Initialisiert ttkbootstrap Styles, setzt Palette und ruft configure_styles."""
+def init_style(root) -> Style:
+    """Initialisiert ttkbootstrap Styles (fallback für legacy widgets), konfiguriert CustomTkinter."""
+    # CustomTkinter global theme wurde oben via set_appearance_mode/set_default_color_theme gesetzt
+    # Hier nur ttkbootstrap für eventuelle ttk-Widgets (Backward-Compat)
     style = Style(theme="darkly")
-    root.configure(bg=COLOR_ROOT)
+    try:
+        root.configure(bg=COLOR_ROOT)  # CTk root hat kein bg-Parameter, ignorieren wenn CTk
+    except Exception:
+        pass
     global EMOJI_OK
     # Cache available fonts early
     get_available_fonts(root)

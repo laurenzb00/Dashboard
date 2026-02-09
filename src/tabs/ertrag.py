@@ -22,14 +22,18 @@ from ui.components.card import Card
 class ErtragTab:
     """PV-Ertrag pro Tag über längeren Zeitraum."""
 
-    def __init__(self, root: tk.Tk, notebook: ttk.Notebook):
+    def __init__(self, root: tk.Tk, notebook: ttk.Notebook, tab_frame=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
         self._update_task_id = None  # Track scheduled update to prevent stacking
 
-        self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
-        self.notebook.add(self.tab_frame, text=emoji("🔆 Ertrag", "Ertrag"))
+        # Tab Frame - Use provided frame or create legacy one
+        if tab_frame is not None:
+            self.tab_frame = tab_frame
+        else:
+            self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
+            self.notebook.add(self.tab_frame, text=emoji("🔆 Ertrag", "Ertrag"))
 
         self._period_var = tk.StringVar(value="90d")
         self._period_map: dict[str, int] = {"30d": 30, "90d": 90, "180d": 180, "365d": 365}
@@ -43,21 +47,28 @@ class ErtragTab:
         topbar = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
 
-        # Zeitraum-Wahl: immer ganz rechts.
+        # Zeitraum-Wahl: Touch-freundliche Buttons statt Combobox
         period_frame = tk.Frame(topbar, bg=COLOR_ROOT)
         period_frame.pack(side=tk.RIGHT, padx=(0, 12))
-        self.period_combo = ttk.Combobox(
-            period_frame,
-            textvariable=self._period_var,
-            values=list(self._period_map.keys()),
-            state="readonly",
-            width=6,
-        )
-        self.period_combo.pack(side=tk.RIGHT)
-        self.period_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_plot())
-        tk.Label(period_frame, text="Zeitraum", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.RIGHT, padx=(0, 8))
+        tk.Label(period_frame, text="Zeitraum:", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 12)).pack(side=tk.LEFT, padx=(0, 8))
+        
+        # Touch-freundliche Button-Gruppe
+        self._period_buttons = {}
+        for period in ["30d", "90d", "180d", "365d"]:
+            btn = tk.Button(
+                period_frame,
+                text=period,
+                font=("Segoe UI", 11, "bold"),
+                width=5,
+                height=1,
+                relief=tk.FLAT,
+                command=lambda p=period: self._select_period(p)
+            )
+            btn.pack(side=tk.LEFT, padx=2)
+            self._period_buttons[period] = btn
+        self._update_period_button_colors()
 
-        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10, "bold"))
+        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 12, "bold"))
         self.topbar_status.pack(side=tk.RIGHT)
 
         plot_container = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
@@ -227,7 +238,22 @@ class ErtragTab:
             self.ax.spines[spine].set_linewidth(0.5)
 
         self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        self.ax.tick_params(axis="both", which="major", labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.ax.tick_params(axis="both", which="major", labelsize=10, colors=COLOR_SUBTEXT, length=3, width=0.5)
+
+    def _select_period(self, period: str) -> None:
+        """Wechselt Zeitraum und aktualisiert Button-Farben."""
+        self._period_var.set(period)
+        self._update_period_button_colors()
+        self._update_plot()
+
+    def _update_period_button_colors(self) -> None:
+        """Aktualisiert Button-Farben basierend auf aktuellem Zeitraum."""
+        current = self._period_var.get()
+        for period, btn in self._period_buttons.items():
+            if period == current:
+                btn.configure(bg=COLOR_PRIMARY, fg="white", activebackground=COLOR_PRIMARY)
+            else:
+                btn.configure(bg=COLOR_CARD, fg=COLOR_TEXT, activebackground=COLOR_BORDER)
 
     def _update_plot(self):
         if not self.alive:
@@ -287,7 +313,7 @@ class ErtragTab:
 
             self.ax.plot(xs, ys, color=COLOR_PRIMARY, linewidth=1.8, alpha=0.95)
 
-            self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=8, rotation=0, labelpad=16, va="center")
+            self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=11, rotation=0, labelpad=18, va="center")
             locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
             self.ax.xaxis.set_major_locator(locator)
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))

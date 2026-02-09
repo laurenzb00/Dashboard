@@ -155,13 +155,17 @@ class SpotifyTab:
         tracks_total = playlist.get("tracks", {}).get("total", 0)
         ttk.Label(cell, text=f"{tracks_total} Titel", font=("Arial", 9), foreground="#9ca3af").pack()
 
-    def __init__(self, root, notebook):
+    def __init__(self, root, notebook, tab_frame=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
 
-        self.tab_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_frame, text="Spotify")
+        # Use provided frame or create legacy one
+        if tab_frame is not None:
+            self.tab_frame = tab_frame
+        else:
+            self.tab_frame = ttk.Frame(self.notebook)
+            self.notebook.add(self.tab_frame, text="Spotify")
 
         self.status_var = tk.StringVar(value="Spotify Integration bereit")
         self.link_var = tk.StringVar(value="Noch kein Login-Link erzeugt")

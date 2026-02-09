@@ -23,7 +23,7 @@ from ui.components.card import Card
 
 
 class SystemTab:
-    def __init__(self, root, notebook):
+    def __init__(self, root, notebook, tab_frame=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
@@ -38,8 +38,12 @@ class SystemTab:
         self.var_network_tx = tk.StringVar(value="0 MB/s")
         self.var_network_rx = tk.StringVar(value="0 MB/s")
         
-        self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
-        self.notebook.add(self.tab_frame, text=emoji("⚙️ System", "System"))
+        # Use provided frame or create legacy one
+        if tab_frame is not None:
+            self.tab_frame = tab_frame
+        else:
+            self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
+            self.notebook.add(self.tab_frame, text=emoji("⚙️ System", "System"))
         
         self._build_ui()
         self.root.after(0, lambda: threading.Thread(target=self._loop, daemon=True).start())

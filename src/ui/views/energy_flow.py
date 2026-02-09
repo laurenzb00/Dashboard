@@ -133,11 +133,11 @@ class EnergyFlowView(tk.Frame):
         self.node_radius = _s(38)
         self.ring_gap = _s(10)
         self._tk_img = None
-        self._font_big = ImageFont.truetype("arial.ttf", _s(40)) if self._has_font("arial.ttf") else None
-        self._font_small = ImageFont.truetype("arial.ttf", _s(24)) if self._has_font("arial.ttf") else None
-        self._font_tiny = ImageFont.truetype("arial.ttf", _s(17)) if self._has_font("arial.ttf") else None
+        self._font_big = ImageFont.truetype("arial.ttf", _s(48)) if self._has_font("arial.ttf") else None
+        self._font_small = ImageFont.truetype("arial.ttf", _s(28)) if self._has_font("arial.ttf") else None
+        self._font_tiny = ImageFont.truetype("arial.ttf", _s(20)) if self._has_font("arial.ttf") else None
         # Emoji font support with multiple fallbacks
-        self._font_emoji = self._find_emoji_font(_s(36))
+        self._font_emoji = self._find_emoji_font(_s(42))
         # Load PNG icons - will be pasted onto PIL image
         self._icons_pil = {}  # PIL Images for embedding
         self._load_icons()
@@ -563,8 +563,8 @@ class EnergyFlowView(tk.Frame):
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)
 
-        # Werte anzeigen mit Einheiten
-        self._text_center(draw, f"Haus {self._format_power(load_w)}", home[0], home[1] + 70, size=16, color=COLOR_PRIMARY)
+        # Load-Wert anzeigen ohne "Haus" Text für cleaneres Design
+        self._text_center(draw, f"{self._format_power(load_w)}", home[0], home[1] + 70, size=16, color=COLOR_PRIMARY)
 
         # SoC inside battery with outline for readability - moved down to avoid emoji overlap
         self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1] + 8, size=20, color=COLOR_TEXT, outline=True)

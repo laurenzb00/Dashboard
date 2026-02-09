@@ -6,6 +6,7 @@ from collections import deque
 import math
 import traceback
 from types import SimpleNamespace
+import customtkinter as ctk
 
 from core.datastore import get_shared_datastore
 from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
@@ -15,6 +16,10 @@ from ui.styles import (
     COLOR_TEXT,
     COLOR_SUBTEXT,
     COLOR_PRIMARY,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_DANGER,
+    COLOR_TITLE,
     emoji,
 )
 from ui.components.card import Card
@@ -30,8 +35,11 @@ class StatusTab(ttk.Frame):
         # TODO: Hier Logik für Licht AUS einfügen
         self.light_icon.config(fg=COLOR_SUBTEXT)
         print("Licht AUS")
-    def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent, *args, **kwargs)
+    def __init__(self, parent, tab_frame=None, *args, **kwargs):
+        # Use provided tab_frame as parent or parent parameter (legacy)
+        frame_parent = tab_frame if tab_frame is not None else parent
+        super().__init__(frame_parent, *args, **kwargs)
+        self.parent = parent
         self.datastore = get_shared_datastore()
         self._last_err_db = None
         self._last_err_pv = None
@@ -43,6 +51,10 @@ class StatusTab(ttk.Frame):
         self._hist_heat = deque(maxlen=50)
         # --- Fix: initialize snapshot_labels dict for all relevant keys ---
         self.snapshot_labels = {}
+        
+        # Pack self into the provided frame if using CustomTkinter
+        if tab_frame is not None:
+            self.pack(fill=tk.BOTH, expand=True)
         self._build_layout()
         self.after_job = None
         self._schedule_update()
@@ -58,19 +70,33 @@ class StatusTab(ttk.Frame):
         header = tk.Frame(main, bg=COLOR_ROOT)
         header.pack(fill=tk.X, padx=0, pady=(0, 12))
         # Großes Licht-Icon
-        self.light_icon = tk.Label(header, text="💡", font=("Segoe UI", 48), bg=COLOR_ROOT, fg=COLOR_PRIMARY)
+        self.light_icon = tk.Label(header, text="💡", font=("Segoe UI", 56), bg=COLOR_ROOT, fg=COLOR_PRIMARY)
         self.light_icon.pack(side=tk.LEFT, padx=(8, 24), pady=0)
         # Titel
-        tk.Label(header, text="Status", font=("Segoe UI", 22, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(side=tk.LEFT, pady=0)
+        tk.Label(header, text="Status", font=("Segoe UI", 24, "bold"), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(side=tk.LEFT, pady=0)
         # Spacer
         header_spacer = tk.Frame(header, bg=COLOR_ROOT)
         header_spacer.pack(side=tk.LEFT, expand=True, fill=tk.X)
-        # An/Aus-Buttons
+        # An/Aus-Buttons mit CustomTkinter
         btn_frame = tk.Frame(header, bg=COLOR_ROOT)
         btn_frame.pack(side=tk.RIGHT, padx=(0, 16))
-        self.btn_on = ttk.Button(btn_frame, text="An", width=6, command=self._on_light_on)
+        self.btn_on = ctk.CTkButton(
+            btn_frame, text="An", 
+            width=80, height=40,
+            font=("Segoe UI", 14, "bold"),
+            command=self._on_light_on,
+            fg_color=COLOR_SUCCESS,
+            hover_color=COLOR_PRIMARY
+        )
         self.btn_on.pack(side=tk.LEFT, padx=(0, 8))
-        self.btn_off = ttk.Button(btn_frame, text="Aus", width=6, command=self._on_light_off)
+        self.btn_off = ctk.CTkButton(
+            btn_frame, text="Aus", 
+            width=80, height=40,
+            font=("Segoe UI", 14, "bold"),
+            command=self._on_light_off,
+            fg_color=COLOR_DANGER,
+            hover_color=COLOR_WARNING
+        )
         self.btn_off.pack(side=tk.LEFT)
 
         # --- Ampel-Statuskarten (minimal, groß, 4 Stück) ---
@@ -88,17 +114,17 @@ class StatusTab(ttk.Frame):
             ("Warnung", "⚠️"),
         ]
         for i, (label, icon) in enumerate(ampel_labels):
-            card = tk.Frame(ampel_frame, bg=COLOR_CARD, bd=0, highlightthickness=0)
+            card = tk.Frame(ampel_frame, bg=COLOR_CARD, bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER)
             card.grid(row=0, column=i, sticky="nsew", padx=8, pady=0)
             card.grid_propagate(False)
-            card.config(width=120, height=120)
-            # Icon
-            tk.Label(card, text=icon, font=("Segoe UI", 32), bg=COLOR_CARD, fg=COLOR_PRIMARY).pack(pady=(12, 0))
-            # Label
-            tk.Label(card, text=label, font=("Segoe UI", 16, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT).pack(pady=(4, 0))
-            # Status (Ampel)
-            lamp = tk.Canvas(card, width=32, height=32, bg=COLOR_CARD, highlightthickness=0)
-            lamp.pack(pady=(8, 8))
+            card.config(width=140, height=140)
+            # Icon - größer
+            tk.Label(card, text=icon, font=("Segoe UI", 40), bg=COLOR_CARD, fg=COLOR_PRIMARY).pack(pady=(16, 0))
+            # Label - größere Schrift
+            tk.Label(card, text=label, font=("Segoe UI", 14, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT).pack(pady=(6, 0))
+            # Status (Ampel) - größer
+            lamp = tk.Canvas(card, width=36, height=36, bg=COLOR_CARD, highlightthickness=0)
+            lamp.pack(pady=(10, 10))
             self.ampel_cards.append({"frame": card, "lamp": lamp, "label": label})
 
         # --- Health Summary Tiles -------------------------------------------------
@@ -136,11 +162,11 @@ class StatusTab(ttk.Frame):
         for key, label, icon, unit in value_items:
             frame = tk.Frame(self.values_frame, bg=COLOR_CARD)
             frame.pack(side=tk.LEFT, fill=tk.Y, expand=True, padx=8, pady=8)
-            tk.Label(frame, text=icon, font=("Segoe UI", 18), bg=COLOR_CARD, fg=COLOR_TEXT).pack()
-            val = tk.Label(frame, text="keine Daten", font=("Segoe UI", 20, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
+            tk.Label(frame, text=icon, font=("Segoe UI", 22), bg=COLOR_CARD, fg=COLOR_TEXT).pack()
+            val = tk.Label(frame, text="keine Daten", font=("Segoe UI", 18, "bold"), bg=COLOR_CARD, fg=COLOR_TEXT)
             val.pack()
-            tk.Label(frame, text=label, font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
-            tk.Label(frame, text=unit, font=("Segoe UI", 9), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
+            tk.Label(frame, text=label, font=("Segoe UI", 11), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
+            tk.Label(frame, text=unit, font=("Segoe UI", 10), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack()
             self.snapshot_labels[key] = val
 
         # --- UI: Diagnose & Alter der Daten (unten) ---

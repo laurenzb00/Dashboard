@@ -37,8 +37,10 @@ class HistoricalTab(tk.Frame):
     - Fehlende Werte werden als Lücken dargestellt (kein Fake-0)
     """
 
-    def __init__(self, parent: tk.Misc, notebook: ttk.Notebook, datastore, *args, **kwargs):
-        super().__init__(notebook, bg=COLOR_ROOT, *args, **kwargs)
+    def __init__(self, parent: tk.Misc, notebook: ttk.Notebook, datastore, tab_frame=None, *args, **kwargs):
+        # Use provided tab_frame as parent or notebook (legacy)
+        frame_parent = tab_frame if tab_frame is not None else notebook
+        super().__init__(frame_parent, bg=COLOR_ROOT, *args, **kwargs)
         self.root = parent.winfo_toplevel()
         self.notebook = notebook
         self.datastore = datastore
@@ -58,7 +60,12 @@ class HistoricalTab(tk.Frame):
         self._last_key = None
         self._latest_data = None
 
-        notebook.add(self, text=emoji("📈 Historie", "Historie"))
+        # Only add to notebook if not using provided tab_frame
+        if tab_frame is None:
+            notebook.add(self, text=emoji("📈 Historie", "Historie"))
+        else:
+            # Pack self into the provided frame to fill it
+            self.pack(fill=tk.BOTH, expand=True)
 
         self._build_ui()
         self._update_plot()
@@ -77,29 +84,36 @@ class HistoricalTab(tk.Frame):
             text="",
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 12, "bold"),
         )
         self.topbar_status.pack(side=tk.RIGHT)
 
-        # Zeitraum-Wahl: immer ganz rechts.
+        # Zeitraum-Wahl: Touch-freundliche Buttons statt Combobox
         period_frame = tk.Frame(topbar, bg=COLOR_ROOT)
         period_frame.pack(side=tk.RIGHT, padx=(0, 12))
-        self.period_combo = ttk.Combobox(
-            period_frame,
-            textvariable=self._period_var,
-            values=list(self._period_map.keys()),
-            state="readonly",
-            width=6,
-        )
-        self.period_combo.pack(side=tk.RIGHT)
-        self.period_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_plot())
         tk.Label(
             period_frame,
-            text="Zeitraum",
+            text="Zeitraum:",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            font=("Segoe UI", 10),
-        ).pack(side=tk.RIGHT, padx=(0, 8))
+            font=("Segoe UI", 12),
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        
+        # Touch-freundliche Button-Gruppe
+        self._period_buttons = {}
+        for period in ["24h", "7d", "30d", "90d", "180d", "365d"]:
+            btn = tk.Button(
+                period_frame,
+                text=period,
+                font=("Segoe UI", 11, "bold"),
+                width=5,
+                height=1,
+                relief=tk.FLAT,
+                command=lambda p=period: self._select_period(p)
+            )
+            btn.pack(side=tk.LEFT, padx=2)
+            self._period_buttons[period] = btn
+        self._update_period_button_colors()
 
         plot_container = tk.Frame(self, bg=COLOR_ROOT)
         plot_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=0)
@@ -133,7 +147,7 @@ class HistoricalTab(tk.Frame):
             text="",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 11),
             anchor="w",
         )
         self.statusbar.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
@@ -162,6 +176,21 @@ class HistoricalTab(tk.Frame):
         except Exception:
             return None
 
+    def _select_period(self, period: str) -> None:
+        """Wechselt Zeitraum und aktualisiert Button-Farben."""
+        self._period_var.set(period)
+        self._update_period_button_colors()
+        self._update_plot()
+
+    def _update_period_button_colors(self) -> None:
+        """Aktualisiert Button-Farben basierend auf aktuellem Zeitraum."""
+        current = self._period_var.get()
+        for period, btn in self._period_buttons.items():
+            if period == current:
+                btn.configure(bg=COLOR_PRIMARY, fg="white", activebackground=COLOR_PRIMARY)
+            else:
+                btn.configure(bg=COLOR_CARD, fg=COLOR_TEXT, activebackground=COLOR_BORDER)
+
     def _schedule_update(self) -> None:
         if self.after_job is not None:
             try:
@@ -184,8 +213,9 @@ class HistoricalTab(tk.Frame):
 
     def _apply_layout(self) -> None:
         # Extra padding to avoid right/bottom clipping of tick labels.
+        # Increased right margin to prevent cutoff on 10" display
         try:
-            self.fig.subplots_adjust(left=0.07, right=0.975, top=0.90, bottom=0.24)
+            self.fig.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.24)
         except Exception:
             pass
 
@@ -218,7 +248,7 @@ class HistoricalTab(tk.Frame):
         self.ax.spines["bottom"].set_linewidth(0.5)
 
         self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        self.ax.tick_params(axis="both", which="major", labelsize=7, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.ax.tick_params(axis="both", which="major", labelsize=10, colors=COLOR_SUBTEXT, length=3, width=0.5)
         self.ax.set_ylabel("°C", fontsize=7, color=COLOR_INFO, rotation=0, labelpad=10, va="center")
         try:
             self.ax.xaxis.get_offset_text().set_visible(False)
@@ -291,9 +321,9 @@ class HistoricalTab(tk.Frame):
             self.ax.set_title(
                 f"Heizung & Temperaturen ({period_label})",
                 loc="left",
-                fontsize=10,
+                fontsize=13,
                 color=COLOR_TEXT,
-                pad=6,
+                pad=8,
             )
         except Exception:
             pass
@@ -363,7 +393,7 @@ class HistoricalTab(tk.Frame):
         # Legend: keep it compact and out of the way (avoid overlapping the newest data at the right).
         self.ax.legend(
             loc="upper left",
-            fontsize=7,
+            fontsize=9,
             frameon=False,
             labelcolor=COLOR_SUBTEXT,
             ncol=3,

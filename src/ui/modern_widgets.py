@@ -77,7 +77,7 @@ class BatteryGaugeWidget:
             text="Lade Gauge...",
             bg=COLOR_CARD_BG,
             fg="white",
-            font=("Segoe UI", 10)
+            font=("Segoe UI", 12)
         )
         self.gauge_label.pack(fill=tk.BOTH, expand=True)
     
@@ -250,7 +250,7 @@ class BatteryGaugeWidget:
             self.width // 2, self.height - 15,
             text=f"{int(soc)}%",
             fill="white",
-            font=("Segoe UI", 18, "bold")
+            font=("Segoe UI", 22, "bold")
         )
     
     # --- PUBLIC UPDATE ---
@@ -301,7 +301,7 @@ class CircularProgressWidget:
         
         self.title_label = tk.Label(
             self.frame, text=title,
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 12, "bold"),
             fg="white", bg=COLOR_CARD_BG
         )
         self.title_label.pack(pady=(5, 2))

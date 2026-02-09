@@ -279,18 +279,18 @@ class BufferStorageView(tk.Frame):
 
         # Fester Platz für das Diagramm, da Bildschirmgröße bekannt ist
         fig_width = 9.0  # optimal für ca. 1200px Breite
-        fig_height = 4.5 # optimal für ca. 600px Höhe
+        fig_height = 1.4 # optimal für ca. 140px Höhe (Rest des Containers nach Sparkline)
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
-        # --- Sparkline Figure (PV & Außentemp) ---
-        self.spark_fig = Figure(figsize=(4.5, 1.0), dpi=100)
+        # --- Sparkline Figure (PV & Außentemp) vergrößert für bessere Lesbarkeit ---
+        self.spark_fig = Figure(figsize=(6.0, 1.5), dpi=100)
         self.spark_fig.patch.set_alpha(0)  # Make figure background transparent
         self.spark_ax = self.spark_fig.add_subplot(111)
         self.spark_ax.set_facecolor(COLOR_CARD)  # Match card color
         self.spark_ax.patch.set_alpha(0)  # Make axes background transparent
         self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
         self.spark_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self.spark_ax.tick_params(axis='both', which='major', labelsize=7, colors=COLOR_SUBTEXT)
+        self.spark_ax.tick_params(axis='both', which='major', labelsize=9, colors=COLOR_SUBTEXT)
         self.spark_ax.set_axisbelow(True)
         self.spark_ax.grid(True, alpha=0.12)
         # ---

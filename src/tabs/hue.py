@@ -14,6 +14,7 @@ import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from collections import defaultdict
+import customtkinter as ctk
 
 try:
     from phue import Bridge
@@ -28,7 +29,7 @@ from ui.styles import (
 HUE_BRIDGE_IP = "192.168.1.111"
 
 class HueTab:
-    def __init__(self, root, notebook):
+    def __init__(self, root, notebook, tab_frame=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
@@ -45,9 +46,12 @@ class HueTab:
         self.scroll_canvas = None
         self.scroll_window = None
         
-        # Erstelle Tab Frame
-        self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
-        notebook.add(self.tab_frame, text=emoji("💡 Licht", "Licht"))
+        # Tab Frame: entweder übergeben (CTkTabview) oder selbst erstellen (Legacy)
+        if tab_frame is not None:
+            self.tab_frame = tab_frame
+        else:
+            self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
+            notebook.add(self.tab_frame, text=emoji("💡 Licht", "Licht"))
         
         # Initialisiere UI
         self._build_ui()
@@ -123,14 +127,22 @@ class HueTab:
                 font=("Segoe UI", 10, "bold"), fg=COLOR_PRIMARY, bg=COLOR_ROOT, width=5
             )
             self.bright_label.pack(pady=(0, 8))
-            self.bright_slider = tk.Scale(
-                slider_frame, from_=100, to=0, orient="vertical",
+            
+            # Moderner CustomTkinter Slider
+            self.bright_slider = ctk.CTkSlider(
+                slider_frame,
+                from_=100, to=0,
+                orientation="vertical",
                 variable=self.master_bright_var,
                 command=self._on_master_brightness_changed,
-                bg=COLOR_CARD, fg=COLOR_PRIMARY, length=320, width=40,
-                highlightthickness=0
+                height=320,
+                width=30,
+                button_color=COLOR_PRIMARY,
+                button_hover_color=COLOR_SUCCESS,
+                progress_color=COLOR_PRIMARY,
+                fg_color=COLOR_CARD
             )
-            self.bright_slider.pack(fill="y", expand=True)
+            self.bright_slider.pack(fill="y", expand=True, pady=5)
             # 0%-Label unten
             tk.Label(slider_frame, text="0%", font=("Segoe UI", 9), fg=COLOR_SUBTEXT, bg=COLOR_ROOT, width=5).pack(pady=(8, 0))
 
@@ -517,14 +529,22 @@ class HueTab:
                         pass
                 
                 brightness_percent = int((brightness / 254) * 100)
-                slider = tk.Scale(
-                    control, from_=0, to=100, orient="horizontal",
-                    bg=COLOR_CARD, fg=COLOR_PRIMARY,
-                    command=set_brightness, length=150,
-                    highlightthickness=0
+                
+                # Moderner horizontaler CustomTkinter Slider
+                slider = ctk.CTkSlider(
+                    control,
+                    from_=0, to=100,
+                    orientation="horizontal",
+                    command=set_brightness,
+                    width=150,
+                    height=20,
+                    button_color=COLOR_PRIMARY,
+                    button_hover_color=COLOR_SUCCESS,
+                    progress_color=COLOR_PRIMARY,
+                    fg_color=COLOR_CARD
                 )
                 slider.set(brightness_percent)
-                slider.pack(side="left", fill="x", expand=True)
+                slider.pack(side="left", fill="x", expand=True, padx=5)
             
         except Exception as e:
             print(f"[HUE] Light card error: {e}")
