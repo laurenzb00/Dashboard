@@ -276,34 +276,43 @@ class TadoTab:
         logging.info("[TADO] Loop gestartet")
         # Login
         try:
-            # OAuth Device Flow (seit 2025) + Token-Cache
-            self.api = Tado(token_file_path=TADO_TOKEN_FILE)
-            status = self.api.device_activation_status()
-            logging.debug("[TADO] device_activation_status: %s", status)
-            if status != "COMPLETED":
-                url = self._normalize_device_url(self.api.device_verification_url())
-                if url:
-                    logging.info("[TADO] Device activation URL: %s", url)
-                    self._ui_set(self.var_status, "Tado: Bitte Gerät im Browser aktivieren")
-
-                # Wait until flow is pending before activation
-                start = time.time()
-                while status == "NOT_STARTED" and (time.time() - start) < 10:
-                    time.sleep(1)
-                    status = self.api.device_activation_status()
-
-                if status == "PENDING":
-                    self.api.device_activation()
-                    status = self.api.device_activation_status()
-                    logging.debug("[TADO] Status nach Aktivierung: %s", status)
-
+            # Bevorzugt: direkter Login mit User/Pass (python-tado Standard)
+            if TADO_USER and TADO_PASS:
+                try:
+                    self.api = Tado(TADO_USER, TADO_PASS)
+                    self._ui_set(self.var_status, "Verbunden")
+                except Exception:
+                    self.api = Tado(TADO_USER, TADO_PASS, client_id=TADO_CLIENT_ID)
+                    self._ui_set(self.var_status, "Verbunden")
+            else:
+                # OAuth Device Flow (seit 2025) + Token-Cache
+                self.api = Tado(token_file_path=TADO_TOKEN_FILE)
+                status = self.api.device_activation_status()
+                logging.debug("[TADO] device_activation_status: %s", status)
                 if status != "COMPLETED":
-                    self._ui_set(self.var_status, "Tado Aktivierung fehlgeschlagen")
-                    self._ui_set(self.var_temp_ist, "N/A")
-                    self._ui_set(self.var_humidity, "N/A")
-                    while self.alive:
-                        time.sleep(30)
-                    return
+                    url = self._normalize_device_url(self.api.device_verification_url())
+                    if url:
+                        logging.info("[TADO] Device activation URL: %s", url)
+                        self._ui_set(self.var_status, "Tado: Bitte Gerät im Browser aktivieren")
+
+                    # Wait until flow is pending before activation
+                    start = time.time()
+                    while status == "NOT_STARTED" and (time.time() - start) < 10:
+                        time.sleep(1)
+                        status = self.api.device_activation_status()
+
+                    if status == "PENDING":
+                        self.api.device_activation()
+                        status = self.api.device_activation_status()
+                        logging.debug("[TADO] Status nach Aktivierung: %s", status)
+
+                    if status != "COMPLETED":
+                        self._ui_set(self.var_status, "Tado Aktivierung fehlgeschlagen")
+                        self._ui_set(self.var_temp_ist, "N/A")
+                        self._ui_set(self.var_humidity, "N/A")
+                        while self.alive:
+                            time.sleep(30)
+                        return
             
             zones = self.api.get_zones()
             logging.debug("[TADO] zones gefunden: %s", len(zones))

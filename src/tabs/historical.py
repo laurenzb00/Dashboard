@@ -270,6 +270,45 @@ class HistoricalTab(tk.Frame):
         except Exception:
             pass
 
+    @staticmethod
+    def _downsample_timeseries(times: list[datetime], series: dict[str, list[float]], bin_hours: int) -> tuple[list[datetime], dict[str, list[float]]]:
+        if not times or bin_hours <= 1:
+            return times, series
+
+        bin_seconds = max(1, int(bin_hours * 3600))
+        buckets: dict[int, dict[str, list[float]]] = {}
+
+        for idx, ts in enumerate(times):
+            try:
+                bin_id = int(ts.timestamp()) // bin_seconds
+            except Exception:
+                continue
+            if bin_id not in buckets:
+                buckets[bin_id] = {k: [] for k in series.keys()}
+            for key, values in series.items():
+                val = values[idx]
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    continue
+                buckets[bin_id][key].append(float(val))
+
+        if not buckets:
+            return times, series
+
+        ordered_bins = sorted(buckets.keys())
+        binned_times = [datetime.fromtimestamp(bid * bin_seconds) for bid in ordered_bins]
+        binned_series: dict[str, list[float]] = {k: [] for k in series.keys()}
+
+        for bid in ordered_bins:
+            bucket = buckets[bid]
+            for key in series.keys():
+                vals = bucket.get(key, [])
+                if not vals:
+                    binned_series[key].append(np.nan)
+                else:
+                    binned_series[key].append(float(np.mean(vals)))
+
+        return binned_times, binned_series
+
     def _update_plot(self) -> None:
         hours = self._period_map.get(self._period_var.get(), 24)
         period_label = self._period_var.get() or f"{hours}h"
@@ -393,6 +432,18 @@ class HistoricalTab(tk.Frame):
             a = np.array(arr, dtype=float)
             return a[order]
 
+        ordered_series = {key: _ordered(series[key]) for key in series.keys()}
+
+        # Downsample for long ranges to reduce noise and improve readability.
+        bin_hours = 0
+        if hours >= 720:
+            bin_hours = 24
+        elif hours >= 168:
+            bin_hours = 3
+
+        if bin_hours:
+            times_sorted, ordered_series = self._downsample_timeseries(times_sorted, ordered_series, bin_hours)
+
         plot_defs = [
             ("top", "Puffer oben", COLOR_PRIMARY, "-"),
             ("mid", "Puffer mitte", COLOR_INFO, "-"),
@@ -403,7 +454,7 @@ class HistoricalTab(tk.Frame):
         ]
 
         for key, label, color, style in plot_defs:
-            self.ax.plot(times_sorted, _ordered(series[key]), label=label, color=color, linewidth=1.6, linestyle=style, alpha=0.95)
+            self.ax.plot(times_sorted, ordered_series[key], label=label, color=color, linewidth=1.6, linestyle=style, alpha=0.95)
 
         locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
         self.ax.xaxis.set_major_locator(locator)
