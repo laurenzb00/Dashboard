@@ -493,9 +493,9 @@ class EnergyFlowView(tk.Frame):
         length = max((vx ** 2 + vy ** 2) ** 0.5, 1e-3)
         ux, uy = vx / length, vy / length
 
-        dot_count = 3
+        dot_count = 5
         speed = 0.25 + 0.75 * strength
-        radius = 2 + 5 * strength
+        radius = 1.2 + 3.2 * strength
         base_alpha = int(120 + 80 * strength)
         dot_color = self._with_alpha(color, base_alpha)
 
@@ -699,9 +699,9 @@ class EnergyFlowView(tk.Frame):
             load_val,
             load_unit,
             home[0],
-            home[1] + 54,
-            value_size=self._node_value_size,
-            unit_size=self._node_unit_size,
+            home[1] + 18,
+            value_size=self._node_value_size + 6,
+            unit_size=self._node_unit_size + 2,
             value_color=COLOR_TEXT,
             unit_color=COLOR_SUBTEXT,
         )
