@@ -55,9 +55,10 @@ class EnergyFlowView(tk.Frame):
         raw_batt_kw = float(data.get(BATTERY_POWER_KW) or 0.0)
         soc = float(data.get(BATTERY_SOC_PCT) or 0.0)
 
-        # Fronius-Konvention (PowerFlowRealtimeData):
+        # Fronius-Konvention (PowerFlowRealtimeData) laut Logik hier:
         # - P_Grid:  + = Netzbezug, - = Einspeisung
-        # - P_Akku:  + = Batterie lädt (nimmt Leistung), - = Batterie entlädt (liefert Leistung)
+        # - P_Akku:  + = Batterie entlaedt (liefert), - = Batterie laedt (nimmt)
+        # - P_Load:  - = Hausverbrauch
         load_kw_value = None
         if LOAD_POWER_KW in data and data.get(LOAD_POWER_KW) is not None:
             try:
@@ -69,9 +70,9 @@ class EnergyFlowView(tk.Frame):
             load_kw_value = None
 
         if load_kw_value is not None:
-            load_kw = max(0.0, load_kw_value)
+            load_kw = abs(load_kw_value)
         else:
-            load_kw = pv_kw + grid_kw - raw_batt_kw
+            load_kw = pv_kw + grid_kw + raw_batt_kw
 
         pv_w = pv_kw * 1000
         grid_w = grid_kw * 1000
