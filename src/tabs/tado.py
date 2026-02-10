@@ -447,8 +447,9 @@ class TadoTab:
                 logging.warning("[TADO] history_canvas fehlt, Sparkline kann nicht gezeichnet werden.")
                 return
             self.history_ax.clear()
-            self.history_fig.patch.set_alpha(0)
-            self.history_ax.set_facecolor("none")
+            self.history_fig.patch.set_facecolor(COLOR_CARD)
+            self.history_fig.patch.set_alpha(1.0)
+            self.history_ax.set_facecolor(COLOR_CARD)
             if len(self.history_temps) > 1 and len(self.history_times) == len(self.history_temps):
                 import numpy as np
                 import matplotlib.dates as mdates

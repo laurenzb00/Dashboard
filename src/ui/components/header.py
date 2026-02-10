@@ -61,7 +61,7 @@ class HeaderBar(ctk.CTkFrame):
         self.clock_label = ctk.CTkLabel(
             center, 
             text="--:--", 
-            font=("Segoe UI", 30, "bold"), 
+            font=("Segoe UI", 34, "bold"), 
             text_color=COLOR_PRIMARY
         )
         self.clock_label.grid(row=0, column=0, sticky="ew", padx=(0, 16))

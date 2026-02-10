@@ -3,6 +3,7 @@ import customtkinter as ctk
 import os
 
 DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+SHOW_STATUS_TAB = os.environ.get("DASHBOARD_HIDE_STATUS_TAB", "").strip().lower() not in ("1", "true", "yes", "on")
 
 
 def _dbg_print(msg: str) -> None:
@@ -442,14 +443,15 @@ class MainApp:
             segmented_button_fg_color=COLOR_ROOT,
             segmented_button_selected_color=COLOR_PRIMARY,
             segmented_button_selected_hover_color=COLOR_PRIMARY,
-            segmented_button_unselected_color=COLOR_ROOT,
-            segmented_button_unselected_hover_color=COLOR_ROOT,
+            segmented_button_unselected_color=COLOR_CARD,
+            segmented_button_unselected_hover_color=COLOR_BORDER,
             text_color=COLOR_TEXT,
             text_color_disabled=COLOR_SUBTEXT,
             corner_radius=0,
             border_width=0
         )
         self.tabview.pack(fill=tk.BOTH, expand=True)
+        self._style_tabview_buttons()
         # Backward-Compat Wrapper für alte notebook.add() API
         self.notebook = TabviewWrapper(self.tabview)
 
@@ -508,6 +510,29 @@ class MainApp:
             out_temp = f"{norm['outdoor']:.1f} °C"
         self.header.update_header(date_text, weekday, time_text, out_temp)
         self.root.after(1000, self._update_header_datetime)
+
+    def _style_tabview_buttons(self) -> None:
+        """Make the active tab more readable and improve contrast."""
+        try:
+            segmented = getattr(self.tabview, "_segmented_button", None)
+            if segmented is None:
+                return
+            segmented.configure(
+                font=("Segoe UI", 12, "bold"),
+                height=36,
+                corner_radius=14,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                fg_color=COLOR_CARD,
+                unselected_color=COLOR_CARD,
+                unselected_hover_color=COLOR_BORDER,
+                selected_color=COLOR_PRIMARY,
+                selected_hover_color=COLOR_PRIMARY,
+                text_color=COLOR_TEXT,
+                text_color_disabled=COLOR_SUBTEXT,
+            )
+        except Exception:
+            pass
 
     # PV Status Tab und zugehörige Methoden entfernt, ersetzt durch StatusTab
 
@@ -631,7 +656,7 @@ class MainApp:
                 self.system_tab = None
 
         # StatusTab immer als letzter Tab (rechts)
-        if StatusTab:
+        if StatusTab and SHOW_STATUS_TAB:
             try:
                 _dbg_print("[TABS] StatusTab wird erstellt...")
                 self.tabview.add("Status")
@@ -645,6 +670,8 @@ class MainApp:
             except Exception as e:
                 print(f"[ERROR] StatusTab init failed: {e}")
                 self.status_tab = None
+        elif StatusTab:
+            _dbg_print("[TABS] StatusTab ausgeblendet (DASHBOARD_HIDE_STATUS_TAB=1 zum Ausblenden aktiv)")
         _dbg_print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
 
     # --- Callbacks ---

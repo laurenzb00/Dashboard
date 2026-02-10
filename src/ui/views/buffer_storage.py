@@ -333,12 +333,12 @@ class BufferStorageView(tk.Frame):
             cmap=self._build_cmap(),
             norm=self.norm,
             origin="lower",
-            extent=[0.05, 0.35, 0.08, 0.92],
+            extent=[0.06, 0.50, 0.08, 0.92],
         )
 
         puffer_cyl = FancyBboxPatch(
-            (0.08, 0.08),
-            0.24,
+            (0.09, 0.08),
+            0.34,
             0.84,
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
@@ -349,26 +349,26 @@ class BufferStorageView(tk.Frame):
         )
         self.im.set_clip_path(puffer_cyl)
         self.ax.add_patch(puffer_cyl)
-        self.ax.add_patch(Ellipse((0.20, 0.92), 0.24, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.26, 0.92), 0.34, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
-        self.ax.add_patch(Ellipse((0.20, 0.08), 0.24, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.26, 0.08), 0.34, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         # Entfernt: Helles weißes Overlay-Rectangle
         # Feste Schriftgröße und feste Ränder für optimalen Sitz
-        self.fig.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.18)
-        self.ax.text(0.20, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
+        self.fig.subplots_adjust(left=0.06, right=0.98, top=0.92, bottom=0.18)
+        self.ax.text(0.26, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
                  color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
 
         # Temperatur-Textfelder links
         self.val_texts = [
-            self.ax.text(0.05, 0.85, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.05, 0.50, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.05, 0.15, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.04, 0.85, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.04, 0.50, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.04, 0.15, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
         ]
 
         self.boiler_rect = FancyBboxPatch(
             (0.58, 0.08),
-            0.22,
+            0.32,
             0.45,
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
@@ -378,15 +378,15 @@ class BufferStorageView(tk.Frame):
             alpha=0.95,
         )
         self.ax.add_patch(self.boiler_rect)
-        self.ax.add_patch(Ellipse((0.69, 0.53), 0.22, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.74, 0.53), 0.32, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
-        self.ax.add_patch(Ellipse((0.69, 0.08), 0.22, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.74, 0.08), 0.32, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         # Entfernt: Helles weißes Overlay-Rectangle
-        self.ax.text(0.69, 0.60, "Boiler", transform=self.ax.transAxes,
+        self.ax.text(0.74, 0.60, "Boiler", transform=self.ax.transAxes,
                      color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
         # Boiler-Temperaturtext
-        self.boiler_text = self.ax.text(0.69, 0.32, "--°C", color="#FFFFFF", fontsize=14, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
+        self.boiler_text = self.ax.text(0.74, 0.32, "--°C", color="#FFFFFF", fontsize=14, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)

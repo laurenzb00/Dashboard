@@ -361,8 +361,12 @@ class SpotifyTab:
         )
         self.cover_label.pack(fill=tk.BOTH, expand=True, pady=8)
 
-        info_box = tk.Frame(left, bg=COLOR_ROOT)
-        info_box.pack(fill=tk.X, pady=8)
+        right = tk.Frame(container, bg=COLOR_ROOT)
+        right.grid(row=0, column=1, sticky="nsew")
+        right.columnconfigure(0, weight=1)
+
+        info_box = tk.Frame(right, bg=COLOR_ROOT)
+        info_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         self.track_var = tk.StringVar(value="–")
         self.artist_var = tk.StringVar(value="")
         self.album_var = tk.StringVar(value="")
@@ -370,7 +374,7 @@ class SpotifyTab:
             info_box,
             textvariable=self.track_var,
             font=("Arial", 20, "bold"),
-            wraplength=360,
+            wraplength=320,
             bg=COLOR_ROOT,
             fg=COLOR_TEXT,
         ).pack(anchor=W)
@@ -389,12 +393,8 @@ class SpotifyTab:
             fg=COLOR_SUBTEXT,
         ).pack(anchor=W)
 
-        right = tk.Frame(container, bg=COLOR_ROOT)
-        right.grid(row=0, column=1, sticky="nsew")
-        right.columnconfigure(0, weight=1)
-
         volume_box = ttk.Labelframe(right, text="Lautstärke")
-        volume_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        volume_box.grid(row=1, column=0, sticky="ew", pady=(6, 12))
         self.volume_var = tk.IntVar(value=50)
         volume_controls = tk.Frame(volume_box, bg=COLOR_ROOT)
         volume_controls.pack(fill=tk.X, pady=4)
@@ -405,7 +405,7 @@ class SpotifyTab:
         ttk.Button(volume_controls, text="+", width=4, command=lambda: self._adjust_volume(10), bootstyle="secondary").pack(side=LEFT, padx=3)
 
         quick_box = ttk.Labelframe(right, text="Schnellaktionen")
-        quick_box.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        quick_box.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         self.shuffle_var = tk.BooleanVar(value=False)
         toggle_style = self.safe_toggle_style("round-toggle")
         try:
@@ -439,10 +439,10 @@ class SpotifyTab:
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
             anchor="w",
-        ).grid(row=2, column=0, sticky="ew", pady=(16, 4))
+        ).grid(row=3, column=0, sticky="ew", pady=(16, 4))
 
         controls = tk.Frame(right, bg=COLOR_ROOT)
-        controls.grid(row=3, column=0, pady=(0, 0))
+        controls.grid(row=4, column=0, pady=(0, 0))
         ttk.Button(controls, text="⏮", width=5, command=self._prev_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
         self.play_button = ttk.Button(
             controls,

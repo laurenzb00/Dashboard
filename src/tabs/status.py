@@ -64,8 +64,31 @@ class StatusTab(ctk.CTkFrame):
     def _build_layout(self):
         """Minimalistisches Status-Dashboard mit großen Kacheln."""
         self.configure(fg_color=COLOR_ROOT)
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill=tk.X, padx=12, pady=(12, 6))
+        ctk.CTkLabel(
+            header,
+            text="Systemstatus",
+            font=("Segoe UI", 16, "bold"),
+            text_color=COLOR_TITLE,
+        ).pack(anchor="w")
+        self.summary_label = ctk.CTkLabel(
+            header,
+            text="Warte auf Daten...",
+            font=("Segoe UI", 11),
+            text_color=COLOR_SUBTEXT,
+        )
+        self.summary_label.pack(anchor="w", pady=(2, 0))
+        self.detail_label = ctk.CTkLabel(
+            header,
+            text="",
+            font=("Segoe UI", 9),
+            text_color=COLOR_SUBTEXT,
+        )
+        self.detail_label.pack(anchor="w")
+
         main = ctk.CTkFrame(self, fg_color="transparent")
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
         
         # Grid: 3 Zeilen × 4 Spalten
         for i in range(4):
@@ -94,8 +117,13 @@ class StatusTab(ctk.CTkFrame):
             # Status-Ampel
             lamp = tk.Canvas(inner, width=24, height=24, bg=COLOR_ROOT, highlightthickness=0)
             lamp.pack(pady=(4, 8))
+
+            status_lbl = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 11, "bold"), text_color=COLOR_TEXT)
+            status_lbl.pack(pady=(0, 2))
+            age_lbl = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT)
+            age_lbl.pack(pady=(0, 2))
             
-            self.ampel_cards.append({"label": label, "lamp": lamp, "icon": icon_lbl})
+            self.ampel_cards.append({"label": label, "lamp": lamp, "icon": icon_lbl, "status": status_lbl, "age": age_lbl})
         
         # Zeile 2: Energie-Werte (PV, Grid, Batterie, Batterie-SOC)
         self.snapshot_labels = {}
@@ -294,9 +322,11 @@ class StatusTab(ctk.CTkFrame):
             latest_ts = self.datastore.get_latest_timestamp()
             db_dt = self._safe_iso_to_dt(latest_ts)
             db_age = self._age_seconds(now, db_dt)
-            db_color = self._simple_status_color(db_age)
+            db_color, db_status, db_line = self._lamp_style_ext(db_age, db_dt, now, stale_s=60)
             self.ampel_cards[0]["lamp"].delete("all")
             self.ampel_cards[0]["lamp"].create_oval(6, 6, 18, 18, fill=db_color, outline=COLOR_ROOT)
+            self.ampel_cards[0]["status"].configure(text=db_status)
+            self.ampel_cards[0]["age"].configure(text=db_line)
         except Exception:
             pass
         
@@ -314,9 +344,11 @@ class StatusTab(ctk.CTkFrame):
             
             pv_dt = self._safe_iso_to_dt(pv_rec.get("timestamp") if pv_rec else None)
             pv_age = self._age_seconds(now, pv_dt)
-            pv_color = self._simple_status_color(pv_age)
+            pv_color, pv_status, pv_line = self._lamp_style_ext(pv_age, pv_dt, now, stale_s=60)
             self.ampel_cards[1]["lamp"].delete("all")
             self.ampel_cards[1]["lamp"].create_oval(6, 6, 18, 18, fill=pv_color, outline=COLOR_ROOT)
+            self.ampel_cards[1]["status"].configure(text=pv_status)
+            self.ampel_cards[1]["age"].configure(text=pv_line)
         except Exception:
             pass
         
@@ -337,17 +369,45 @@ class StatusTab(ctk.CTkFrame):
             
             heat_dt = self._safe_iso_to_dt(heat_rec.get("timestamp") if heat_rec else None)
             heat_age = self._age_seconds(now, heat_dt)
-            heat_color = self._simple_status_color(heat_age)
+            heat_color, heat_status, heat_line = self._lamp_style_ext(heat_age, heat_dt, now, stale_s=60)
             self.ampel_cards[2]["lamp"].delete("all")
             self.ampel_cards[2]["lamp"].create_oval(6, 6, 18, 18, fill=heat_color, outline=COLOR_ROOT)
+            self.ampel_cards[2]["status"].configure(text=heat_status)
+            self.ampel_cards[2]["age"].configure(text=heat_line)
         except Exception:
             pass
         
         # Gesamt-Status (4. Ampel)
-        overall_ok = db_age is not None and db_age < 120 and pv_age is not None and pv_age < 120 and heat_age is not None and heat_age < 120
-        overall_color = COLOR_SUCCESS if overall_ok else COLOR_WARNING
+        ages = [a for a in (db_age, pv_age, heat_age) if a is not None]
+        if not ages:
+            overall_color = "#9a9a9a"
+            overall_status = "Keine Daten"
+            overall_line = "--"
+        else:
+            worst = max(ages)
+            if worst < 60:
+                overall_color = COLOR_SUCCESS
+                overall_status = "OK"
+            elif worst < 300:
+                overall_color = COLOR_WARNING
+                overall_status = "Veraltet"
+            else:
+                overall_color = COLOR_DANGER
+                overall_status = "Stark veraltet"
+            overall_line = f"vor {self._format_age(worst)}"
         self.ampel_cards[3]["lamp"].delete("all")
         self.ampel_cards[3]["lamp"].create_oval(6, 6, 18, 18, fill=overall_color, outline=COLOR_ROOT)
+        self.ampel_cards[3]["status"].configure(text=overall_status)
+        self.ampel_cards[3]["age"].configure(text=overall_line)
+
+        try:
+            db_line = self.ampel_cards[0]["age"].cget("text")
+            pv_line = self.ampel_cards[1]["age"].cget("text")
+            heat_line = self.ampel_cards[2]["age"].cget("text")
+            self.summary_label.configure(text=f"DB {db_line} | PV {pv_line} | Heizung {heat_line}")
+            self.detail_label.configure(text=f"Letztes Update: {now.strftime('%H:%M:%S')}")
+        except Exception:
+            pass
         
         self._schedule_update()
     
