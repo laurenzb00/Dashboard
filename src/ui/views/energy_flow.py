@@ -139,10 +139,10 @@ class EnergyFlowView(tk.Frame):
         self._font_big = ImageFont.truetype("arial.ttf", _s(54)) if self._has_font("arial.ttf") else None
         self._font_small = ImageFont.truetype("arial.ttf", _s(32)) if self._has_font("arial.ttf") else None
         self._font_tiny = ImageFont.truetype("arial.ttf", _s(22)) if self._has_font("arial.ttf") else None
-        self._flow_value_size = _s(60)
-        self._flow_unit_size = _s(26)
-        self._node_value_size = _s(60)
-        self._node_unit_size = _s(26)
+        self._flow_value_size = _s(74)
+        self._flow_unit_size = _s(32)
+        self._node_value_size = _s(74)
+        self._node_unit_size = _s(32)
         # Emoji font support with multiple fallbacks
         self._font_emoji = self._find_emoji_font(_s(42))
         # Load PNG icons - will be pasted onto PIL image
@@ -533,11 +533,30 @@ class EnergyFlowView(tk.Frame):
         h = max(vh, uh)
         w = vw + 4 + uw
 
-        txt_img = Image.new("RGBA", (w + 12, h + 12), (0, 0, 0, 0))
+        pad = 8
+        txt_img = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
         tdraw = ImageDraw.Draw(txt_img)
+        # Subtle background panel for readability
+        panel = self._with_alpha("#0b0f1a", 140)
+        tdraw.rounded_rectangle(
+            [0, 0, w + pad * 2, h + pad * 2],
+            radius=6,
+            fill=panel,
+        )
         unit_color = self._tint(color, 0.45)
-        tdraw.text((6, 6 + (h - vh) / 2), value_text, font=font_val, fill=color)
-        tdraw.text((6 + vw + 4, 6 + (h - uh) / 2), unit_text, font=font_unit, fill=unit_color)
+        text_x = pad
+        value_y = pad + (h - vh) / 2
+        unit_y = pad + (h - uh) / 2
+        # Dark outline for value/unit
+        outline_color = "#0a0a0a"
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                tdraw.text((text_x + dx, value_y + dy), value_text, font=font_val, fill=outline_color)
+                tdraw.text((text_x + vw + 4 + dx, unit_y + dy), unit_text, font=font_unit, fill=outline_color)
+        tdraw.text((text_x, value_y), value_text, font=font_val, fill=color)
+        tdraw.text((text_x + vw + 4, unit_y), unit_text, font=font_unit, fill=unit_color)
         rotated = txt_img.rotate(angle, resample=Image.BICUBIC, expand=True)
 
         rx, ry = rotated.size
@@ -694,7 +713,7 @@ class EnergyFlowView(tk.Frame):
             load_val,
             load_unit,
             home[0],
-            home[1] + 22,
+            home[1] + 28,
             value_size=self._node_value_size,
             unit_size=self._node_unit_size,
             value_color=COLOR_TEXT,
