@@ -177,6 +177,82 @@ class ErtragTab:
             series.append((ts, float(pv_kwh)))
         return series
 
+    def _load_load_daily(self, days: int = 365):
+        cutoff = datetime.now() - timedelta(days=days)
+        rows = self.store.get_recent_fronius(hours=days * 24, limit=None) if self.store else []
+        return self._integrate_daily_power(rows, cutoff)
+
+    @staticmethod
+    def _integrate_daily_power(rows: list[dict], cutoff: datetime) -> list[tuple[datetime, float]]:
+        buckets: dict[date, float] = {}
+        prev_ts = None
+        prev_power = None
+
+        for row in rows:
+            ts_raw = row.get("timestamp")
+            try:
+                ts = datetime.fromisoformat(str(ts_raw))
+            except Exception:
+                continue
+            if ts < cutoff:
+                continue
+            load_kw = row.get("load")
+            if load_kw is None:
+                continue
+            try:
+                power = abs(float(load_kw))
+            except Exception:
+                continue
+
+            if prev_ts is not None and prev_power is not None:
+                delta_h = (ts - prev_ts).total_seconds() / 3600
+                if 0 < delta_h <= 6:
+                    ErtragTab._distribute_daily_energy(buckets, prev_ts, prev_power, ts, power)
+
+            prev_ts, prev_power = ts, power
+
+        out = [(datetime.combine(day, datetime.min.time()), kwh) for day, kwh in buckets.items()]
+        out.sort(key=lambda t: t[0])
+        return out
+
+    @staticmethod
+    def _distribute_daily_energy(
+        buckets: dict[date, float],
+        start_ts: datetime,
+        start_power: float,
+        end_ts: datetime,
+        end_power: float,
+    ) -> None:
+        def _add(day_ts: datetime, p_start: float, p_end: float, hours: float) -> None:
+            if hours <= 0:
+                return
+            energy = (p_start + p_end) / 2.0 * hours
+            day_key = day_ts.date()
+            buckets[day_key] = buckets.get(day_key, 0.0) + energy
+
+        current_ts = start_ts
+        current_power = start_power
+        final_ts = end_ts
+        final_power = end_power
+
+        while current_ts.date() != final_ts.date():
+            boundary = datetime.combine(current_ts.date() + timedelta(days=1), datetime.min.time())
+            total_hours = (final_ts - current_ts).total_seconds() / 3600
+            if total_hours <= 0:
+                return
+            span_hours = (boundary - current_ts).total_seconds() / 3600
+            if span_hours <= 0:
+                break
+            ratio = span_hours / total_hours
+            boundary_power = current_power + (final_power - current_power) * ratio
+            _add(current_ts, current_power, boundary_power, span_hours)
+            current_ts = boundary
+            current_power = boundary_power
+
+        remaining_hours = (final_ts - current_ts).total_seconds() / 3600
+        if remaining_hours > 0:
+            _add(current_ts, current_power, final_power, remaining_hours)
+
     @staticmethod
     def _date_range(start: date, end: date):
         cur = start
@@ -286,7 +362,9 @@ class ErtragTab:
 
         window_days = self._period_map.get(self._period_var.get(), 90)
         raw = self._load_pv_daily(window_days)
+        raw_load = self._load_load_daily(window_days)
         xs, ys = self._with_gaps_daily(raw, window_days)
+        xs_load, ys_load = self._with_gaps_daily(raw_load, window_days)
         # Stable key: length + last non-nan sample
         last_non_nan = None
         if len(ys) > 0:
@@ -325,7 +403,17 @@ class ErtragTab:
                 print(f"[ERTRAG] Matplotlib-Liniendiagramm aktiv (Tage={window_days})")
                 self._log_once = True
 
-            self.ax.plot(xs, ys, color=COLOR_PRIMARY, linewidth=1.8, alpha=0.95)
+            self.ax.plot(xs, ys, color=COLOR_PRIMARY, linewidth=1.8, alpha=0.95, label="PV-Ertrag")
+
+            if len(ys_load) and np.any(~np.isnan(ys_load)):
+                self.ax.fill_between(xs_load, 0, ys_load, color=COLOR_SUBTEXT, alpha=0.25, label="Verbrauch")
+                self.ax.plot(xs_load, ys_load, color=COLOR_SUBTEXT, linewidth=1.2, alpha=0.6)
+
+                if len(xs) == len(xs_load):
+                    surplus = np.where((~np.isnan(ys)) & (~np.isnan(ys_load)) & (ys > ys_load), ys - ys_load, 0.0)
+                    deficit = np.where((~np.isnan(ys)) & (~np.isnan(ys_load)) & (ys_load > ys), ys_load - ys, 0.0)
+                    self.ax.fill_between(xs, ys_load, ys, where=surplus > 0, color="#10b981", alpha=0.22, label="Ueberschuss")
+                    self.ax.fill_between(xs, ys, ys_load, where=deficit > 0, color="#f97316", alpha=0.18, label="Defizit")
 
             self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=11, rotation=0, labelpad=18, va="center")
             locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
@@ -353,6 +441,8 @@ class ErtragTab:
             self.var_sum.set(f"Summe ({window_days}T): {total:.0f} kWh")
             self.var_avg.set(f"Ø Tag: {avg:.1f} kWh")
             self.var_last.set(f"{last_ts}: {last_val:.1f} kWh")
+            if len(ys_load) and np.any(~np.isnan(ys_load)):
+                self.ax.legend(loc="upper left", frameon=False, fontsize=9)
         else:
             self.ax.text(0.5, 0.5, "Keine Daten", color=COLOR_SUBTEXT, ha="center", va="center", 
                         fontsize=12, transform=self.ax.transAxes)
