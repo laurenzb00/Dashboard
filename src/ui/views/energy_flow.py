@@ -325,7 +325,7 @@ class EnergyFlowView(tk.Frame):
         battery_dx = _s(-200)  # Push battery into lower-left
         return {
             "pv": (margin_x + int((w - 2 * margin_x) * 0.16), margin_top + int(usable_h * 0.14)),
-            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.12), margin_top + int(usable_h * 0.14)),
+            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.16), margin_top + int(usable_h * 0.14)),
             "home": (w // 2, margin_top + int(usable_h * 0.58)),
             "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.96)),
         }
@@ -468,12 +468,13 @@ class EnergyFlowView(tk.Frame):
         x1, y1 = end
         base_w = int(width)
         pulse_w = int(max(1, base_w + 1 + 2 * pulse))
-        glow_alpha = int(30 + 70 * pulse)
+        glow_alpha = int(18 + 50 * pulse)
         glow_color = self._with_alpha(self._tint(color, 0.35), glow_alpha)
-        draw.line((x0, y0, x1, y1), fill=glow_color, width=pulse_w + 2)
-        draw.line((x0, y0, x1, y1), fill=color, width=base_w)
+        line_color = self._with_alpha(color, 170)
+        draw.line((x0, y0, x1, y1), fill=glow_color, width=pulse_w + 1)
+        draw.line((x0, y0, x1, y1), fill=line_color, width=base_w)
         # Start cap to make source/direction clearer (visual-only)
-        draw.ellipse([x0 - 3, y0 - 3, x0 + 3, y0 + 3], fill=color, outline=None)
+        draw.ellipse([x0 - 3, y0 - 3, x0 + 3, y0 + 3], fill=line_color, outline=None)
         # Arrow head
         vx, vy = x1 - x0, y1 - y0
         length = max((vx ** 2 + vy ** 2) ** 0.5, 1e-3)
@@ -481,7 +482,7 @@ class EnergyFlowView(tk.Frame):
         size = 14 + width
         left = (x1 - ux * size + uy * size * 0.6, y1 - uy * size - ux * size * 0.6)
         right = (x1 - ux * size - uy * size * 0.6, y1 - uy * size + ux * size * 0.6)
-        draw.polygon([left, right, (x1, y1)], fill=color)
+        draw.polygon([left, right, (x1, y1)], fill=line_color)
 
     def _draw_flow_label(self, base_img: Image.Image, src, dst, watts: float, offset: int = 8, along: int = 0, color: str = COLOR_TEXT):
         start, end = self._edge_points(src, dst, self.node_radius + 6)
@@ -628,7 +629,7 @@ class EnergyFlowView(tk.Frame):
             return clamp(abs(watts) / 3000, 0.0, 1.0)
 
         def thickness(watts):
-            return clamp(3 + abs(watts) / 1200, 3, 10)
+            return clamp(2 + abs(watts) / 1500, 2, 8)
 
         min_flow_w = 50
 
@@ -648,17 +649,17 @@ class EnergyFlowView(tk.Frame):
             self._draw_arrow(draw, home, grid, COLOR_INFO, thickness(grid_w), pulse=pulse)
             self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_INFO)
 
-        # Batterie Laden/Entladen (P_Akku > 0 = Laden)
+        # Batterie Laden/Entladen (Richtung dynamisch nach Vorzeichen)
         if batt_w > min_flow_w:
-            # Laden: Haus -> Batterie
-            pulse = self._anim_phase * flow_strength(batt_w)
-            self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse, gap=8)
-            self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_WARNING)
-        elif batt_w < -min_flow_w:
             # Entladen: Batterie -> Haus
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_SUCCESS)
+        elif batt_w < -min_flow_w:
+            # Laden: Haus -> Batterie
+            pulse = self._anim_phase * flow_strength(batt_w)
+            self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse, gap=8)
+            self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_WARNING)
 
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)
