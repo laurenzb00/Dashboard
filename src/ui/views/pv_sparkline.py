@@ -1,4 +1,6 @@
+import json
 import os
+from pathlib import Path
 import time
 from collections import deque
 from datetime import datetime, timedelta
@@ -36,6 +38,7 @@ class PVSparklineView(tk.Frame):
         self._spark_cache_pv = []
         self._spark_cache_temp = []
         self._spark_cache_ts = 0.0
+        self._spark_cache_file = Path(__file__).resolve().parents[3] / "data" / "sparkline_cache.json"
 
         header = tk.Frame(self, bg=COLOR_ROOT)
         header.pack(fill=tk.X, padx=6, pady=(4, 2))
@@ -100,9 +103,17 @@ class PVSparklineView(tk.Frame):
             self._spark_cache_pv = pv_series_db
             self._spark_cache_temp = temp_series_db
             self._spark_cache_ts = time.time()
+            if pv_series_db or temp_series_db:
+                self._save_cache(pv_series_db, temp_series_db)
         else:
             pv_series_db = list(self._spark_cache_pv)
             temp_series_db = list(self._spark_cache_temp)
+
+        if not pv_series_db and not temp_series_db:
+            cached = self._load_cache()
+            if cached:
+                pv_series_db = cached.get("pv", [])
+                temp_series_db = cached.get("temp", [])
 
         pv_series = list(pv_series_db)
         pv_hours = 24 if pv_series else 0
@@ -140,7 +151,7 @@ class PVSparklineView(tk.Frame):
                 spine.set_linewidth(0.5)
 
         if not pv_series and not temp_series:
-            self.spark_ax.text(0.5, 0.5, "Keine Daten (24h)", ha="center", va="center",
+            self.spark_ax.text(0.5, 0.5, "Keine Daten (48h)", ha="center", va="center",
                                transform=self.spark_ax.transAxes, color=COLOR_SUBTEXT, fontsize=9)
             self.spark_ax.set_xticks([])
             self.spark_ax.set_yticks([])
@@ -193,6 +204,38 @@ class PVSparklineView(tk.Frame):
             pass
         self.spark_ax.margins(x=0.01)
         self.spark_canvas.draw_idle()
+
+    def _save_cache(self, pv_series: list[tuple[datetime, float]], temp_series: list[tuple[datetime, float]]) -> None:
+        try:
+            payload = {
+                "pv": [[ts.isoformat(), float(val)] for ts, val in pv_series],
+                "temp": [[ts.isoformat(), float(val)] for ts, val in temp_series],
+            }
+            self._spark_cache_file.parent.mkdir(parents=True, exist_ok=True)
+            self._spark_cache_file.write_text(json.dumps(payload), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _load_cache(self) -> dict | None:
+        try:
+            if not self._spark_cache_file.exists():
+                return None
+            raw = json.loads(self._spark_cache_file.read_text(encoding="utf-8"))
+            pv = []
+            for item in raw.get("pv", []):
+                ts = self._parse_ts(item[0])
+                val = self._safe_float(item[1])
+                if ts is not None and val is not None:
+                    pv.append((ts, val))
+            temp = []
+            for item in raw.get("temp", []):
+                ts = self._parse_ts(item[0])
+                val = self._safe_float(item[1])
+                if ts is not None and val is not None:
+                    temp.append((ts, val))
+            return {"pv": pv, "temp": temp}
+        except Exception:
+            return None
 
     def _history_to_series(self, history: deque[tuple[datetime, float]], hours: int, bin_minutes: int) -> list[tuple[datetime, float]]:
         if not history:

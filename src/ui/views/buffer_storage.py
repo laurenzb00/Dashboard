@@ -367,7 +367,19 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _build_cmap() -> LinearSegmentedColormap:
-        return cm.get_cmap("inferno")
+        inferno = cm.get_cmap("inferno")
+        return LinearSegmentedColormap.from_list(
+            "inferno_blue",
+            [
+                (0.00, "#0b1f4b"),
+                (0.18, "#1e40af"),
+                (0.32, "#60a5fa"),
+                (0.50, inferno(0.50)),
+                (0.70, inferno(0.70)),
+                (1.00, inferno(1.00)),
+            ],
+            N=256,
+        )
 
     def _temp_color(self, temp: float) -> str:
         rgba = self._build_cmap()(self.norm(temp))
