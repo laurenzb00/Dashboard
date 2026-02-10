@@ -260,8 +260,8 @@ class BufferStorageView(tk.Frame):
         self.layout = tk.Frame(self, bg=COLOR_ROOT)
         self.layout.pack(fill=tk.BOTH, expand=True)
         self.layout.grid_columnconfigure(0, weight=1)
-        self.layout.grid_rowconfigure(0, weight=1)
-        self.layout.grid_rowconfigure(1, weight=0)
+        self.layout.grid_rowconfigure(0, weight=3)
+        self.layout.grid_rowconfigure(1, weight=1)
 
         self.plot_frame = tk.Frame(self.layout, bg=COLOR_ROOT)
         self.plot_frame.grid(row=0, column=0, sticky="nsew")
@@ -280,11 +280,11 @@ class BufferStorageView(tk.Frame):
 
         # Reduzierte Figures für 60:40 Layout
         fig_width = 3.8  # kleiner für 40% Breite
-        fig_height = 2.0
+        fig_height = 2.4
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
         # --- Sparkline Figure (PV & Außentemp) - kompakter für 40% Breite ---
-        self.spark_fig = Figure(figsize=(3.5, 1.2), dpi=100)
+        self.spark_fig = Figure(figsize=(3.5, 1.6), dpi=100)
         self.spark_fig.patch.set_facecolor(COLOR_ROOT)  # Explizit setzen
         self.spark_ax = self.spark_fig.add_subplot(111)
         self.spark_ax.set_facecolor(COLOR_ROOT)  # Match card color
@@ -295,7 +295,7 @@ class BufferStorageView(tk.Frame):
         self.spark_ax.set_axisbelow(True)
         self.spark_ax.grid(True, alpha=0.12)
         # Tight layout verhindert Clipping
-        self.spark_fig.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.20)
+        self.spark_fig.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.18)
         # ---
         self._create_sparkline()
 
@@ -333,13 +333,13 @@ class BufferStorageView(tk.Frame):
             cmap=self._build_cmap(),
             norm=self.norm,
             origin="lower",
-            extent=[0.06, 0.50, 0.08, 0.92],
+            extent=[0.06, 0.50, 0.06, 0.94],
         )
 
         puffer_cyl = FancyBboxPatch(
-            (0.09, 0.08),
+            (0.09, 0.06),
             0.34,
-            0.84,
+            0.88,
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
             linewidth=1.3,
@@ -349,27 +349,27 @@ class BufferStorageView(tk.Frame):
         )
         self.im.set_clip_path(puffer_cyl)
         self.ax.add_patch(puffer_cyl)
-        self.ax.add_patch(Ellipse((0.26, 0.92), 0.34, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.26, 0.94), 0.34, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
-        self.ax.add_patch(Ellipse((0.26, 0.08), 0.34, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.26, 0.06), 0.34, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         # Entfernt: Helles weißes Overlay-Rectangle
         # Feste Schriftgröße und feste Ränder für optimalen Sitz
-        self.fig.subplots_adjust(left=0.06, right=0.98, top=0.92, bottom=0.18)
-        self.ax.text(0.26, 0.98, "Pufferspeicher", transform=self.ax.transAxes,
-                 color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
+        self.fig.subplots_adjust(left=0.06, right=0.98, top=0.93, bottom=0.14)
+        self.ax.text(0.26, 0.985, "Pufferspeicher", transform=self.ax.transAxes,
+             color=COLOR_TITLE, fontsize=11, va="top", ha="center", weight="bold")
 
         # Temperatur-Textfelder links
         self.val_texts = [
-            self.ax.text(0.04, 0.85, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.04, 0.50, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.04, 0.15, "--°C", color="#FFFFFF", fontsize=11, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.04, 0.85, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.04, 0.50, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.04, 0.15, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
         ]
 
         self.boiler_rect = FancyBboxPatch(
-            (0.58, 0.08),
+            (0.58, 0.06),
             0.32,
-            0.45,
+            0.50,
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
             linewidth=1.1,
@@ -378,15 +378,15 @@ class BufferStorageView(tk.Frame):
             alpha=0.95,
         )
         self.ax.add_patch(self.boiler_rect)
-        self.ax.add_patch(Ellipse((0.74, 0.53), 0.32, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.74, 0.56), 0.32, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
-        self.ax.add_patch(Ellipse((0.74, 0.08), 0.32, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.74, 0.06), 0.32, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         # Entfernt: Helles weißes Overlay-Rectangle
-        self.ax.text(0.74, 0.60, "Boiler", transform=self.ax.transAxes,
-                     color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
+        self.ax.text(0.74, 0.62, "Boiler", transform=self.ax.transAxes,
+                 color=COLOR_TITLE, fontsize=11, va="top", ha="center", weight="bold")
         # Boiler-Temperaturtext
-        self.boiler_text = self.ax.text(0.74, 0.32, "--°C", color="#FFFFFF", fontsize=14, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
+        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color="#FFFFFF", fontsize=18, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)

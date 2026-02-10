@@ -135,16 +135,16 @@ class EnergyFlowView(tk.Frame):
 
         self.width = width
         self.height = height
-        self.node_radius = _s(38)
-        self.ring_gap = _s(10)
+        self.node_radius = _s(46)
+        self.ring_gap = _s(14)
         self._tk_img = None
         self._font_big = ImageFont.truetype("arial.ttf", _s(54)) if self._has_font("arial.ttf") else None
         self._font_small = ImageFont.truetype("arial.ttf", _s(32)) if self._has_font("arial.ttf") else None
         self._font_tiny = ImageFont.truetype("arial.ttf", _s(22)) if self._has_font("arial.ttf") else None
-        self._flow_value_size = _s(26)
-        self._flow_unit_size = _s(16)
-        self._node_value_size = _s(22)
-        self._node_unit_size = _s(12)
+        self._flow_value_size = _s(30)
+        self._flow_unit_size = _s(18)
+        self._node_value_size = _s(26)
+        self._node_unit_size = _s(14)
         # Emoji font support with multiple fallbacks
         self._font_emoji = self._find_emoji_font(_s(42))
         # Load PNG icons - will be pasted onto PIL image
@@ -307,16 +307,16 @@ class EnergyFlowView(tk.Frame):
 
     def _define_nodes(self):
         w, h = self.width, self.height
-        margin_x = int(w * 0.03)
-        margin_top = _s(40)
-        margin_bottom = _s(70)  # Space for SoC text under the battery
+        margin_x = int(w * 0.02)
+        margin_top = _s(32)
+        margin_bottom = _s(56)  # Space for SoC ring at the battery
         usable_h = h - margin_top - margin_bottom
-        battery_dx = _s(-120)  # Balance layout, less empty space on the left
+        battery_dx = _s(-140)  # Pull battery left to open the center
         return {
-            "pv": (margin_x + int((w - 2 * margin_x) * 0.20), margin_top + int(usable_h * 0.15)),
-            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.20), margin_top + int(usable_h * 0.15)),
-            "home": (w // 2, margin_top + int(usable_h * 0.55)),
-            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.94)),
+            "pv": (margin_x + int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.14)),
+            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.14)),
+            "home": (w // 2, margin_top + int(usable_h * 0.58)),
+            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.90)),
         }
 
     def _render_background(self) -> Image.Image:
@@ -451,8 +451,8 @@ class EnergyFlowView(tk.Frame):
             (x1 - ux * offset, y1 - uy * offset),
         )
 
-    def _draw_arrow(self, draw: ImageDraw.ImageDraw, src, dst, color: str, width: float, pulse: float = 0.0):
-        start, end = self._edge_points(src, dst, self.node_radius)
+    def _draw_arrow(self, draw: ImageDraw.ImageDraw, src, dst, color: str, width: float, pulse: float = 0.0, gap: float = 0.0):
+        start, end = self._edge_points(src, dst, self.node_radius + gap)
         x0, y0 = start
         x1, y1 = end
         base_w = int(width)
@@ -598,7 +598,7 @@ class EnergyFlowView(tk.Frame):
         extent = max(0, min(360, 360 * soc / 100))
         # Neutral in normal range, warn only when low
         color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_SUBTEXT)
-        draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=4)
+        draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=5)
 
     def render_frame(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float) -> Image.Image:
         print(f"[ENERGY_FLOW] render_frame: pv={pv_w}W load={load_w}W grid={grid_w}W batt={batt_w}W soc={soc}", flush=True)
@@ -617,7 +617,7 @@ class EnergyFlowView(tk.Frame):
             return clamp(abs(watts) / 3000, 0.0, 1.0)
 
         def thickness(watts):
-            return clamp(2 + abs(watts) / 1500, 2, 8)
+            return clamp(3 + abs(watts) / 1200, 3, 10)
 
         min_flow_w = 50
 
@@ -641,12 +641,12 @@ class EnergyFlowView(tk.Frame):
         if batt_w > min_flow_w:
             # Entladen: Batterie -> Haus
             pulse = self._anim_phase * flow_strength(batt_w)
-            self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse)
+            self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_SUCCESS)
         elif batt_w < -min_flow_w:
             # Laden: Haus -> Batterie
             pulse = self._anim_phase * flow_strength(batt_w)
-            self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse)
+            self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_WARNING)
 
         # SoC Ring um Batterie
@@ -659,7 +659,7 @@ class EnergyFlowView(tk.Frame):
             load_val,
             load_unit,
             home[0],
-            home[1] + 72,
+            home[1] + 54,
             value_size=self._node_value_size,
             unit_size=self._node_unit_size,
             value_color=COLOR_TEXT,
@@ -668,7 +668,7 @@ class EnergyFlowView(tk.Frame):
 
         # SoC inside battery with outline for readability - moved down to avoid emoji overlap
         soc_color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_TEXT)
-        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1] + 8, size=20, color=soc_color, outline=True)
+        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=22, color=soc_color, outline=True)
         print(f"[ENERGY_FLOW] render_frame: fertig", flush=True)
         return img
 
