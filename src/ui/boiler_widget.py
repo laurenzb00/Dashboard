@@ -19,6 +19,7 @@ matplotlib.use('Agg')  # Für Embedding
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.cm as cm
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 # --- FARBEN ---
 # Dieses Widget hatte eine eigene (bläuliche) Glasmorphism-Palette.
@@ -104,13 +105,25 @@ class ModernBoilerWidget:
         temps = np.linspace(temp_bot, temp_top, layers)
         heatmap_data = np.tile(temps[:, np.newaxis], (1, 3))
 
-        from matplotlib.colors import TwoSlopeNorm
-        norm = TwoSlopeNorm(vmin=35, vcenter=57, vmax=75)
+        # Fixed 40-80 scale with more visual contrast between 55-70.
+        norm = Normalize(vmin=40, vmax=80)
+        cmap = LinearSegmentedColormap.from_list(
+            "boiler_temp",
+            [
+                (0.00, "#14c7c9"),
+                (0.25, "#2bbf88"),
+                (0.375, "#7bdc6b"),
+                (0.50, "#f6e05e"),
+                (0.625, "#f6ad55"),
+                (0.75, "#f97316"),
+                (1.00, "#ef4444"),
+            ],
+        )
 
         self.ax.imshow(
             heatmap_data,
             aspect='auto',
-            cmap='RdYlBu_r',
+            cmap=cmap,
             norm=norm,
             interpolation='gaussian',
             origin='lower'

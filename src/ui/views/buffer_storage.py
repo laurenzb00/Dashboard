@@ -262,8 +262,8 @@ class BufferStorageView(tk.Frame):
         self.val_texts = []
 
         # Reduzierte Figures für 60:40 Layout
-        fig_width = 3.8  # kleiner für 40% Breite
-        fig_height = 2.4
+        fig_width = 4.4  # etwas groesser fuer mehr Lesbarkeit
+        fig_height = 2.9
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
 

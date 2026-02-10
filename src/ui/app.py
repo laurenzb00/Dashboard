@@ -477,7 +477,7 @@ class MainApp:
         self.body = ctk.CTkFrame(self.dashboard_tab, fg_color=COLOR_ROOT, corner_radius=0, border_width=0)
         self.body.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
         self.body.grid_columnconfigure(0, weight=4)  # Mehr Platz für Energiefluss
-        self.body.grid_columnconfigure(1, weight=1, minsize=320)  # Schmalere Heatmap-Spalte
+        self.body.grid_columnconfigure(1, weight=1, minsize=360)  # Schmalere Heatmap-Spalte
         self.body.grid_rowconfigure(0, weight=1)
         self.body.grid_rowconfigure(1, weight=0)
 
@@ -494,11 +494,11 @@ class MainApp:
         self.buffer_card = Card(self.body, padding=0)
         self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
         self.buffer_card.add_title("Warmwasser", icon="🔥")
-        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=280, datastore=self.datastore)
+        self.buffer_view = BufferStorageView(self.buffer_card.content(), height=320, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
         self.sparkline_card = Card(self.body, padding=0)
-        self.sparkline_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=0, pady=(6, 0))
+        self.sparkline_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=0, pady=(2, 0))
         self.sparkline_view = PVSparklineView(self.sparkline_card.content(), datastore=self.datastore)
         self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
