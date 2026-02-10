@@ -120,7 +120,8 @@ class PVSparklineView(tk.Frame):
 
         self.spark_ax.clear()
         now = datetime.now()
-        cutoff = now - timedelta(hours=24)
+        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff = start_of_today - timedelta(days=1)
 
         if hasattr(self, "spark_ax2"):
             try:
@@ -179,7 +180,7 @@ class PVSparklineView(tk.Frame):
         ax2.tick_params(axis='y', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
         self.spark_ax.set_ylabel('kW', fontsize=8, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
         ax2.set_ylabel('°C', fontsize=8, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
-        tick_hours = [0, 6, 12, 18, 24]
+        tick_hours = list(range(0, 49, 6))
         tick_times = [cutoff + timedelta(hours=h) for h in tick_hours]
         self.spark_ax.xaxis.set_major_locator(FixedLocator(mdates.date2num(tick_times)))
         self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))

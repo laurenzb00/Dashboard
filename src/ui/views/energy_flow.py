@@ -139,10 +139,10 @@ class EnergyFlowView(tk.Frame):
         self._font_big = ImageFont.truetype("arial.ttf", _s(54)) if self._has_font("arial.ttf") else None
         self._font_small = ImageFont.truetype("arial.ttf", _s(32)) if self._has_font("arial.ttf") else None
         self._font_tiny = ImageFont.truetype("arial.ttf", _s(22)) if self._has_font("arial.ttf") else None
-        self._flow_value_size = _s(30)
-        self._flow_unit_size = _s(18)
-        self._node_value_size = _s(26)
-        self._node_unit_size = _s(14)
+        self._flow_value_size = _s(36)
+        self._flow_unit_size = _s(20)
+        self._node_value_size = _s(36)
+        self._node_unit_size = _s(18)
         # Emoji font support with multiple fallbacks
         self._font_emoji = self._find_emoji_font(_s(42))
         # Load PNG icons - will be pasted onto PIL image
@@ -333,6 +333,9 @@ class EnergyFlowView(tk.Frame):
                 # Battery offset to avoid SoC overlap
                 if name == "battery":
                     paste_y -= 8
+                # Home offset to make room for centered value text
+                if name == "home":
+                    paste_y += 8
                 img.paste(icon, (paste_x, paste_y), icon)  # Use alpha channel
         return img
 
@@ -618,7 +621,14 @@ class EnergyFlowView(tk.Frame):
         bbox = [x - r, y - r, x + r, y + r]
         extent = max(0, min(360, 360 * soc / 100))
         # Neutral in normal range, warn only when low
-        color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_SUBTEXT)
+        if soc < 20:
+            color = COLOR_DANGER
+        elif soc < 35:
+            color = COLOR_WARNING
+        elif soc < 60:
+            color = COLOR_INFO
+        else:
+            color = COLOR_SUCCESS
         draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=5)
 
     def render_frame(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float) -> Image.Image:
@@ -684,9 +694,9 @@ class EnergyFlowView(tk.Frame):
             load_val,
             load_unit,
             home[0],
-            home[1] + 18,
-            value_size=self._node_value_size + 6,
-            unit_size=self._node_unit_size + 2,
+            home[1] + 10,
+            value_size=self._node_value_size,
+            unit_size=self._node_unit_size,
             value_color=COLOR_TEXT,
             unit_color=COLOR_SUBTEXT,
         )
