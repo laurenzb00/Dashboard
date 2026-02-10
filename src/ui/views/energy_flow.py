@@ -81,10 +81,6 @@ class EnergyFlowView(tk.Frame):
         # Hausverbrauch in W (P_Load falls vorhanden, sonst bilanziert)
         load_w = load_kw * 1000
 
-        print(
-            f"[ENERGY_FLOW] update_data: pv={pv_kw} grid={grid_kw} batt_raw={raw_batt_kw} load={load_kw} soc={soc}",
-            flush=True,
-        )
         try:
             self.update_flows(pv_w, load_w, grid_w, batt_w, soc)
         except Exception as e:
@@ -92,12 +88,10 @@ class EnergyFlowView(tk.Frame):
 
     def update_flows(self, pv_kw, load_kw, grid_kw, batt_kw, soc):
         """Update power flows - nur redraw wenn Werte sich signifikant ändern."""
-        print(f"[ENERGY_FLOW] update_flows: pv={pv_kw}W load={load_kw}W grid={grid_kw}W batt={batt_kw}W soc={soc}", flush=True)
         values = (pv_kw, load_kw, grid_kw, batt_kw, soc)
         last = getattr(self, "_last_flows", None)
         if last is not None:
             if all(abs(a - b) < 0.01 for a, b in zip(values, last)):
-                print("[ENERGY_FLOW] update_flows: Werte unverändert, kein redraw.", flush=True)
                 return
         self._last_flows = values
         # Check for canvas size changes
@@ -106,28 +100,20 @@ class EnergyFlowView(tk.Frame):
         # Only recreate layout if size changed by more than 30px
         if abs(cw - self.width) > 30 or abs(ch - self.height) > 30:
             elapsed = time.time() - self._start_time
-            print(f"[ENERGY_FLOW] update_flows: SIGNIFICANT size change {self.width}x{self.height} -> {cw}x{ch}", flush=True)
             self.width, self.height = cw, ch
             self.nodes = self._define_nodes()
             self._base_img = self._render_background()
-        print(f"[ENERGY_FLOW] Rendering frame...", flush=True)
         try:
             frame = self.render_frame(pv_kw, load_kw, grid_kw, batt_kw, soc)
-            print(f"[ENERGY_FLOW] Frame rendered: size={frame.size}, mode={frame.mode}", flush=True)
         except Exception as e:
-            print(f"[ENERGY_FLOW] Fehler beim Rendern des Frames: {e}", flush=True)
             return
         try:
             self._tk_img = ImageTk.PhotoImage(frame)
-            print(f"[ENERGY_FLOW] PhotoImage erzeugt.", flush=True)
         except Exception as e:
-            print(f"[ENERGY_FLOW] Fehler bei PhotoImage: {e}", flush=True)
             return
         try:
             self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
-            print(f"[ENERGY_FLOW] Canvas-Image gesetzt.", flush=True)
         except Exception as e:
-            print(f"[ENERGY_FLOW] Fehler beim Setzen des Canvas-Images: {e}", flush=True)
             return
         self._request_redraw()
 
@@ -636,7 +622,6 @@ class EnergyFlowView(tk.Frame):
         draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=5)
 
     def render_frame(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float) -> Image.Image:
-        print(f"[ENERGY_FLOW] render_frame: pv={pv_w}W load={load_w}W grid={grid_w}W batt={batt_w}W soc={soc}", flush=True)
         img = self._base_img.copy()
         draw = ImageDraw.Draw(img)
 
@@ -709,7 +694,6 @@ class EnergyFlowView(tk.Frame):
         # SoC inside battery with outline for readability - moved down to avoid emoji overlap
         soc_color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_TEXT)
         self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=22, color=soc_color, outline=True)
-        print(f"[ENERGY_FLOW] render_frame: fertig", flush=True)
         return img
 
     def stop(self):

@@ -293,7 +293,7 @@ class BufferStorageView(tk.Frame):
         self.ax.set_axis_off()
         self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
 
-        self.norm = Normalize(vmin=45, vmax=75)
+        self.norm = Normalize(vmin=40, vmax=80)
         self.im = self.ax.imshow(
             self.data,
             aspect="auto",
@@ -366,8 +366,7 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _build_cmap() -> LinearSegmentedColormap:
-        colors = [COLOR_INFO, COLOR_WARNING, COLOR_DANGER]
-        return LinearSegmentedColormap.from_list("buffer", colors, N=256)
+        return cm.get_cmap("inferno")
 
     def _temp_color(self, temp: float) -> str:
         rgba = self._build_cmap()(self.norm(temp))
@@ -400,17 +399,8 @@ class BufferStorageView(tk.Frame):
         # Update heatmap with stratified 2D array
         self.data = self._build_stratified_data(top, mid, bot)
         
-        # Dynamische Normalisierung basierend auf aktuellen Werten
-        data_min = min(top, mid, bot)
-        data_max = max(top, mid, bot)
-        vmin = max(30, data_min - 5)  # Mindestens 30°C
-        vmax = min(80, data_max + 5)  # Maximal 80°C
-        
         if hasattr(self, 'im'):
             self.im.set_data(self.data)
-            # Erneuere Colormap UND Normalisierung mit dynamischen Grenzen
-            from matplotlib.colors import Normalize
-            self.norm = Normalize(vmin=vmin, vmax=vmax)
             self.im.set_cmap(self._build_cmap())
             self.im.set_norm(self.norm)
         # Update left temperature texts
