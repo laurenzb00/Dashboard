@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
