@@ -970,13 +970,12 @@ class MainApp:
         if batt_kw is not None:
             self._last_data["batt"] = -batt_kw * 1000
 
-        if pv_kw is not None or grid_kw is not None or load_kw is not None:
-            netz_calc = (pv_kw or 0.0) + (batt_kw or 0.0) - (load_kw or 0.0)
-            if grid_kw is None or abs(grid_kw) < 1e-4:
-                signed_grid_kw = netz_calc
-            else:
-                signed_grid_kw = abs(grid_kw) * (1 if netz_calc <= 0 else -1)
-            self._last_data["grid"] = signed_grid_kw * 1000
+        if grid_kw is not None:
+            self._last_data["grid"] = grid_kw * 1000
+        elif pv_kw is not None or load_kw is not None or batt_kw is not None:
+            calc_load = load_kw if load_kw is not None else (pv_kw or 0.0) + (grid_kw or 0.0) - (batt_kw or 0.0)
+            calc_grid = (calc_load or 0.0) - (pv_kw or 0.0) + (batt_kw or 0.0)
+            self._last_data["grid"] = calc_grid * 1000
 
         if soc is not None:
             self._last_data["soc"] = soc
@@ -1101,11 +1100,16 @@ class MainApp:
         try:
             record = self.datastore.get_last_fronius_record()
             if record:
-                pv_kw = float(record.get('pv') or 0.0)
-                grid_kw = float(record.get('grid') or 0.0)
-                batt_kw = float(record.get('batt') or 0.0)
-                soc = float(record.get('soc') or 0.0)
-                load_kw = pv_kw + batt_kw - grid_kw
+                from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, LOAD_POWER_KW
+                pv_kw = float(record.get(PV_POWER_KW) or 0.0)
+                grid_kw = float(record.get(GRID_POWER_KW) or 0.0)
+                batt_kw = float(record.get(BATTERY_POWER_KW) or 0.0)
+                soc = float(record.get(BATTERY_SOC_PCT) or 0.0)
+                load_kw = record.get(LOAD_POWER_KW)
+                if load_kw is None:
+                    load_kw = pv_kw + grid_kw - batt_kw
+                else:
+                    load_kw = float(load_kw)
 
                 self._last_data["pv"] = pv_kw * 1000
                 self._last_data["grid"] = grid_kw * 1000

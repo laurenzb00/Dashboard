@@ -123,9 +123,17 @@ class DataStore:
                 grid_power REAL,
                 batt_power REAL,
                 soc REAL,
+                load_power REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Backward-compatible migration: add load_power if missing
+        try:
+            cols = [row[1] for row in cursor.execute("PRAGMA table_info(fronius)").fetchall()]
+            if "load_power" not in cols:
+                cursor.execute("ALTER TABLE fronius ADD COLUMN load_power REAL")
+        except Exception:
+            pass
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_fronius_ts ON fronius(timestamp)")
         
         # Ertrag Historie
@@ -197,13 +205,16 @@ class DataStore:
                         grid = _normalize_power_kw(grid)
                         batt = _normalize_power_kw(batt)
 
+                        load_power = _safe_float(_first_value(
+                            row, 'Hausverbrauch (kW)', 'Hausverbrauch', 'P_Load', 'Load'))
+                        load_power = _normalize_power_kw(load_power)
                         cursor.execute(
                             """
                             INSERT OR REPLACE INTO fronius
-                            (timestamp, pv_power, grid_power, batt_power, soc)
-                            VALUES (?, ?, ?, ?, ?)
+                            (timestamp, pv_power, grid_power, batt_power, soc, load_power)
+                            VALUES (?, ?, ?, ?, ?, ?)
                             """,
-                            (ts, pv, grid, batt, soc),
+                            (ts, pv, grid, batt, soc, load_power),
                         )
                         # Update ingest cache after each insert
                         self._update_last_ingest_locked(ts)
@@ -224,11 +235,11 @@ class DataStore:
     
     def get_last_fronius_record(self):
         """Hole letzten PV-Record als dict mit final keys (schema.py)."""
-        from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT
+        from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, LOAD_POWER_KW
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT timestamp, pv_power, grid_power, batt_power, soc
+            SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power
             FROM fronius ORDER BY timestamp DESC LIMIT 1
             """
         )
@@ -241,6 +252,7 @@ class DataStore:
                 GRID_POWER_KW: row[2] or 0.0,
                 BATTERY_POWER_KW: row[3] or 0.0,
                 BATTERY_SOC_PCT: row[4] or 0.0,
+                LOAD_POWER_KW: row[5],
             }
         return None
     
@@ -335,18 +347,20 @@ class DataStore:
         pv = _safe_float(record.get('PV-Leistung (kW)') or record.get('pv'))
         grid = _safe_float(record.get('Netz-Leistung (kW)') or record.get('grid'))
         batt = _safe_float(record.get('Batterie-Leistung (kW)') or record.get('batt'))
+        load_power = _safe_float(record.get('Hausverbrauch (kW)') or record.get('load') or record.get('P_Load'))
         soc = _safe_float(record.get('Batterieladestand (%)') or record.get('soc'))
 
         pv = _normalize_power_kw(pv)
         grid = _normalize_power_kw(grid)
         batt = _normalize_power_kw(batt)
+        load_power = _normalize_power_kw(load_power)
         with self._lock:
             self._execute_with_retry(
                 """
-                INSERT OR REPLACE INTO fronius (timestamp, pv_power, grid_power, batt_power, soc)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO fronius (timestamp, pv_power, grid_power, batt_power, soc, load_power)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (ts, pv, grid, batt, soc),
+                (ts, pv, grid, batt, soc, load_power),
             )
             self._commit_with_retry()
             self._update_last_ingest_locked(ts)
@@ -379,7 +393,7 @@ class DataStore:
         cutoff = _hours_ago_iso(hours)
         cursor = self.conn.cursor()
         sql = (
-            "SELECT timestamp, pv_power, grid_power, batt_power, soc "
+            "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
             "FROM fronius WHERE (? IS NULL OR timestamp >= ?) "
             "ORDER BY timestamp ASC"
         )
@@ -395,6 +409,7 @@ class DataStore:
                 'grid': row[2],
                 'batt': row[3],
                 'soc': row[4],
+                'load': row[5],
             }
             for row in rows
         ]

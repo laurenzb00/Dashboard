@@ -30,7 +30,7 @@ def _s(val: float) -> int:
 
 MISSING_LOG_COOLDOWN = 60.0  # seconds
 
-from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT
+from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, LOAD_POWER_KW
 
 class EnergyFlowView(tk.Frame):
     def _request_redraw(self):
@@ -59,18 +59,38 @@ class EnergyFlowView(tk.Frame):
         # - P_Grid:  + = Netzbezug, - = Einspeisung
         # - P_Akku:  + = Batterie lädt (nimmt Leistung), - = Batterie entlädt (liefert Leistung)
         # Für die Visualisierung verwenden wir batt_flow_kw: + = Entladen (Batterie -> Haus)
-        batt_flow_kw = -raw_batt_kw
+        load_kw_value = None
+        if LOAD_POWER_KW in data and data.get(LOAD_POWER_KW) is not None:
+            try:
+                load_kw_value = float(data.get(LOAD_POWER_KW))
+            except Exception:
+                load_kw_value = None
+        signal_kw = abs(pv_kw) + abs(grid_kw) + abs(raw_batt_kw)
+        if load_kw_value is not None and load_kw_value <= 0.05 and signal_kw >= 0.2:
+            load_kw_value = None
+
+        if load_kw_value is not None:
+            # Auto-detect battery sign using P_Load consistency
+            load_a = pv_kw + grid_kw - raw_batt_kw
+            load_b = pv_kw + grid_kw + raw_batt_kw
+            if abs(load_a - load_kw_value) <= abs(load_b - load_kw_value):
+                batt_flow_kw = -raw_batt_kw
+            else:
+                batt_flow_kw = raw_batt_kw
+            load_kw = max(0.0, load_kw_value)
+        else:
+            batt_flow_kw = -raw_batt_kw
+            load_kw = pv_kw + grid_kw - batt_flow_kw
 
         pv_w = pv_kw * 1000
         grid_w = grid_kw * 1000
         batt_w = batt_flow_kw * 1000
 
-        # Hausverbrauch = PV + Netz + Batterie-Beitrag (Entladen positiv)
-        load_kw = pv_kw + grid_kw + batt_flow_kw
+        # Hausverbrauch in W (P_Load falls vorhanden, sonst bilanziert)
         load_w = load_kw * 1000
 
         print(
-            f"[ENERGY_FLOW] update_data: pv={pv_kw} grid={grid_kw} batt_raw={raw_batt_kw} batt_flow={batt_flow_kw} soc={soc}",
+            f"[ENERGY_FLOW] update_data: pv={pv_kw} grid={grid_kw} batt_raw={raw_batt_kw} batt_flow={batt_flow_kw} load={load_kw} soc={soc}",
             flush=True,
         )
         try:
