@@ -294,7 +294,7 @@ class BufferStorageView(tk.Frame):
         self.ax.set_axis_off()
         self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
 
-        self.norm = Normalize(vmin=40, vmax=80)
+        self.norm = Normalize(vmin=35, vmax=80)
         self.im = self.ax.imshow(
             self.data,
             aspect="auto",
