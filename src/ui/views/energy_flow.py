@@ -139,10 +139,10 @@ class EnergyFlowView(tk.Frame):
         self._font_big = ImageFont.truetype("arial.ttf", _s(54)) if self._has_font("arial.ttf") else None
         self._font_small = ImageFont.truetype("arial.ttf", _s(32)) if self._has_font("arial.ttf") else None
         self._font_tiny = ImageFont.truetype("arial.ttf", _s(22)) if self._has_font("arial.ttf") else None
-        self._flow_value_size = _s(74)
-        self._flow_unit_size = _s(32)
-        self._node_value_size = _s(74)
-        self._node_unit_size = _s(32)
+        self._flow_value_size = _s(134)
+        self._flow_unit_size = _s(58)
+        self._node_value_size = _s(134)
+        self._node_unit_size = _s(58)
         # Emoji font support with multiple fallbacks
         self._font_emoji = self._find_emoji_font(_s(42))
         # Load PNG icons - will be pasted onto PIL image
