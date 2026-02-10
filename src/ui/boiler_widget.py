@@ -107,17 +107,7 @@ class ModernBoilerWidget:
 
         # Fixed 40-80 scale with more visual contrast between 55-70.
         norm = Normalize(vmin=40, vmax=80)
-        cmap = LinearSegmentedColormap.from_list(
-            "boiler_temp",
-            [
-                (0.00, "#14c7c9"),
-                (0.30, "#38bdf8"),
-                (0.50, "#f6e05e"),
-                (0.65, "#f6ad55"),
-                (0.80, "#f97316"),
-                (1.00, "#ef4444"),
-            ],
-        )
+        cmap = cm.get_cmap("inferno")
 
         self.ax.imshow(
             heatmap_data,
