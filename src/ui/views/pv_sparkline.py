@@ -86,13 +86,13 @@ class PVSparklineView(tk.Frame):
         refresh_needed = (time.time() - self._spark_cache_ts) > 60.0
         if refresh_needed:
             try:
-                pv_series_db = self._load_pv_series(hours=24, bin_minutes=15)
+                pv_series_db = self._load_pv_series(hours=48, bin_minutes=15)
             except Exception as exc:
                 if DEBUG_LOG:
                     print(f"[SPARKLINE] _load_pv_series error: {exc}")
                 pv_series_db = []
             try:
-                temp_series_db = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+                temp_series_db = self._load_outdoor_temp_series(hours=48, bin_minutes=15)
             except Exception as exc:
                 if DEBUG_LOG:
                     print(f"[SPARKLINE] _load_outdoor_temp_series error: {exc}")
@@ -122,6 +122,7 @@ class PVSparklineView(tk.Frame):
         now = datetime.now()
         start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         cutoff = start_of_today - timedelta(days=1)
+        window_end = start_of_today + timedelta(days=1)
 
         if hasattr(self, "spark_ax2"):
             try:
@@ -186,8 +187,8 @@ class PVSparklineView(tk.Frame):
         self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
 
         try:
-            self.spark_ax.set_xlim(cutoff, now)
-            ax2.set_xlim(cutoff, now)
+            self.spark_ax.set_xlim(cutoff, window_end)
+            ax2.set_xlim(cutoff, window_end)
         except Exception:
             pass
         self.spark_ax.margins(x=0.01)

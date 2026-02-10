@@ -333,9 +333,9 @@ class EnergyFlowView(tk.Frame):
                 # Battery offset to avoid SoC overlap
                 if name == "battery":
                     paste_y -= 8
-                # Home offset to make room for centered value text
+                # Home offset to place the icon as high as possible
                 if name == "home":
-                    paste_y += 8
+                    paste_y -= 10
                 img.paste(icon, (paste_x, paste_y), icon)  # Use alpha channel
         return img
 
@@ -694,7 +694,7 @@ class EnergyFlowView(tk.Frame):
             load_val,
             load_unit,
             home[0],
-            home[1] + 10,
+            home[1] + 22,
             value_size=self._node_value_size,
             unit_size=self._node_unit_size,
             value_color=COLOR_TEXT,
