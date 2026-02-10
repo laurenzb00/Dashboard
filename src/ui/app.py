@@ -40,6 +40,7 @@ from ui.components.statusbar import StatusBar
 from ui.components.rounded import RoundedFrame
 from ui.views.energy_flow import EnergyFlowView
 from ui.views.buffer_storage import BufferStorageView
+from ui.views.pv_sparkline import PVSparklineView
 
 from core.datastore import DataStore, get_shared_datastore
 
@@ -257,6 +258,11 @@ class MainApp:
                     self.buffer_view.update_data(data)
                 except Exception:
                     logging.exception("buffer_view update_data failed")
+            if hasattr(self, 'sparkline_view'):
+                try:
+                    self.sparkline_view.update_data(data)
+                except Exception:
+                    logging.exception("sparkline_view update_data failed")
             if hasattr(self, 'historical_tab'):
                 try:
                     self.historical_tab.update_data(data)
@@ -473,6 +479,7 @@ class MainApp:
         self.body.grid_columnconfigure(0, weight=4)  # Mehr Platz für Energiefluss
         self.body.grid_columnconfigure(1, weight=1, minsize=320)  # Schmalere Heatmap-Spalte
         self.body.grid_rowconfigure(0, weight=1)
+        self.body.grid_rowconfigure(1, weight=0)
 
         # Energy Card (60:40 Grid) - flexible Größe
         _dbg_print("[INIT] MainApp: EnergyCard und EnergyView werden erstellt...")
@@ -489,6 +496,11 @@ class MainApp:
         self.buffer_card.add_title("Warmwasser", icon="🔥")
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=280, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
+
+        self.sparkline_card = Card(self.body, padding=0)
+        self.sparkline_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=0, pady=(6, 0))
+        self.sparkline_view = PVSparklineView(self.sparkline_card.content(), datastore=self.datastore)
+        self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
         # Statusbar - moderner Style mit besserem Spacing
         self.status = StatusBar(self.main_container, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)

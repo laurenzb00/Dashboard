@@ -1,0 +1,313 @@
+import os
+import time
+from collections import deque
+from datetime import datetime, timedelta
+
+import tkinter as tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+import matplotlib.dates as mdates
+
+from core.datastore import get_shared_datastore
+from ui.styles import (
+    COLOR_ROOT,
+    COLOR_BORDER,
+    COLOR_SUBTEXT,
+    COLOR_TEXT,
+    COLOR_TITLE,
+    COLOR_SUCCESS,
+    COLOR_INFO,
+)
+
+DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+class PVSparklineView(tk.Frame):
+    """PV + Outdoor temperature sparkline for the energy tab."""
+
+    def __init__(self, parent: tk.Widget, datastore=None):
+        super().__init__(parent, bg=COLOR_ROOT)
+        self.datastore = datastore or get_shared_datastore()
+
+        self._spark_history_pv = deque(maxlen=2000)
+        self._spark_history_temp = deque(maxlen=2000)
+        self._last_spark_sample_ts = 0.0
+        self._spark_cache_pv = []
+        self._spark_cache_temp = []
+        self._spark_cache_ts = 0.0
+
+        header = tk.Frame(self, bg=COLOR_ROOT)
+        header.pack(fill=tk.X, padx=6, pady=(4, 2))
+        tk.Label(
+            header,
+            text="PV & Aussentemp. (24h)",
+            fg=COLOR_TITLE,
+            bg=COLOR_ROOT,
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w")
+
+        self.spark_fig = Figure(figsize=(7.5, 1.8), dpi=100)
+        self.spark_fig.patch.set_facecolor(COLOR_ROOT)
+        self.spark_ax = self.spark_fig.add_subplot(111)
+        self.spark_ax.set_facecolor(COLOR_ROOT)
+        self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self)
+        self.spark_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
+        self.spark_ax.tick_params(axis='both', which='major', labelsize=9, colors=COLOR_SUBTEXT)
+        self.spark_ax.set_axisbelow(True)
+        self.spark_ax.grid(True, alpha=0.12)
+        self.spark_fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.22)
+
+        # Draw once on startup using cached DB data (no live update required).
+        try:
+            self._update_sparkline()
+            self.after(200, self._update_sparkline)
+        except Exception:
+            pass
+
+    def update_data(self, data: dict) -> None:
+        self._record_spark_sample(data)
+        self._update_sparkline()
+
+    def _record_spark_sample(self, data: dict) -> None:
+        now_ts = time.time()
+        if now_ts - self._last_spark_sample_ts < 60.0:
+            return
+        self._last_spark_sample_ts = now_ts
+        sample_time = datetime.now()
+        pv_kw = self._safe_float(data.get('pv_power_kw') or data.get('pv'))
+        if pv_kw is not None:
+            self._spark_history_pv.append((sample_time, max(0.0, pv_kw)))
+        outdoor = self._safe_float(data.get('outdoor'))
+        if outdoor is not None:
+            self._spark_history_temp.append((sample_time, outdoor))
+
+    def _update_sparkline(self) -> None:
+        refresh_needed = (time.time() - self._spark_cache_ts) > 60.0
+        if refresh_needed:
+            try:
+                pv_series_db = self._load_pv_series(hours=24, bin_minutes=15)
+            except Exception as exc:
+                if DEBUG_LOG:
+                    print(f"[SPARKLINE] _load_pv_series error: {exc}")
+                pv_series_db = []
+            try:
+                temp_series_db = self._load_outdoor_temp_series(hours=24, bin_minutes=15)
+            except Exception as exc:
+                if DEBUG_LOG:
+                    print(f"[SPARKLINE] _load_outdoor_temp_series error: {exc}")
+                temp_series_db = []
+            self._spark_cache_pv = pv_series_db
+            self._spark_cache_temp = temp_series_db
+            self._spark_cache_ts = time.time()
+        else:
+            pv_series_db = list(self._spark_cache_pv)
+            temp_series_db = list(self._spark_cache_temp)
+
+        pv_series = list(pv_series_db)
+        pv_hours = 24 if pv_series else 0
+        if not pv_series:
+            pv_series = self._history_to_series(self._spark_history_pv, hours=6, bin_minutes=5)
+            if pv_series:
+                pv_hours = 6
+
+        temp_series = list(temp_series_db)
+        temp_hours = 24 if temp_series else 0
+        if not temp_series:
+            temp_series = self._history_to_series(self._spark_history_temp, hours=6, bin_minutes=5)
+            if temp_series:
+                temp_hours = 6
+
+        self.spark_ax.clear()
+        now = datetime.now()
+        window_hours = max(pv_hours, temp_hours, 6 if (pv_series or temp_series) else 24)
+        cutoff = now - timedelta(hours=window_hours)
+
+        if hasattr(self, "spark_ax2"):
+            try:
+                self.spark_ax2.remove()
+            except Exception:
+                pass
+        self.spark_ax2 = self.spark_ax.twinx()
+        ax2 = self.spark_ax2
+        ax2.patch.set_alpha(0)
+        for ax in (self.spark_ax, ax2):
+            ax.set_facecolor('none')
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_edgecolor(COLOR_BORDER)
+                spine.set_linewidth(0.5)
+
+        if not pv_series and not temp_series:
+            self.spark_ax.text(0.5, 0.5, "Keine Daten (24h)", ha="center", va="center",
+                               transform=self.spark_ax.transAxes, color=COLOR_SUBTEXT, fontsize=9)
+            self.spark_ax.set_xticks([])
+            self.spark_ax.set_yticks([])
+            ax2.set_yticks([])
+            self.spark_canvas.draw_idle()
+            return
+
+        if pv_series:
+            xs_pv, ys_pv = zip(*pv_series)
+            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
+            self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
+            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+            max_pv = max(float(v) for v in ys_pv)
+            self.spark_ax.set_ylim(0.0, max(0.5, max_pv * 1.15))
+        if temp_series:
+            xs_temp, ys_temp = zip(*temp_series)
+            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
+            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
+            min_t = min(float(v) for v in ys_temp)
+            max_t = max(float(v) for v in ys_temp)
+            span = max_t - min_t
+            pad = max(1.0, span * 0.15)
+            ax2.set_ylim(min_t - pad, max_t + pad)
+
+        self.spark_ax.spines['top'].set_visible(False)
+        self.spark_ax.spines['right'].set_visible(False)
+        self.spark_ax.spines['left'].set_color(COLOR_BORDER)
+        self.spark_ax.spines['bottom'].set_color(COLOR_BORDER)
+        self.spark_ax.spines['left'].set_linewidth(0.5)
+        self.spark_ax.spines['bottom'].set_linewidth(0.5)
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['left'].set_visible(False)
+        ax2.spines['right'].set_color(COLOR_BORDER)
+        ax2.spines['bottom'].set_color(COLOR_BORDER)
+        ax2.spines['right'].set_linewidth(0.5)
+        ax2.spines['bottom'].set_linewidth(0.5)
+        self.spark_ax.tick_params(axis='both', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        ax2.tick_params(axis='y', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.spark_ax.set_ylabel('kW', fontsize=8, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
+        ax2.set_ylabel('°C', fontsize=8, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
+        self.spark_ax.xaxis.set_major_locator(mdates.MaxNLocator(6))
+        self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+
+        try:
+            self.spark_ax.set_xlim(cutoff, now)
+            ax2.set_xlim(cutoff, now)
+        except Exception:
+            pass
+        self.spark_ax.margins(x=0.01)
+        self.spark_canvas.draw_idle()
+
+    def _history_to_series(self, history: deque[tuple[datetime, float]], hours: int, bin_minutes: int) -> list[tuple[datetime, float]]:
+        if not history:
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        samples: list[tuple[datetime, float]] = []
+        for ts, val in list(history):
+            if val is None or ts < cutoff:
+                continue
+            rounded = ts.replace(second=0, microsecond=0) - timedelta(minutes=ts.minute % bin_minutes)
+            samples.append((rounded, float(val)))
+        if not samples:
+            return []
+        return self._aggregate_series(samples)
+
+    def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
+        if not self.datastore:
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        now = datetime.now()
+        rows = self.datastore.get_recent_fronius(hours=None, limit=4000)
+        parsed_rows: list[tuple[datetime, dict]] = []
+        for entry in rows:
+            ts = self._parse_ts(entry.get('timestamp'))
+            if ts is None:
+                continue
+            if ts > now:
+                ts = now
+            parsed_rows.append((ts, entry))
+        parsed_rows.sort(key=lambda t: t[0])
+
+        samples: list[tuple[datetime, float]] = []
+        for ts, entry in parsed_rows[-2500:]:
+            pv_kw = self._safe_float(entry.get('pv'))
+            if pv_kw is None or ts < cutoff:
+                continue
+            if pv_kw > 200.0:
+                pv_kw = pv_kw / 1000.0
+            if pv_kw < -0.2:
+                continue
+            pv_kw = max(0.0, pv_kw)
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
+                                    seconds=ts.second,
+                                    microseconds=ts.microsecond)
+            samples.append((ts_bin, pv_kw))
+        return self._aggregate_series(samples)
+
+    def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
+        if not self.datastore:
+            return []
+        cutoff = datetime.now() - timedelta(hours=hours)
+        now = datetime.now()
+
+        rows = self.datastore.get_recent_heating(hours=None, limit=4000)
+        parsed_rows: list[tuple[datetime, dict]] = []
+        for entry in rows:
+            ts = self._parse_ts(entry.get('timestamp'))
+            if ts is None:
+                continue
+            if ts > now:
+                ts = now
+            parsed_rows.append((ts, entry))
+        parsed_rows.sort(key=lambda t: t[0])
+
+        samples: list[tuple[datetime, float]] = []
+        for ts, entry in parsed_rows[-2500:]:
+            val = self._safe_float(entry.get('outdoor'))
+            if val is None or ts < cutoff:
+                continue
+            if not (-40.0 <= val <= 60.0):
+                continue
+            ts_bin = ts - timedelta(minutes=ts.minute % bin_minutes,
+                                    seconds=ts.second,
+                                    microseconds=ts.microsecond)
+            samples.append((ts_bin, val))
+        return self._aggregate_series(samples)
+
+    def _aggregate_series(self, samples: list[tuple[datetime, float]]) -> list[tuple[datetime, float]]:
+        if not samples:
+            return []
+        agg: dict[datetime, tuple[float, int]] = {}
+        for ts, val in samples:
+            total, count = agg.get(ts, (0.0, 0))
+            agg[ts] = (total + val, count + 1)
+        averaged = [(ts, total / count) for ts, (total, count) in sorted(agg.items())]
+        return self._smooth_series(averaged, window=5)
+
+    def _smooth_series(self, series: list[tuple[datetime, float]], window: int = 5) -> list[tuple[datetime, float]]:
+        if len(series) < window:
+            return series
+        smoothed: list[tuple[datetime, float]] = []
+        half_window = window // 2
+        for idx in range(len(series)):
+            start = max(0, idx - half_window)
+            end = min(len(series), idx + half_window + 1)
+            values = [val for _, val in series[start:end]]
+            smoothed.append((series[idx][0], sum(values) / len(values)))
+        return smoothed
+
+    @staticmethod
+    def _parse_ts(value):
+        if not value:
+            return None
+        try:
+            s = str(value).strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            dt = datetime.fromisoformat(s)
+            if getattr(dt, "tzinfo", None) is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
+            return dt
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_float(value):
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None

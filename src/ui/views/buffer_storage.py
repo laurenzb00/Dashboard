@@ -250,54 +250,22 @@ class BufferStorageView(tk.Frame):
         self.data = np.array([[60.0], [50.0], [40.0]])
         self._last_temps = None  # type: ignore
         self._last_spark_update = 0
-        self._spark_history_pv = deque(maxlen=2000)
-        self._spark_history_temp = deque(maxlen=2000)
-        self._last_spark_sample_ts = 0.0
-        self._spark_cache_pv = []
-        self._spark_cache_temp = []
-        self._spark_cache_ts = 0.0
 
         self.layout = tk.Frame(self, bg=COLOR_ROOT)
         self.layout.pack(fill=tk.BOTH, expand=True)
         self.layout.grid_columnconfigure(0, weight=1)
-        self.layout.grid_rowconfigure(0, weight=3)
-        self.layout.grid_rowconfigure(1, weight=1)
+        self.layout.grid_rowconfigure(0, weight=1)
 
         self.plot_frame = tk.Frame(self.layout, bg=COLOR_ROOT)
         self.plot_frame.grid(row=0, column=0, sticky="nsew")
 
         self.val_texts = []
 
-        self.spark_frame = tk.Frame(self.layout, bg=COLOR_ROOT)
-        self.spark_frame.grid(row=1, column=0, sticky="ew", pady=(2, 0))
-        tk.Label(
-            self.spark_frame,
-            text="PV & Außentemp. (24h)",
-            fg=COLOR_TITLE,
-            bg=COLOR_ROOT,
-            font=("Segoe UI", 10),
-        ).pack(anchor="w")
-
         # Reduzierte Figures für 60:40 Layout
         fig_width = 3.8  # kleiner für 40% Breite
         fig_height = 2.4
         self._create_figure(fig_width, fig_height)
         self._setup_plot()
-        # --- Sparkline Figure (PV & Außentemp) - kompakter für 40% Breite ---
-        self.spark_fig = Figure(figsize=(3.5, 1.6), dpi=100)
-        self.spark_fig.patch.set_facecolor(COLOR_ROOT)  # Explizit setzen
-        self.spark_ax = self.spark_fig.add_subplot(111)
-        self.spark_ax.set_facecolor(COLOR_ROOT)  # Match card color
-        self.spark_ax.patch.set_facecolor(COLOR_ROOT)  # Explizit setzen
-        self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self.spark_frame)
-        self.spark_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self.spark_ax.tick_params(axis='both', which='major', labelsize=9, colors=COLOR_SUBTEXT)
-        self.spark_ax.set_axisbelow(True)
-        self.spark_ax.grid(True, alpha=0.12)
-        # Tight layout verhindert Clipping
-        self.spark_fig.subplots_adjust(left=0.08, right=0.98, top=0.90, bottom=0.18)
-        # ---
-        self._create_sparkline()
 
     def resize(self, height: int) -> None:
         """Adjust container height without recreating heavy matplotlib assets."""
@@ -425,7 +393,6 @@ class BufferStorageView(tk.Frame):
             if DEBUG_LOG:
                 print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler}", flush=True)
             self._last_heat_dbg = now
-        self._record_spark_sample(data)
         self.update_temperatures(top, mid, bot, boiler)
 
 
@@ -464,13 +431,6 @@ class BufferStorageView(tk.Frame):
                     self.canvas.draw()
                 except Exception:
                     pass
-        # Sparkline regelmäßig aktualisieren
-        self._update_sparkline()
-
-        try:
-            self.spark_canvas.draw_idle()
-        except Exception as exc:
-            print(f"[BUFFER] Sparkline canvas draw error: {exc}")
 
     def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
@@ -673,12 +633,5 @@ class BufferStorageView(tk.Frame):
                 self.fig = None
             if hasattr(self, 'canvas_widget') and self.canvas_widget:
                 self.canvas_widget.destroy()
-            if hasattr(self, 'spark_fig') and self.spark_fig:
-                plt.close(self.spark_fig)
-                self.spark_fig = None
-            if hasattr(self, 'spark_canvas') and self.spark_canvas:
-                widget = self.spark_canvas.get_tk_widget()
-                if widget:
-                    widget.destroy()
         except Exception:
             pass

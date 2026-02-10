@@ -58,7 +58,6 @@ class EnergyFlowView(tk.Frame):
         # Fronius-Konvention (PowerFlowRealtimeData):
         # - P_Grid:  + = Netzbezug, - = Einspeisung
         # - P_Akku:  + = Batterie lädt (nimmt Leistung), - = Batterie entlädt (liefert Leistung)
-        # Für die Visualisierung verwenden wir batt_flow_kw: + = Entladen (Batterie -> Haus)
         load_kw_value = None
         if LOAD_POWER_KW in data and data.get(LOAD_POWER_KW) is not None:
             try:
@@ -70,27 +69,19 @@ class EnergyFlowView(tk.Frame):
             load_kw_value = None
 
         if load_kw_value is not None:
-            # Auto-detect battery sign using P_Load consistency
-            load_a = pv_kw + grid_kw - raw_batt_kw
-            load_b = pv_kw + grid_kw + raw_batt_kw
-            if abs(load_a - load_kw_value) <= abs(load_b - load_kw_value):
-                batt_flow_kw = -raw_batt_kw
-            else:
-                batt_flow_kw = raw_batt_kw
             load_kw = max(0.0, load_kw_value)
         else:
-            batt_flow_kw = -raw_batt_kw
-            load_kw = pv_kw + grid_kw - batt_flow_kw
+            load_kw = pv_kw + grid_kw - raw_batt_kw
 
         pv_w = pv_kw * 1000
         grid_w = grid_kw * 1000
-        batt_w = batt_flow_kw * 1000
+        batt_w = raw_batt_kw * 1000
 
         # Hausverbrauch in W (P_Load falls vorhanden, sonst bilanziert)
         load_w = load_kw * 1000
 
         print(
-            f"[ENERGY_FLOW] update_data: pv={pv_kw} grid={grid_kw} batt_raw={raw_batt_kw} batt_flow={batt_flow_kw} load={load_kw} soc={soc}",
+            f"[ENERGY_FLOW] update_data: pv={pv_kw} grid={grid_kw} batt_raw={raw_batt_kw} load={load_kw} soc={soc}",
             flush=True,
         )
         try:
@@ -331,12 +322,12 @@ class EnergyFlowView(tk.Frame):
         margin_top = _s(32)
         margin_bottom = _s(56)  # Space for SoC ring at the battery
         usable_h = h - margin_top - margin_bottom
-        battery_dx = _s(-140)  # Pull battery left to open the center
+        battery_dx = _s(-200)  # Push battery into lower-left
         return {
-            "pv": (margin_x + int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.14)),
-            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.14)),
+            "pv": (margin_x + int((w - 2 * margin_x) * 0.16), margin_top + int(usable_h * 0.14)),
+            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.12), margin_top + int(usable_h * 0.14)),
             "home": (w // 2, margin_top + int(usable_h * 0.58)),
-            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.90)),
+            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.96)),
         }
 
     def _render_background(self) -> Image.Image:
@@ -657,17 +648,17 @@ class EnergyFlowView(tk.Frame):
             self._draw_arrow(draw, home, grid, COLOR_INFO, thickness(grid_w), pulse=pulse)
             self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_INFO)
 
-        # Batterie Laden/Entladen (batt_w > 0 = Entladen)
+        # Batterie Laden/Entladen (P_Akku > 0 = Laden)
         if batt_w > min_flow_w:
-            # Entladen: Batterie -> Haus
-            pulse = self._anim_phase * flow_strength(batt_w)
-            self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse, gap=8)
-            self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_SUCCESS)
-        elif batt_w < -min_flow_w:
             # Laden: Haus -> Batterie
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_WARNING)
+        elif batt_w < -min_flow_w:
+            # Entladen: Batterie -> Haus
+            pulse = self._anim_phase * flow_strength(batt_w)
+            self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse, gap=8)
+            self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_SUCCESS)
 
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)
