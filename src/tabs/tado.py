@@ -420,7 +420,7 @@ class TadoTab:
                 
                 # Update history chart
                 try:
-                    if current and self.history_canvas:
+                    if current is not None and self.history_canvas:
                         import datetime
                         now = datetime.datetime.now()
                         self.history_temps.append(current)

@@ -7,6 +7,7 @@ import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates
+from matplotlib.ticker import MaxNLocator
 
 from core.datastore import get_shared_datastore
 from ui.styles import (
@@ -179,7 +180,7 @@ class PVSparklineView(tk.Frame):
         ax2.tick_params(axis='y', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
         self.spark_ax.set_ylabel('kW', fontsize=8, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
         ax2.set_ylabel('°C', fontsize=8, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
-        self.spark_ax.xaxis.set_major_locator(mdates.MaxNLocator(6))
+        self.spark_ax.xaxis.set_major_locator(MaxNLocator(6))
         self.spark_ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
 
         try:
