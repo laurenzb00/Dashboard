@@ -33,6 +33,7 @@ from ui.styles import (
     COLOR_SUBTEXT,
     emoji,
     EMOJI_OK,
+    get_safe_font,
 )
 from ui.components.card import Card
 from ui.components.header import HeaderBar
@@ -41,6 +42,8 @@ from ui.components.rounded import RoundedFrame
 from ui.views.energy_flow import EnergyFlowView
 from ui.views.buffer_storage import BufferStorageView
 from ui.views.pv_sparkline import PVSparklineView
+from ui.app_state import AppState
+from ui.state_schema import validate_payload
 
 from core.datastore import DataStore, get_shared_datastore
 
@@ -82,7 +85,9 @@ except Exception as e:
     SpotifyTab = None
 
 try:
-    from tabs.tado import TadoTab
+    from tabs.tado import TadoTab, TADO_ENABLED
+    if not TADO_ENABLED:
+        TadoTab = None
 except ImportError:
     TadoTab = None
 
@@ -154,6 +159,7 @@ class MainApp:
             self._add_other_tabs()
         except Exception as e:
             print(f"[build_tabs] Error adding tabs: {e}")
+        self._subscribe_view_updates()
         # Ensure all tab references are up to date
         if hasattr(self, 'historical_tab') and self.historical_tab:
             _dbg_print("[build_tabs] historical_tab is set.")
@@ -251,23 +257,26 @@ class MainApp:
                 self._dbg_last_data = now
 
             # --- Widgets/Diagramme updaten (nur im MainThread!) ---
-            if hasattr(self, 'energy_view'):
-                self.energy_view.update_data(data)
-            if hasattr(self, 'buffer_view'):
-                try:
-                    self.buffer_view.update_data(data)
-                except Exception:
-                    logging.exception("buffer_view update_data failed")
-            if hasattr(self, 'sparkline_view'):
-                try:
-                    self.sparkline_view.update_data(data)
-                except Exception:
-                    logging.exception("sparkline_view update_data failed")
-            if hasattr(self, 'historical_tab'):
-                try:
-                    self.historical_tab.update_data(data)
-                except Exception:
-                    logging.exception("historical_tab update_data failed")
+            if hasattr(self, "app_state") and self.app_state:
+                self.app_state.update(data)
+            else:
+                if hasattr(self, 'energy_view'):
+                    self.energy_view.update_data(data)
+                if hasattr(self, 'buffer_view'):
+                    try:
+                        self.buffer_view.update_data(data)
+                    except Exception:
+                        logging.exception("buffer_view update_data failed")
+                if hasattr(self, 'sparkline_view'):
+                    try:
+                        self.sparkline_view.update_data(data)
+                    except Exception:
+                        logging.exception("sparkline_view update_data failed")
+                if hasattr(self, 'historical_tab'):
+                    try:
+                        self.historical_tab.update_data(data)
+                    except Exception:
+                        logging.exception("historical_tab update_data failed")
 
             # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
             last_update = datetime.now().strftime('%H:%M:%S')
@@ -318,9 +327,35 @@ class MainApp:
     def _loop(self):
         pass
 
-    # DEPRECATED: handle_bmkdaten_data() is no longer used.
     def handle_bmkdaten_data(self, data: dict):
-        pass
+        """Echtzeit-Heizungsdaten aus dem Worker-Thread übernehmen."""
+        ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
+        source = self._source_health.get("heating")
+        if source:
+            source["ts"] = ts
+            source["count"] += 1
+
+        kessel = _safe_float(data.get("Kesseltemperatur") or data.get("kesseltemp"))
+        warmwasser = _safe_float(data.get("Warmwasser") or data.get("Warmwassertemperatur") or data.get("warmwasser"))
+        outdoor = _safe_float(data.get("Außentemperatur") or data.get("Aussentemperatur") or data.get("outdoor"))
+        top = _safe_float(data.get("Pufferspeicher Oben") or data.get("Puffer_Oben") or data.get("puffer_top"))
+        mid = _safe_float(data.get("Pufferspeicher Mitte") or data.get("Pufferspeicher_Mitte") or data.get("puffer_mid"))
+        bot = _safe_float(data.get("Pufferspeicher Unten") or data.get("Puffer_Unten") or data.get("puffer_bot"))
+
+        if hasattr(self, "app_state") and self.app_state:
+            from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+
+            payload = {
+                "timestamp": data.get("Zeitstempel") or data.get("timestamp"),
+                "outdoor": outdoor,
+                BMK_KESSEL_C: kessel,
+                BMK_WARMWASSER_C: warmwasser,
+                BUF_TOP_C: top,
+                BUF_MID_C: mid,
+                BUF_BOTTOM_C: bot,
+            }
+            payload = {k: v for k, v in payload.items() if v is not None}
+            self.app_state.update(payload)
 
     # DEPRECATED: _fetch_real_data() is no longer used.
     def _fetch_real_data(self):
@@ -356,6 +391,9 @@ class MainApp:
         self.datastore = datastore or safe_get_datastore()
         _dbg_print(f"[INIT] MainApp: DataStore geladen: {type(self.datastore)}")
 
+        self.app_state = AppState(validator=validate_payload)
+        self._state_unsubscribers = []
+
         # Health-Status für Datenquellen (PV, Heizung)
         self._source_health = {
             "pv": {"label": "PV", "ts": None, "count": 0},
@@ -380,8 +418,8 @@ class MainApp:
         }
 
         # Define base header and status heights - moderner mit mehr Platz
-        self._base_header_h = 55  # Kompakt aber mit Platz für alle Elemente
-        self._base_status_h = 52  # Größer für bessere Buttons
+        self._base_header_h = 60  # Etwas mehr Luft im Header
+        self._base_status_h = 44  # Kompaktere Statusleiste
 
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
@@ -484,7 +522,7 @@ class MainApp:
         # Energy Card (60:40 Grid) - flexible Größe
         _dbg_print("[INIT] MainApp: EnergyCard und EnergyView werden erstellt...")
         self.energy_card = Card(self.body, padding=0)
-        self.energy_card.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.energy_card.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
         self.energy_card.add_title("Energiefluss", icon="⚡")
         self.energy_view = EnergyFlowView(self.energy_card.content(), width=200, height=180)
         self.energy_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
@@ -492,13 +530,13 @@ class MainApp:
         # Buffer Card (60:40 Grid) - flexible Größe
         _dbg_print("[INIT] MainApp: BufferCard und BufferView werden erstellt...")
         self.buffer_card = Card(self.body, padding=0)
-        self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+        self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=6, pady=6)
         self.buffer_card.add_title("Warmwasser", icon="🔥")
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=320, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
         self.sparkline_card = Card(self.body, padding=0)
-        self.sparkline_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=0, pady=(2, 0))
+        self.sparkline_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 6))
         self.sparkline_view = PVSparklineView(self.sparkline_card.content(), datastore=self.datastore)
         self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
@@ -530,9 +568,9 @@ class MainApp:
             if segmented is None:
                 return
             segmented.configure(
-                font=("Segoe UI", 12, "bold"),
-                height=36,
-                corner_radius=14,
+                font=get_safe_font("Bahnschrift", 12, "bold"),
+                height=32,
+                corner_radius=12,
                 border_width=1,
                 border_color=COLOR_BORDER,
                 fg_color=COLOR_CARD,
@@ -685,6 +723,37 @@ class MainApp:
         elif StatusTab:
             _dbg_print("[TABS] StatusTab ausgeblendet (DASHBOARD_HIDE_STATUS_TAB=1 zum Ausblenden aktiv)")
         _dbg_print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
+
+    def _subscribe_view_updates(self) -> None:
+        if not hasattr(self, "app_state") or not self.app_state:
+            return
+        for unsubscribe in list(getattr(self, "_state_unsubscribers", [])):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+        self._state_unsubscribers = []
+
+        def _subscribe(handler, label: str) -> None:
+            if handler is None:
+                return
+
+            def _listener(payload: dict) -> None:
+                try:
+                    handler(payload)
+                except Exception:
+                    logging.exception("%s update_data failed", label)
+
+            self._state_unsubscribers.append(self.app_state.subscribe(_listener))
+
+        if hasattr(self, "energy_view"):
+            _subscribe(self.energy_view.update_data, "energy_view")
+        if hasattr(self, "buffer_view"):
+            _subscribe(self.buffer_view.update_data, "buffer_view")
+        if hasattr(self, "sparkline_view"):
+            _subscribe(self.sparkline_view.update_data, "sparkline_view")
+        if hasattr(self, "historical_tab"):
+            _subscribe(self.historical_tab.update_data, "historical_tab")
 
     # --- Callbacks ---
     def on_toggle_a(self):
@@ -992,6 +1061,25 @@ class MainApp:
         if soc is not None:
             self._last_data["soc"] = soc
 
+        if hasattr(self, "app_state") and self.app_state:
+            from core.schema import (
+                PV_POWER_KW,
+                GRID_POWER_KW,
+                BATTERY_POWER_KW,
+                BATTERY_SOC_PCT,
+                LOAD_POWER_KW,
+            )
+            payload = {
+                "timestamp": data.get("Zeitstempel") or data.get("timestamp"),
+                PV_POWER_KW: pv_kw,
+                GRID_POWER_KW: grid_kw,
+                BATTERY_POWER_KW: batt_kw,
+                BATTERY_SOC_PCT: soc,
+                LOAD_POWER_KW: load_kw,
+            }
+            payload = {k: v for k, v in payload.items() if v is not None}
+            self.app_state.update(payload)
+
         self._update_status_summary()
 
     @staticmethod
@@ -1016,11 +1104,23 @@ class MainApp:
             return f"{seconds // 60}m"
         return f"{seconds // 3600}h"
 
+    @staticmethod
+    def _age_seconds(ts: datetime | None) -> float | None:
+        if ts is None:
+            return None
+        try:
+            if ts.tzinfo is not None and ts.tzinfo.utcoffset(ts) is not None:
+                now = datetime.now(ts.tzinfo)
+            else:
+                now = datetime.now()
+            return (now - ts).total_seconds()
+        except Exception:
+            return None
+
     def _update_status_summary(self):
         if not hasattr(self, "status"):
             return
         parts = []
-        now = datetime.now()
         for key in ("pv", "heating"):
             info = self._source_health.get(key)
             if not info:
@@ -1029,7 +1129,10 @@ class MainApp:
             if not ts:
                 parts.append(f"{info['label']} ⚠️ --")
                 continue
-            age = (now - ts).total_seconds()
+            age = self._age_seconds(ts)
+            if age is None:
+                parts.append(f"{info['label']} ⚠️ --")
+                continue
             icon = self._status_icon_ok if age <= 90 else self._status_icon_warn
             parts.append(f"{info['label']} {icon} {self._format_age_compact(age)}")
 

@@ -10,6 +10,7 @@ from ui.styles import (
     COLOR_BORDER,
     COLOR_WARNING,
     COLOR_ROOT,
+    get_safe_font,
 )
 
 
@@ -37,7 +38,7 @@ class HeaderBar(ctk.CTkFrame):
         self.date_label = ctk.CTkLabel(
             left, 
             text="--", 
-            font=("Segoe UI", 16, "bold"), 
+            font=get_safe_font("Bahnschrift", 16, "bold"), 
             text_color=COLOR_TEXT,
             anchor="w"
         )
@@ -46,7 +47,7 @@ class HeaderBar(ctk.CTkFrame):
         self.weekday_label = ctk.CTkLabel(
             left, 
             text="", 
-            font=("Segoe UI", 11), 
+            font=get_safe_font("Bahnschrift", 11), 
             text_color=COLOR_SUBTEXT,
             anchor="w"
         )
@@ -61,7 +62,7 @@ class HeaderBar(ctk.CTkFrame):
         self.clock_label = ctk.CTkLabel(
             center, 
             text="--:--", 
-            font=("Segoe UI", 34, "bold"), 
+            font=get_safe_font("Bahnschrift", 34, "bold"), 
             text_color=COLOR_PRIMARY
         )
         self.clock_label.grid(row=0, column=0, sticky="ew", padx=(0, 16))
@@ -73,7 +74,7 @@ class HeaderBar(ctk.CTkFrame):
         ctk.CTkLabel(
             light_control,
             text="💡",
-            font=("Segoe UI", 18),
+            font=get_safe_font("Bahnschrift", 18),
             text_color=COLOR_WARNING,
             width=24
         ).pack(side=tk.LEFT, padx=(0, 6))
@@ -105,7 +106,7 @@ class HeaderBar(ctk.CTkFrame):
         self.out_temp_label = ctk.CTkLabel(
             right, 
             text="--.- °C", 
-            font=("Segoe UI", 16, "bold"), 
+            font=get_safe_font("Bahnschrift", 16, "bold"), 
             text_color=COLOR_WARNING,
             anchor="e"
         )
@@ -114,7 +115,7 @@ class HeaderBar(ctk.CTkFrame):
         self.out_temp_time = ctk.CTkLabel(
             right, 
             text="", 
-            font=("Segoe UI", 9), 
+            font=get_safe_font("Bahnschrift", 9), 
             text_color=COLOR_SUBTEXT,
             anchor="e"
         )

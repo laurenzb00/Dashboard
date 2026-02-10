@@ -25,8 +25,6 @@ def normalize_bmk(raw_values):
     return {
         BMK_KESSEL_C: as_float(raw_values.get("Kessel") or raw_values.get("Kesseltemperatur")),
         BMK_WARMWASSER_C: warmwasser,
-        # Legacy alias (avoid breaking older UI code that still reads BMK_BOILER_C)
-        BMK_BOILER_C: warmwasser,
         BUF_TOP_C: as_float(raw_values.get("Puffer_Oben") or raw_values.get("Pufferspeicher Oben")),
         BUF_MID_C: as_float(raw_values.get("Puffer_Mitte") or raw_values.get("Pufferspeicher Mitte")),
         BUF_BOTTOM_C: as_float(raw_values.get("Puffer_Unten") or raw_values.get("Pufferspeicher Unten")),

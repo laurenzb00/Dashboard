@@ -38,6 +38,8 @@ class SystemTab:
         self.var_uptime = tk.StringVar(value="00:00:00")
         self.var_network_tx = tk.StringVar(value="0 MB/s")
         self.var_network_rx = tk.StringVar(value="0 MB/s")
+        self._last_net = psutil.net_io_counters()
+        self._last_net_ts = time.time()
         
         # Use provided frame or create legacy one
         if tab_frame is not None:
@@ -47,7 +49,7 @@ class SystemTab:
             self.notebook.add(self.tab_frame, text=emoji("⚙️ System", "System"))
         
         self._build_ui()
-        self.root.after(0, lambda: threading.Thread(target=self._loop, daemon=True).start())
+        self.root.after(0, self._schedule_update)
 
     def stop(self):
         self.alive = False
@@ -218,56 +220,51 @@ class SystemTab:
                              start=90, extent=extent, 
                              outline=arc_color, width=8, style=tk.ARC)
 
-    def _loop(self):
-        """Background thread for updating system stats."""
-        last_net = psutil.net_io_counters()
-        
-        while self.alive:
+    def _schedule_update(self):
+        """Update system stats on the main thread."""
+        if not self.alive:
+            return
+        try:
+            cpu = int(psutil.cpu_percent(interval=0.0))
+            self.var_cpu.set(cpu)
+
+            ram = psutil.virtual_memory()
+            ram_percent = int(ram.percent)
+            self.var_ram.set(ram_percent)
+
+            disk = psutil.disk_usage('/')
+            disk_percent = int(disk.percent)
+            self.var_disk.set(disk_percent)
+
             try:
-                # CPU
-                cpu = int(psutil.cpu_percent(interval=0.5))
-                self.root.after(0, self.var_cpu.set, cpu)
-                
-                # RAM
-                ram = psutil.virtual_memory()
-                ram_percent = int(ram.percent)
-                self.root.after(0, self.var_ram.set, ram_percent)
-                
-                # Disk
-                disk = psutil.disk_usage('/')
-                disk_percent = int(disk.percent)
-                self.root.after(0, self.var_disk.set, disk_percent)
-                
-                # Temperature
-                try:
-                    with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
-                        temp_raw = int(f.read().strip())
-                        temp_c = temp_raw / 1000.0
-                        self.root.after(0, self.var_temp.set, f"{temp_c:.1f}°C")
-                except Exception:
-                    self.root.after(0, self.var_temp.set, "N/A")
-                
-                # Uptime
-                uptime = datetime.now() - self.start_time
-                hours = int(uptime.total_seconds() // 3600)
-                minutes = int((uptime.total_seconds() % 3600) // 60)
-                seconds = int(uptime.total_seconds() % 60)
-                self.root.after(0, self.var_uptime.set, f"{hours:02d}:{minutes:02d}:{seconds:02d}")
-                
-                # Network
-                net = psutil.net_io_counters()
-                tx_rate = (net.bytes_sent - last_net.bytes_sent) / 1024 / 1024 / 2  # MB/s
-                rx_rate = (net.bytes_recv - last_net.bytes_recv) / 1024 / 1024 / 2  # MB/s
-                self.root.after(0, self.var_network_tx.set, f"{tx_rate:.2f} MB/s")
-                self.root.after(0, self.var_network_rx.set, f"{rx_rate:.2f} MB/s")
-                last_net = net
-                
-                # Update circular progress indicators
-                self.root.after(0, lambda: self._draw_circular_progress(self.cpu_canvas, cpu))
-                self.root.after(0, lambda: self._draw_circular_progress(self.ram_canvas, ram_percent))
-                self.root.after(0, lambda: self._draw_circular_progress(self.disk_canvas, disk_percent))
-                
-                time.sleep(2)
-            except Exception as e:
-                print(f"[SYSTEM] Error: {e}")
-                time.sleep(5)
+                with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                    temp_raw = int(f.read().strip())
+                    temp_c = temp_raw / 1000.0
+                    self.var_temp.set(f"{temp_c:.1f}°C")
+            except Exception:
+                self.var_temp.set("N/A")
+
+            uptime = datetime.now() - self.start_time
+            hours = int(uptime.total_seconds() // 3600)
+            minutes = int((uptime.total_seconds() % 3600) // 60)
+            seconds = int(uptime.total_seconds() % 60)
+            self.var_uptime.set(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+
+            now_ts = time.time()
+            net = psutil.net_io_counters()
+            elapsed = max(1.0, now_ts - self._last_net_ts)
+            tx_rate = (net.bytes_sent - self._last_net.bytes_sent) / 1024 / 1024 / elapsed
+            rx_rate = (net.bytes_recv - self._last_net.bytes_recv) / 1024 / 1024 / elapsed
+            self.var_network_tx.set(f"{tx_rate:.2f} MB/s")
+            self.var_network_rx.set(f"{rx_rate:.2f} MB/s")
+            self._last_net = net
+            self._last_net_ts = now_ts
+
+            self._draw_circular_progress(self.cpu_canvas, cpu)
+            self._draw_circular_progress(self.ram_canvas, ram_percent)
+            self._draw_circular_progress(self.disk_canvas, disk_percent)
+        except Exception as e:
+            print(f"[SYSTEM] Error: {e}")
+
+        if self.alive:
+            self.root.after(2000, self._schedule_update)

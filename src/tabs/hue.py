@@ -9,6 +9,7 @@ Vereinfachte Version mit robustem Error Handling
 """
 
 import threading
+import queue
 import time
 import tkinter as tk
 import ttkbootstrap as ttk
@@ -49,6 +50,7 @@ class HueTab:
         self._light_structure = None
         self._light_cards = {}
         self._light_state = {}
+        self._ui_queue: queue.Queue[tuple[callable, tuple, dict]] = queue.Queue()
         
         # UI-Komponenten speichern
         self.status_label = None
@@ -65,6 +67,7 @@ class HueTab:
         
         # Initialisiere UI
         self._build_ui()
+        self.root.after(100, self._poll_ui_queue)
         
         # Starte Connection Loop im Hintergrund
         self.connect_thread = threading.Thread(target=self._connect_loop, daemon=True)
@@ -219,13 +222,29 @@ class HueTab:
             print(f"[HUE] Manual refresh error: {e}")
 
     def _ui_call(self, fn, *args, **kwargs):
-        """Run UI work on the Tk main thread."""
+        """Queue UI work to run on the Tk main thread."""
         try:
-            if self.root is None:
-                return
-            self.root.after(0, lambda: fn(*args, **kwargs))
+            self._ui_queue.put((fn, args, kwargs))
         except Exception as e:
             print(f"[HUE] ui_call error: {e}")
+
+    def _poll_ui_queue(self):
+        if not self.alive:
+            return
+        try:
+            while True:
+                fn, args, kwargs = self._ui_queue.get_nowait()
+                try:
+                    fn(*args, **kwargs)
+                except Exception:
+                    pass
+        except queue.Empty:
+            pass
+        if self.alive:
+            try:
+                self.root.after(100, self._poll_ui_queue)
+            except Exception:
+                pass
             
     def _on_master_brightness_changed(self, value):
         """Master brightness slider bewegt."""
@@ -245,12 +264,12 @@ class HueTab:
             try:
                 if self.bridge is None:
                     if retry_count < max_retries:
-                        self.status_var.set(f"🔌 Verbinde ({retry_count+1}/{max_retries})...")
+                        self._ui_call(self.status_var.set, f"🔌 Verbinde ({retry_count+1}/{max_retries})...")
                         try:
                             self.bridge = Bridge(HUE_BRIDGE_IP)
                             self.bridge.connect()
                             print(f"[HUE] Bridge connected to {HUE_BRIDGE_IP}")
-                            self.status_var.set(f"✓ Verbunden ({len(self.bridge.get_light())} Lichter)")
+                            self._ui_call(self.status_var.set, f"✓ Verbunden ({len(self.bridge.get_light())} Lichter)")
                             retry_count = 0
                             self._ui_call(self._refresh_content)
                         except Exception as connect_err:
@@ -260,7 +279,7 @@ class HueTab:
                             time.sleep(2)
                             continue
                     else:
-                        self.status_var.set("✗ Verbindung fehlgeschlagen")
+                        self._ui_call(self.status_var.set, "✗ Verbindung fehlgeschlagen")
                         self.bridge = None
                         time.sleep(10)
                         retry_count = 0

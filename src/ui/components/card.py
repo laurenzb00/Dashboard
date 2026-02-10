@@ -1,6 +1,6 @@
 import tkinter as tk
 import customtkinter as ctk
-from ui.styles import COLOR_ROOT, COLOR_TEXT, COLOR_TITLE, emoji
+from ui.styles import COLOR_ROOT, COLOR_TEXT, COLOR_TITLE, emoji, get_safe_font, COLOR_BORDER
 
 
 class Card(ctk.CTkFrame):
@@ -8,7 +8,15 @@ class Card(ctk.CTkFrame):
 
     def __init__(self, parent: tk.Widget, padding: int = 16, *args, **kwargs):
         # Transparenter Hintergrund - nutzt parent fg_color
-        super().__init__(parent, fg_color=COLOR_ROOT, corner_radius=8, border_width=0, *args, **kwargs)
+        super().__init__(
+            parent,
+            fg_color=COLOR_ROOT,
+            corner_radius=10,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            *args,
+            **kwargs,
+        )
         
         # Direkter innerer Frame - transparent
         self.inner = ctk.CTkFrame(self, fg_color="transparent")
@@ -25,12 +33,12 @@ class Card(ctk.CTkFrame):
         if icon:
             icon_text = emoji(icon, "")
             if icon_text:
-                ctk.CTkLabel(header, text=icon_text, font=("Segoe UI", 14), text_color=COLOR_TITLE).pack(side=tk.LEFT, padx=0)
+                ctk.CTkLabel(header, text=icon_text, font=get_safe_font("Bahnschrift", 14), text_color=COLOR_TITLE).pack(side=tk.LEFT, padx=0)
 
         ctk.CTkLabel(
             header,
             text=text,
-            font=("Segoe UI", 14, "bold"),
+            font=get_safe_font("Bahnschrift", 14, "bold"),
             text_color=COLOR_TITLE,
         ).pack(side=tk.LEFT)
         return header

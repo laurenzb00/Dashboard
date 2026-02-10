@@ -53,7 +53,6 @@ from core.schema import (
     BUF_MID_C,
     BUF_BOTTOM_C,
     BMK_WARMWASSER_C,
-    BMK_BOILER_C,
     PV_POWER_KW,
 )
 
@@ -202,7 +201,7 @@ class BufferStorageView(tk.Frame):
             return
         self._last_spark_sample_ts = now_ts
         sample_time = datetime.now()
-        pv_kw = self._safe_float(data.get(PV_POWER_KW) or data.get('pv'))
+        pv_kw = self._safe_float(data.get(PV_POWER_KW))
         if pv_kw is not None:
             self._spark_history_pv.append((sample_time, max(0.0, pv_kw)))
         outdoor = self._safe_float(data.get('outdoor'))
@@ -395,9 +394,8 @@ class BufferStorageView(tk.Frame):
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
-        # Boiler = Warmwasser. Prefer the final key BMK_WARMWASSER_C.
-        # Fallback to BMK_BOILER_C for legacy callers.
-        boiler = float((data.get(BMK_WARMWASSER_C) if BMK_WARMWASSER_C in data else data.get(BMK_BOILER_C)) or 0.0)
+        # Boiler = Warmwasser (final key only).
+        boiler = float(data.get(BMK_WARMWASSER_C) or 0.0)
         now = time.time()
         if not hasattr(self, '_last_heat_dbg'):
             self._last_heat_dbg = 0.0

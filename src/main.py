@@ -80,13 +80,31 @@ ensure_emoji_font()
 
 # --- Logging ---
 
+_TEST_MODE = os.getenv("DASHBOARD_TEST_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+_TEST_LOG_PATH = None
+if _TEST_MODE:
+    raw_path = os.getenv("DASHBOARD_TEST_LOG")
+    if raw_path:
+        _TEST_LOG_PATH = Path(raw_path).expanduser()
+    else:
+        _TEST_LOG_PATH = Path(__file__).resolve().with_name("test_run.log")
+    try:
+        _TEST_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _test_log_file = _TEST_LOG_PATH.open("a", encoding="utf-8", buffering=1)
+        sys.stdout = _test_log_file
+        sys.stderr = _test_log_file
+    except Exception:
+        _TEST_LOG_PATH = None
+
+_log_file = str(_TEST_LOG_PATH) if _TEST_LOG_PATH else "datenerfassung.log"
+
 # Set root logger and all libraries to WARNING (only show warnings/errors)
 logging.basicConfig(
-    filename="datenerfassung.log",
+    filename=_log_file,
     level=logging.WARNING,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
-console = logging.StreamHandler()
+console = logging.StreamHandler(sys.stdout)
 console.setLevel(logging.WARNING)
 console.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logging.getLogger().addHandler(console)
@@ -323,7 +341,7 @@ def main():
 
     collector_threads = _start_collectors()
     elapsed = time.time() - start_time
-    print(f"[STARTUP] ✅ Dashboard bereit in {elapsed:.1f}s")
+    print(f"[STARTUP] Dashboard bereit in {elapsed:.1f}s")
 
     def on_close():
         logging.info("Programm wird beendet…")

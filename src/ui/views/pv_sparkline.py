@@ -12,6 +12,7 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import FixedLocator
 
 from core.datastore import get_shared_datastore
+from core.schema import PV_POWER_KW
 from ui.styles import (
     COLOR_ROOT,
     COLOR_BORDER,
@@ -78,7 +79,7 @@ class PVSparklineView(tk.Frame):
             return
         self._last_spark_sample_ts = now_ts
         sample_time = datetime.now()
-        pv_kw = self._safe_float(data.get('pv_power_kw') or data.get('pv'))
+        pv_kw = self._safe_float(data.get(PV_POWER_KW))
         if pv_kw is not None:
             self._spark_history_pv.append((sample_time, max(0.0, pv_kw)))
         outdoor = self._safe_float(data.get('outdoor'))

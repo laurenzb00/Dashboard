@@ -9,10 +9,10 @@ ctk.set_default_color_theme("blue")  # "blue", "green", "dark-blue"
 
 # Farbpalette (angepasst für CustomTkinter)
 COLOR_ROOT = "#0E0F12"       # Hintergrund/root (neutral dark)
-COLOR_HEADER = "#0E0F12"     # Header/Notebook
+COLOR_HEADER = "#0C1016"     # Header/Notebook (slightly darker)
 COLOR_BG = COLOR_HEADER       # alias für bestehende Verwendungen
-COLOR_CARD = "#0E0F12"       # Card/Plot-Hintergrund - einheitlich mit Root
-COLOR_BORDER = "#0E0F12"     # Auch dunkel für einheitliches Erscheinungsbild
+COLOR_CARD = "#111823"       # Card/Plot-Hintergrund - leicht angehoben
+COLOR_BORDER = "#1B2432"     # Dezente Rahmenfarbe
 COLOR_PRIMARY = "#3B82F6"
 COLOR_SUCCESS = "#10B981"
 COLOR_WARNING = "#F59E0B"
@@ -20,7 +20,7 @@ COLOR_INFO = "#38BDF8"
 COLOR_DANGER = "#EF4444"
 COLOR_TEXT = "#E6ECF5"
 COLOR_SUBTEXT = "#9AA3B2"
-COLOR_TITLE = "#AAB3C5"
+COLOR_TITLE = "#B5C0D3"
 
 # Emoji support flag (set in init_style)
 EMOJI_OK = True

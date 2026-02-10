@@ -1,4 +1,5 @@
 import threading
+import queue
 import time
 import tkinter as tk
 from tkinter import ttk
@@ -42,6 +43,8 @@ class CalendarTab:
         
         self.status_var = tk.StringVar(value="Lade Kalender...")
         self.events_data = []
+        self._events_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._refresh_inflight = False
         
         # Tab Frame - Use provided frame or create legacy one
         if tab_frame is not None:
@@ -103,8 +106,9 @@ class CalendarTab:
         self.canvas.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 12))
 
-        # Start Update Loop
-        self.root.after(0, lambda: threading.Thread(target=self._loop, daemon=True).start())
+        # Start Update Loop (no Tk calls from worker threads)
+        self.root.after(0, self._schedule_refresh)
+        self.root.after(200, self._poll_queue)
 
     def stop(self):
         self.alive = False
@@ -274,20 +278,47 @@ class CalendarTab:
 
                     day_card.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
 
-    def _loop(self):
-        """Hintergrund-Update Loop."""
-        while self.alive:
+    def _schedule_refresh(self):
+        if not self.alive or self._refresh_inflight:
+            return
+        self._refresh_inflight = True
+        try:
+            self.status_var.set("Lade...")
+        except Exception:
+            pass
+        threading.Thread(target=self._load_events_worker, daemon=True).start()
+
+    def _load_events_worker(self):
+        try:
+            events = self._load_events()
+            self._events_queue.put(("ok", events))
+        except Exception as e:
+            self._events_queue.put(("err", e))
+
+    def _poll_queue(self):
+        if not self.alive:
+            return
+        try:
+            status, payload = self._events_queue.get_nowait()
+        except queue.Empty:
+            self.root.after(200, self._poll_queue)
+            return
+
+        if status == "ok":
+            self.events_data = list(payload) if payload else []
             try:
-                self._ui_set(self.status_var, "Lade...")
-                self.events_data = self._load_events()
-                self.root.after(0, self._render_calendar)
-                self._ui_set(self.status_var, "Aktuell")
-            except Exception as e:
-                self._ui_set(self.status_var, "Fehler beim Laden")
-                print(f"Kalender-Fehler: {e}")
-            
-            # Update alle 10 Minuten
-            for _ in range(600):
-                if not self.alive:
-                    return
-                time.sleep(0.1)
+                self._render_calendar()
+                self.status_var.set("Aktuell")
+            except Exception:
+                pass
+        else:
+            try:
+                self.status_var.set("Fehler beim Laden")
+            except Exception:
+                pass
+            print(f"Kalender-Fehler: {payload}")
+
+        self._refresh_inflight = False
+        if self.alive:
+            self.root.after(600000, self._schedule_refresh)
+            self.root.after(200, self._poll_queue)

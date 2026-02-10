@@ -2,7 +2,7 @@ import tkinter as tk
 import time
 import customtkinter as ctk
 
-from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_DANGER, COLOR_SUBTEXT, COLOR_PRIMARY, COLOR_ROOT
+from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_DANGER, COLOR_SUBTEXT, COLOR_PRIMARY, COLOR_ROOT, get_safe_font
 
 
 class StatusBar(ctk.CTkFrame):
@@ -35,14 +35,14 @@ class StatusBar(ctk.CTkFrame):
         inner.grid_columnconfigure(2, weight=0)
 
         # Optional (hidden) label to keep API-compatible state, but not shown.
-        self.status_label = ctk.CTkLabel(inner, text="", text_color=COLOR_TEXT, font=("Segoe UI", 11))
+        self.status_label = ctk.CTkLabel(inner, text="", text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 11))
 
         # Laufzeit-Anzeige (Uptime seit Start) - moderner Style
         self.uptime_label = ctk.CTkLabel(
             inner,
             text="",
             text_color=COLOR_SUBTEXT,
-            font=("Segoe UI", 10),
+            font=get_safe_font("Bahnschrift", 10),
             anchor="w",
         )
         self.uptime_label.grid(row=0, column=0, sticky="w", padx=(0, 6))
@@ -56,7 +56,7 @@ class StatusBar(ctk.CTkFrame):
             text_color=COLOR_PRIMARY,
             hover_color=COLOR_BORDER,
             corner_radius=10,
-            font=("Segoe UI", 16, "bold"),
+            font=get_safe_font("Bahnschrift", 16, "bold"),
             width=52,
             height=28,
             border_width=1,
@@ -72,7 +72,7 @@ class StatusBar(ctk.CTkFrame):
             text_color="#FFFFFF",
             hover_color="#DC2626",
             corner_radius=10,
-            font=("Segoe UI", 14, "bold"),
+            font=get_safe_font("Bahnschrift", 14, "bold"),
             width=52,
             height=28,
             border_width=0

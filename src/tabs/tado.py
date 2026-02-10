@@ -20,13 +20,20 @@ from ui.styles import (
 )
 from ui.components.card import Card
 
+TADO_ENABLED = os.getenv("TADO_ENABLE", "").strip().lower() in {"1", "true", "yes", "on"}
+if not TADO_ENABLED:
+    TADO_ENABLED = bool(os.getenv("TADO_USER") or os.getenv("TADO_PASS"))
+
 # --- Robust: python-tado-Import mit Fallback ---
 Tado = None
 try:
     from python_tado import Tado as _PythonTado
     Tado = _PythonTado
 except ImportError as exc:
-    logging.warning("[TADO] python-tado Import fehlgeschlagen: %s", exc)
+    if TADO_ENABLED:
+        logging.warning("[TADO] python-tado Import fehlgeschlagen: %s", exc)
+    else:
+        logging.info("[TADO] python-tado nicht installiert (TADO deaktiviert)")
 
 if Tado is None:
     # Aktuelles `python-tado` (0.19.x) installiert i.d.R. als Paket `PyTado`
@@ -43,8 +50,11 @@ if Tado is None:
             Tado = _PyTado2
             logging.info("[TADO] Import via PyTado.interface.interface erfolgreich.")
         except ImportError as exc_pytado2:
-            logging.warning("[TADO] PyTado Import fehlgeschlagen: %s", exc_pytado)
-            logging.warning("[TADO] PyTado (alt) Import ebenfalls fehlgeschlagen: %s", exc_pytado2)
+            if TADO_ENABLED:
+                logging.warning("[TADO] PyTado Import fehlgeschlagen: %s", exc_pytado)
+                logging.warning("[TADO] PyTado (alt) Import ebenfalls fehlgeschlagen: %s", exc_pytado2)
+            else:
+                logging.info("[TADO] PyTado nicht installiert (TADO deaktiviert)")
 
 # --- KONFIGURATION ---
 TADO_USER = os.getenv("TADO_USER")
