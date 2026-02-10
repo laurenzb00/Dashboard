@@ -417,16 +417,24 @@ class EnergyFlowView(tk.Frame):
         # Draw main text on top
         draw.text((text_x, text_y), text, font=font, fill=color)
 
+    def _get_font(self, size: int, bold: bool = False):
+        candidates = [
+            "arialbd.ttf" if bold else "arial.ttf",
+            "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
+            "LiberationSans-Bold.ttf" if bold else "LiberationSans-Regular.ttf",
+            "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf",
+        ]
+        for name in candidates:
+            try:
+                return ImageFont.truetype(name, size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
     def _draw_value_unit(self, draw: ImageDraw.ImageDraw, value: str, unit: str, x: int, y: int, value_size: int, unit_size: int, value_color: str, unit_color: str):
         """Draw a dominant value with a smaller unit underneath for clear hierarchy."""
-        try:
-            value_font = ImageFont.truetype("arial.ttf", value_size, weight="bold")
-        except Exception:
-            value_font = self._font_big if self._font_big else ImageFont.load_default()
-        try:
-            unit_font = ImageFont.truetype("arial.ttf", unit_size)
-        except Exception:
-            unit_font = self._font_tiny if self._font_tiny else ImageFont.load_default()
+        value_font = self._get_font(value_size, bold=True)
+        unit_font = self._get_font(unit_size, bold=False)
 
         vbox = draw.textbbox((0, 0), value, font=value_font)
         ubox = draw.textbbox((0, 0), unit, font=unit_font)
@@ -515,14 +523,8 @@ class EnergyFlowView(tk.Frame):
         if abs(angle) > 90:
             angle += 180
         value_text, unit_text = self._format_power_parts(abs(watts))
-        try:
-            font_val = ImageFont.truetype("arial.ttf", self._flow_value_size, weight="bold")
-        except Exception:
-            font_val = self._font_small if self._font_small else ImageFont.load_default()
-        try:
-            font_unit = ImageFont.truetype("arial.ttf", self._flow_unit_size)
-        except Exception:
-            font_unit = self._font_tiny if self._font_tiny else ImageFont.load_default()
+        font_val = self._get_font(self._flow_value_size, bold=True)
+        font_unit = self._get_font(self._flow_unit_size, bold=False)
 
         dummy = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
         ddraw = ImageDraw.Draw(dummy)

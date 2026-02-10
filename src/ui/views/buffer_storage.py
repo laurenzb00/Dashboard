@@ -330,9 +330,9 @@ class BufferStorageView(tk.Frame):
 
         # Temperatur-Textfelder links
         self.val_texts = [
-            self.ax.text(0.04, 0.85, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.04, 0.50, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.04, 0.15, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.12, 0.85, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.12, 0.50, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.12, 0.15, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
         ]
 
         self.boiler_rect = FancyBboxPatch(
