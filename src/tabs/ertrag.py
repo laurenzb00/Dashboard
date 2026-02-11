@@ -298,7 +298,8 @@ class ErtragTab:
     def _apply_layout(self) -> None:
         # Same layout as HistoricalTab to avoid clipping of tick labels.
         try:
-            self.fig.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.16)
+            # Slightly more right margin than HistoricalTab (Windows scaling can clip last tick label).
+            self.fig.subplots_adjust(left=0.07, right=0.96, top=0.90, bottom=0.16)
         except Exception:
             pass
 
@@ -425,17 +426,11 @@ class ErtragTab:
                 self.ax.xaxis.get_offset_text().set_visible(False)
             except Exception:
                 pass
-
-            # Give the right edge some room (same idea as HistoricalTab's future extension)
-            try:
-                if xs:
-                    self.ax.set_xlim(xs[0], xs[-1] + timedelta(days=1))
-            except Exception:
-                pass
             self.ax.set_ylim(bottom=0)
 
             try:
-                self.ax.margins(x=0.01)
+                # A bit more horizontal padding so the last tick label fits.
+                self.ax.margins(x=0.02)
             except Exception:
                 pass
 
