@@ -296,8 +296,9 @@ class ErtragTab:
             pass
 
     def _apply_layout(self) -> None:
-        # Layout like HistoricalTab, but with dynamic right margin to avoid
-        # DPI-scaling related clipping of the last x tick label on Windows.
+        # Stable layout with DPI-aware right margin.
+        # Avoid tight_layout() here: it can shift the axes to the right depending
+        # on renderer/tick extents (and makes the "clipped on the right" issue worse).
         try:
             scaling = 1.0
             try:
@@ -315,24 +316,14 @@ class ErtragTab:
             bottom = 0.16
             top = 0.90
 
-            # Base right margin: intentionally conservative to avoid clipping.
-            if canvas_w and canvas_w < 850:
-                right = 0.90
-            else:
-                right = 0.915
-
-            # DPI scaling: make it even narrower on higher scaling.
+            # Leave enough space on the right for the last date tick label.
+            # Keep left fixed so the plot area doesn't "wander".
+            right = 0.93 if (canvas_w and canvas_w < 850) else 0.945
             if scaling > 1.0:
-                right -= min(0.10, (scaling - 1.0) * 0.06)
+                right -= min(0.12, (scaling - 1.0) * 0.07)
+            right = max(0.80, min(0.97, right))
 
-            right = max(0.84, min(0.95, right))
             self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
-
-            # Force layout within the chosen rect so tick labels fit.
-            try:
-                self.fig.tight_layout(pad=0.6, rect=[left, bottom, right, top])
-            except Exception:
-                pass
         except Exception:
             pass
 
