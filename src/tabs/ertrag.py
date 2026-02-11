@@ -296,10 +296,33 @@ class ErtragTab:
             pass
 
     def _apply_layout(self) -> None:
-        # Same layout as HistoricalTab to avoid clipping of tick labels.
+        # Layout like HistoricalTab, but with dynamic right margin to avoid
+        # DPI-scaling related clipping of the last x tick label on Windows.
         try:
-            # Slightly more right margin than HistoricalTab (Windows scaling can clip last tick label).
-            self.fig.subplots_adjust(left=0.07, right=0.96, top=0.90, bottom=0.16)
+            scaling = 1.0
+            try:
+                scaling = float(self.root.tk.call("tk", "scaling"))
+            except Exception:
+                scaling = 1.0
+
+            canvas_w = 0
+            try:
+                canvas_w = int(self.canvas_widget.winfo_width() or 0)
+            except Exception:
+                canvas_w = 0
+
+            # Base right margin: slightly tighter on small canvases.
+            if canvas_w and canvas_w < 850:
+                right = 0.93
+            else:
+                right = 0.945
+
+            # DPI scaling: reduce right a bit more so tick labels fit.
+            if scaling > 1.0:
+                right -= min(0.05, (scaling - 1.0) * 0.03)
+
+            right = max(0.90, min(0.97, right))
+            self.fig.subplots_adjust(left=0.07, right=right, top=0.90, bottom=0.16)
         except Exception:
             pass
 
@@ -419,11 +442,18 @@ class ErtragTab:
                     self.ax.fill_between(xs, ys, ys_load, where=deficit > 0, color="#f97316", alpha=0.18, label="Defizit")
 
             self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=11, rotation=0, labelpad=18, va="center")
-            locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
+            locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
             self.ax.xaxis.set_major_locator(locator)
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
             try:
                 self.ax.xaxis.get_offset_text().set_visible(False)
+            except Exception:
+                pass
+
+            # Small right padding so the last tick label isn't flush to the edge.
+            try:
+                if xs:
+                    self.ax.set_xlim(xs[0], xs[-1] + timedelta(hours=12))
             except Exception:
                 pass
             self.ax.set_ylim(bottom=0)
