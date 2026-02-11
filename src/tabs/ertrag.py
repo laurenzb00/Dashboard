@@ -316,12 +316,11 @@ class ErtragTab:
             bottom = 0.16
             top = 0.90
 
-            # Leave enough space on the right for the last date tick label.
-            # Keep left fixed so the plot area doesn't "wander".
-            right = 0.93 if (canvas_w and canvas_w < 850) else 0.945
+            # Keep the plot wide; clipping is handled by right-aligning tick labels.
+            right = 0.97 if (canvas_w and canvas_w < 850) else 0.98
             if scaling > 1.0:
-                right -= min(0.12, (scaling - 1.0) * 0.07)
-            right = max(0.80, min(0.97, right))
+                right -= min(0.04, (scaling - 1.0) * 0.02)
+            right = max(0.92, min(0.985, right))
 
             self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
         except Exception:
@@ -448,6 +447,22 @@ class ErtragTab:
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
             try:
                 self.ax.xaxis.get_offset_text().set_visible(False)
+            except Exception:
+                pass
+
+            # Hint from HistoricalTab: keep the newest data point around ~90% width
+            # by adding ~11% of the window as "future" padding.
+            try:
+                if xs:
+                    self.ax.set_xlim(xs[0], xs[-1] + timedelta(days=max(1, int(window_days)) * 0.111))
+            except Exception:
+                pass
+
+            # Prevent the last x tick label from being clipped at the right edge:
+            # make labels extend to the left of their tick position.
+            try:
+                for lbl in self.ax.get_xticklabels():
+                    lbl.set_ha("right")
             except Exception:
                 pass
 
