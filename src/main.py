@@ -15,6 +15,7 @@ import atexit
 import tracemalloc
 from pathlib import Path
 from core.datastore import DataStore, set_shared_datastore, close_shared_datastore
+from core.health import update_source_health
 import importlib
 
 # Füge src-Verzeichnis zu Python-Pfad hinzu
@@ -216,27 +217,41 @@ def run_wechselrichter():
         while not shutdown_event.is_set():
             # Statt nur abrufen_und_speichern(), Daten an die GUI übergeben
             try:
+                start = time.perf_counter()
                 data = Wechselrichter.abrufen_und_speichern()
+                latency_ms = int((time.perf_counter() - start) * 1000)
                 if data:
                     data_queue.put(('wechselrichter', data))
+                    update_source_health("pv", ok=True, latency_ms=latency_ms)
+                else:
+                    update_source_health("pv", ok=False, error="no data")
             except Exception as e:
                 logging.error(f"Wechselrichter-Thread Fehler: {e}")
+                update_source_health("pv", ok=False, error=str(e))
             time.sleep(10)
     except Exception as e:
         logging.error(f"Wechselrichter-Thread Fehler: {e}")
+        update_source_health("pv", ok=False, error=str(e))
 
 def run_bmkdaten():
     try:
         while not shutdown_event.is_set():
             try:
+                start = time.perf_counter()
                 data = BMKDATEN.abrufen_und_speichern()
+                latency_ms = int((time.perf_counter() - start) * 1000)
                 if data:
                     data_queue.put(('bmkdaten', data))
+                    update_source_health("heating", ok=True, latency_ms=latency_ms)
+                else:
+                    update_source_health("heating", ok=False, error="no data")
             except Exception as e:
                 logging.error(f"BMKDATEN-Thread Fehler: {e}")
+                update_source_health("heating", ok=False, error=str(e))
             time.sleep(10)
     except Exception as e:
         logging.error(f"BMKDATEN-Thread Fehler: {e}")
+        update_source_health("heating", ok=False, error=str(e))
 
 
 def main():

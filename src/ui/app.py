@@ -85,9 +85,7 @@ except Exception as e:
     SpotifyTab = None
 
 try:
-    from tabs.tado import TadoTab, TADO_ENABLED
-    if not TADO_ENABLED:
-        TadoTab = None
+    from tabs.tado import TadoTab
 except ImportError:
     TadoTab = None
 

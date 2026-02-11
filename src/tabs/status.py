@@ -10,6 +10,7 @@ import customtkinter as ctk
 
 from core.datastore import get_shared_datastore
 from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+from core.health import get_health_snapshot
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -86,6 +87,26 @@ class StatusTab(ctk.CTkFrame):
             text_color=COLOR_SUBTEXT,
         )
         self.detail_label.pack(anchor="w")
+
+        health_row = ctk.CTkFrame(self, fg_color="transparent")
+        health_row.pack(fill=tk.X, padx=12, pady=(0, 8))
+        health_row.grid_columnconfigure(0, weight=1)
+        health_row.grid_columnconfigure(1, weight=1)
+
+        self.health_labels = {}
+        for idx, key in enumerate(("pv", "heating")):
+            card = Card(health_row, padding=10)
+            card.grid(row=0, column=idx, sticky="nsew", padx=4)
+            card.add_title("Quelle" if key == "pv" else "Heizung", icon="📡" if key == "pv" else "🔥")
+
+            status = ctk.CTkLabel(card.content(), text="Letzter OK: --", font=("Segoe UI", 10), text_color=COLOR_TEXT)
+            status.pack(anchor="w")
+            latency = ctk.CTkLabel(card.content(), text="Latenz: --", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT)
+            latency.pack(anchor="w", pady=(2, 0))
+            errors = ctk.CTkLabel(card.content(), text="Fehler: --", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT)
+            errors.pack(anchor="w", pady=(2, 0))
+
+            self.health_labels[key] = {"status": status, "latency": latency, "errors": errors}
 
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
@@ -398,6 +419,7 @@ class StatusTab(ctk.CTkFrame):
         self.ampel_cards[3]["lamp"].delete("all")
         self.ampel_cards[3]["lamp"].create_oval(6, 6, 18, 18, fill=overall_color, outline=COLOR_ROOT)
         self.ampel_cards[3]["status"].configure(text=overall_status)
+        self._update_health_summary()
         self.ampel_cards[3]["age"].configure(text=overall_line)
 
         try:
@@ -410,6 +432,25 @@ class StatusTab(ctk.CTkFrame):
             pass
         
         self._schedule_update()
+
+    def _update_health_summary(self):
+        try:
+            snapshot = get_health_snapshot()
+        except Exception:
+            snapshot = {}
+
+        for key, labels in self.health_labels.items():
+            entry = snapshot.get(key)
+            if not entry:
+                labels["status"].configure(text="Letzter OK: --")
+                labels["latency"].configure(text="Latenz: --")
+                labels["errors"].configure(text="Fehler: --")
+                continue
+            last_ok = entry.last_ok.strftime("%H:%M:%S") if entry.last_ok else "--"
+            latency = f"{entry.last_latency_ms} ms" if entry.last_latency_ms is not None else "--"
+            labels["status"].configure(text=f"Letzter OK: {last_ok}")
+            labels["latency"].configure(text=f"Latenz: {latency}")
+            labels["errors"].configure(text=f"Fehler: {entry.error_count}")
     
     @staticmethod
     def _simple_status_color(age_s):

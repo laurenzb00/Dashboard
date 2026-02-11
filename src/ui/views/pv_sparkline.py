@@ -62,15 +62,42 @@ class PVSparklineView(tk.Frame):
         self.spark_ax.grid(True, alpha=0.12)
         self.spark_fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.22)
 
-        # Draw once on startup using cached DB data (no live update required).
+        # On startup, render from persisted cache immediately so the sparkline
+        # isn't empty after a restart. Then refresh from DB shortly after.
         try:
-            self._update_sparkline()
-            self.after(200, self._update_sparkline)
+            cached = self._load_cache() or {}
+            self._spark_cache_pv = list(cached.get("pv", []) or [])
+            self._spark_cache_temp = list(cached.get("temp", []) or [])
+            # Mark cache as fresh for the first draw (avoid DB query during UI init).
+            if self._spark_cache_pv or self._spark_cache_temp:
+                self._spark_cache_ts = time.time()
         except Exception:
             pass
 
+        def _initial_draw() -> None:
+            try:
+                self._update_sparkline()
+            except Exception:
+                pass
+
+        def _refresh_from_db() -> None:
+            try:
+                # Force DB refresh on next update.
+                self._spark_cache_ts = 0.0
+                self._update_sparkline()
+            except Exception:
+                pass
+
+        self.after(150, _initial_draw)
+        self.after(4000, _refresh_from_db)
+
     def update_data(self, data: dict) -> None:
         self._record_spark_sample(data)
+        now = time.monotonic()
+        last = getattr(self, "_last_redraw_ts", 0.0)
+        if now - last < 5.0:
+            return
+        self._last_redraw_ts = now
         self._update_sparkline()
 
     def _record_spark_sample(self, data: dict) -> None:
@@ -89,6 +116,8 @@ class PVSparklineView(tk.Frame):
     def _update_sparkline(self) -> None:
         refresh_needed = (time.time() - self._spark_cache_ts) > 60.0
         if refresh_needed:
+            prev_pv = list(self._spark_cache_pv)
+            prev_temp = list(self._spark_cache_temp)
             try:
                 pv_series_db = self._load_pv_series(hours=48, bin_minutes=15)
             except Exception as exc:
@@ -101,8 +130,17 @@ class PVSparklineView(tk.Frame):
                 if DEBUG_LOG:
                     print(f"[SPARKLINE] _load_outdoor_temp_series error: {exc}")
                 temp_series_db = []
-            self._spark_cache_pv = pv_series_db
-            self._spark_cache_temp = temp_series_db
+
+            # Do not wipe previously cached series when a refresh returns empty.
+            if pv_series_db:
+                self._spark_cache_pv = pv_series_db
+            else:
+                pv_series_db = prev_pv
+            if temp_series_db:
+                self._spark_cache_temp = temp_series_db
+            else:
+                temp_series_db = prev_temp
+
             self._spark_cache_ts = time.time()
             if pv_series_db or temp_series_db:
                 self._save_cache(pv_series_db, temp_series_db)
@@ -208,6 +246,12 @@ class PVSparklineView(tk.Frame):
 
     def _save_cache(self, pv_series: list[tuple[datetime, float]], temp_series: list[tuple[datetime, float]]) -> None:
         try:
+            # Merge with existing cache: avoid overwriting non-empty PV/Temp with empty lists.
+            existing = self._load_cache() or {}
+            if not pv_series:
+                pv_series = list(existing.get("pv", []) or [])
+            if not temp_series:
+                temp_series = list(existing.get("temp", []) or [])
             payload = {
                 "pv": [[ts.isoformat(), float(val)] for ts, val in pv_series],
                 "temp": [[ts.isoformat(), float(val)] for ts, val in temp_series],

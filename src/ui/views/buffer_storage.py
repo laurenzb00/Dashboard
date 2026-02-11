@@ -391,6 +391,11 @@ class BufferStorageView(tk.Frame):
     def update_data(self, data: dict):
         """Update für BufferStorageView: erwartet dict mit final keys."""
         import time
+        now = time.monotonic()
+        last = getattr(self, "_last_redraw_ts", 0.0)
+        if now - last < 3.0:
+            return
+        self._last_redraw_ts = now
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
