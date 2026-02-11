@@ -296,9 +296,9 @@ class ErtragTab:
             pass
 
     def _apply_layout(self) -> None:
-        # Extra padding to avoid right/bottom clipping of tick labels.
+        # Same layout as HistoricalTab to avoid clipping of tick labels.
         try:
-            self.fig.subplots_adjust(left=0.08, right=0.975, top=0.92, bottom=0.26)
+            self.fig.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.16)
         except Exception:
             pass
 
@@ -329,6 +329,8 @@ class ErtragTab:
 
         self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
         self.ax.tick_params(axis="both", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=3, width=0.5)
+        # Padding so the last x tick label doesn't get clipped.
+        self.ax.tick_params(axis="x", pad=5)
 
     def _select_period(self, period: str) -> None:
         """Wechselt Zeitraum und aktualisiert Button-Farben."""
@@ -421,6 +423,13 @@ class ErtragTab:
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
             try:
                 self.ax.xaxis.get_offset_text().set_visible(False)
+            except Exception:
+                pass
+
+            # Give the right edge some room (same idea as HistoricalTab's future extension)
+            try:
+                if xs:
+                    self.ax.set_xlim(xs[0], xs[-1] + timedelta(days=1))
             except Exception:
                 pass
             self.ax.set_ylim(bottom=0)
