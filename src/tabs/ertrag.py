@@ -311,18 +311,28 @@ class ErtragTab:
             except Exception:
                 canvas_w = 0
 
-            # Base right margin: slightly tighter on small canvases.
+            left = 0.07
+            bottom = 0.16
+            top = 0.90
+
+            # Base right margin: intentionally conservative to avoid clipping.
             if canvas_w and canvas_w < 850:
-                right = 0.93
+                right = 0.90
             else:
-                right = 0.945
+                right = 0.915
 
-            # DPI scaling: reduce right a bit more so tick labels fit.
+            # DPI scaling: make it even narrower on higher scaling.
             if scaling > 1.0:
-                right -= min(0.05, (scaling - 1.0) * 0.03)
+                right -= min(0.10, (scaling - 1.0) * 0.06)
 
-            right = max(0.90, min(0.97, right))
-            self.fig.subplots_adjust(left=0.07, right=right, top=0.90, bottom=0.16)
+            right = max(0.84, min(0.95, right))
+            self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
+
+            # Force layout within the chosen rect so tick labels fit.
+            try:
+                self.fig.tight_layout(pad=0.6, rect=[left, bottom, right, top])
+            except Exception:
+                pass
         except Exception:
             pass
 
