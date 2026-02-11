@@ -14,6 +14,8 @@ from ui.styles import (
     COLOR_TEXT,
     COLOR_SUBTEXT,
     COLOR_PRIMARY,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
     COLOR_TITLE,
     emoji,
 )
@@ -300,11 +302,22 @@ class ErtragTab:
         # Avoid tight_layout() here: it can shift the axes to the right depending
         # on renderer/tick extents (and makes the "clipped on the right" issue worse).
         try:
-            scaling = 1.0
+            # Derive UI scale from actual pixels-per-point.
+            # This is more reliable across Windows/macOS/Linux (incl. Raspberry Pi)
+            # than relying only on tk scaling.
+            px_per_point = None
             try:
-                scaling = float(self.root.tk.call("tk", "scaling"))
+                px_per_point = float(self.root.winfo_fpixels("1p"))  # 1 point = 1/72 inch
             except Exception:
-                scaling = 1.0
+                px_per_point = None
+
+            if px_per_point is None or not (0.5 <= px_per_point <= 6.0):
+                # Fallback: tk scaling is roughly px/point on many Tk builds.
+                try:
+                    px_per_point = float(self.root.tk.call("tk", "scaling"))
+                except Exception:
+                    # Reasonable default for 96 DPI.
+                    px_per_point = 96.0 / 72.0
 
             canvas_w = 0
             try:
@@ -321,10 +334,11 @@ class ErtragTab:
             # Use pixel-based margins so Windows DPI scaling can't clip labels.
             # This also avoids the "plot shifts right" effect.
             if canvas_w > 0 and canvas_h > 0:
-                left_px = int(70 * scaling)
-                right_px = int(95 * scaling)
-                top_px = int(30 * scaling)
-                bottom_px = int(55 * scaling)
+                # Margins are specified in points (scale with UI/font DPI), then converted to pixels.
+                left_px = int(52 * px_per_point)
+                right_px = int(72 * px_per_point)
+                top_px = int(24 * px_per_point)
+                bottom_px = int(44 * px_per_point)
 
                 left = max(0.02, min(0.20, left_px / canvas_w))
                 right = max(0.70, min(0.99, 1.0 - (right_px / canvas_w)))
@@ -456,8 +470,8 @@ class ErtragTab:
                 if len(xs) == len(xs_load):
                     surplus = np.where((~np.isnan(ys)) & (~np.isnan(ys_load)) & (ys > ys_load), ys - ys_load, 0.0)
                     deficit = np.where((~np.isnan(ys)) & (~np.isnan(ys_load)) & (ys_load > ys), ys_load - ys, 0.0)
-                    self.ax.fill_between(xs, ys_load, ys, where=surplus > 0, color="#10b981", alpha=0.22, label="Ueberschuss")
-                    self.ax.fill_between(xs, ys, ys_load, where=deficit > 0, color="#f97316", alpha=0.18, label="Defizit")
+                    self.ax.fill_between(xs, ys_load, ys, where=surplus > 0, color=COLOR_SUCCESS, alpha=0.22, label="Ueberschuss")
+                    self.ax.fill_between(xs, ys, ys_load, where=deficit > 0, color=COLOR_WARNING, alpha=0.18, label="Defizit")
 
             self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=11, rotation=0, labelpad=18, va="center")
             locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
@@ -468,11 +482,14 @@ class ErtragTab:
             except Exception:
                 pass
 
-            # Hint from HistoricalTab: keep the newest data point around ~90% width
-            # by adding ~11% of the window as "future" padding.
+            # Keep a bit of future padding so the last x tick label fits.
             try:
                 if xs:
-                    self.ax.set_xlim(xs[0], xs[-1] + timedelta(days=max(1, int(window_days)) * 0.111))
+                    pad = max(
+                        timedelta(hours=12),
+                        timedelta(days=max(1, int(window_days)) * 0.111),
+                    )
+                    self.ax.set_xlim(xs[0], xs[-1] + pad)
             except Exception:
                 pass
 
@@ -484,12 +501,6 @@ class ErtragTab:
             except Exception:
                 pass
 
-            # Small right padding so the last tick label isn't flush to the edge.
-            try:
-                if xs:
-                    self.ax.set_xlim(xs[0], xs[-1] + timedelta(hours=12))
-            except Exception:
-                pass
             self.ax.set_ylim(bottom=0)
 
             try:
