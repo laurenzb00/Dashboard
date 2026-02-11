@@ -312,17 +312,33 @@ class ErtragTab:
             except Exception:
                 canvas_w = 0
 
-            left = 0.07
-            bottom = 0.16
-            top = 0.90
+            canvas_h = 0
+            try:
+                canvas_h = int(self.canvas_widget.winfo_height() or 0)
+            except Exception:
+                canvas_h = 0
 
-            # Keep the plot wide; clipping is handled by right-aligning tick labels.
-            right = 0.97 if (canvas_w and canvas_w < 850) else 0.98
-            if scaling > 1.0:
-                right -= min(0.04, (scaling - 1.0) * 0.02)
-            right = max(0.92, min(0.985, right))
+            # Use pixel-based margins so Windows DPI scaling can't clip labels.
+            # This also avoids the "plot shifts right" effect.
+            if canvas_w > 0 and canvas_h > 0:
+                left_px = int(70 * scaling)
+                right_px = int(95 * scaling)
+                top_px = int(30 * scaling)
+                bottom_px = int(55 * scaling)
 
-            self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
+                left = max(0.02, min(0.20, left_px / canvas_w))
+                right = max(0.70, min(0.99, 1.0 - (right_px / canvas_w)))
+                bottom = max(0.05, min(0.30, bottom_px / canvas_h))
+                top = max(0.75, min(0.97, 1.0 - (top_px / canvas_h)))
+
+                # Ensure a sane minimum plot area.
+                if right - left < 0.60:
+                    right = min(0.99, left + 0.60)
+
+                self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
+            else:
+                # Fallback
+                self.fig.subplots_adjust(left=0.07, right=0.94, top=0.90, bottom=0.16)
         except Exception:
             pass
 
@@ -352,7 +368,9 @@ class ErtragTab:
             self.ax.spines[spine].set_linewidth(0.5)
 
         self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        self.ax.tick_params(axis="both", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=3, width=0.5)
+        # Slightly smaller x label size helps on high DPI.
+        self.ax.tick_params(axis="y", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=3, width=0.5)
+        self.ax.tick_params(axis="x", which="major", labelsize=10, colors=COLOR_SUBTEXT, length=3, width=0.5)
         # Padding so the last x tick label doesn't get clipped.
         self.ax.tick_params(axis="x", pad=5)
 
