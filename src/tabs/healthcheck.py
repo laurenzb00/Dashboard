@@ -5,6 +5,7 @@ from pathlib import Path
 import threading
 import subprocess
 import shutil
+import shlex
 
 import tkinter as tk
 import customtkinter as ctk
@@ -295,41 +296,113 @@ class HealthTab:
         def worker() -> None:
             ok = False
             msg = "Update: –"
-            repo_root = Path(__file__).resolve().parents[2]
+            # Prefer the service repo path (user request). Fallback to current workspace root.
+            preferred_repo = Path("/home/laurenz/Dashboard")
+            repo_root = preferred_repo if (preferred_repo / ".git").exists() else Path(__file__).resolve().parents[2]
+            log_dir = repo_root / "data"
+            log_path = log_dir / "update_last.log"
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            def _write_log(header: str, body: str) -> None:
+                try:
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(f"\n==== {ts} {header} ====\n")
+                        f.write((body or "").rstrip() + "\n")
+                except Exception:
+                    pass
+
+            def _find_git_exe() -> str | None:
+                try:
+                    p = shutil.which("git")
+                    if p:
+                        return p
+                except Exception:
+                    pass
+                # Common Windows Git installs
+                candidates = [
+                    r"C:\\Program Files\\Git\\cmd\\git.exe",
+                    r"C:\\Program Files\\Git\\bin\\git.exe",
+                    r"C:\\Program Files (x86)\\Git\\cmd\\git.exe",
+                    r"C:\\Program Files (x86)\\Git\\bin\\git.exe",
+                ]
+                for c in candidates:
+                    try:
+                        if Path(c).exists():
+                            return c
+                    except Exception:
+                        continue
+                return None
+
+            def _run_pull_like_terminal(git_exe: str) -> tuple[int, str]:
+                """Run git pull in repo_root in a way similar to manual terminal usage."""
+                env = os.environ.copy()
+                env.setdefault("GIT_TERMINAL_PROMPT", "0")
+                env.setdefault("GCM_INTERACTIVE", "Never")
+
+                # On Linux services, PATH might be minimal; bash -lc emulates a user terminal better.
+                if os.name != "nt":
+                    bash = "/bin/bash"
+                    try:
+                        if Path(bash).exists():
+                            cmd = f"cd {shlex.quote(str(repo_root))} && {shlex.quote(git_exe)} pull"
+                            p = subprocess.run(
+                                [bash, "-lc", cmd],
+                                cwd=str(repo_root),
+                                capture_output=True,
+                                text=True,
+                                env=env,
+                                timeout=180,
+                            )
+                            out = ((p.stdout or "") + "\n" + (p.stderr or "")).strip()
+                            return p.returncode, out
+                    except Exception:
+                        pass
+
+                # Fallback: run directly with cwd.
+                p = subprocess.run(
+                    [git_exe, "pull"],
+                    cwd=str(repo_root),
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=180,
+                )
+                out = ((p.stdout or "") + "\n" + (p.stderr or "")).strip()
+                return p.returncode, out
 
             try:
                 if not (repo_root / ".git").exists():
                     msg = "Update: kein Git-Repo (.git fehlt)"
+                    _write_log("NO_GIT_REPO", f"repo_root={repo_root}")
                     raise RuntimeError("no-git")
 
-                if shutil.which("git") is None:
-                    msg = "Update: git nicht gefunden"
+                git_exe = _find_git_exe()
+                if not git_exe:
+                    msg = "Update: git nicht gefunden (siehe Log)"
+                    _write_log("NO_GIT_BIN", f"repo_root={repo_root}\nPATH={os.environ.get('PATH','')}")
                     raise RuntimeError("no-git-bin")
 
                 # Safety: do not pull on a dirty working tree.
                 st = subprocess.run(
-                    ["git", "status", "--porcelain"],
+                    [git_exe, "status", "--porcelain"],
                     cwd=str(repo_root),
                     capture_output=True,
                     text=True,
+                    env=os.environ.copy(),
                     timeout=30,
                 )
                 if (st.stdout or "").strip():
-                    msg = "Update: lokale Änderungen – abbrechen"
+                    msg = "Update: lokale Änderungen – abbrechen (Log)"
+                    _write_log("DIRTY", (st.stdout or "").strip())
                     raise RuntimeError("dirty")
 
-                # Fast-forward only to avoid merge prompts on a service.
-                res = subprocess.run(
-                    ["git", "pull", "--ff-only"],
-                    cwd=str(repo_root),
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-
-                out = (res.stdout or "") + "\n" + (res.stderr or "")
-                out = out.strip()
-                if res.returncode == 0:
+                code, out = _run_pull_like_terminal(git_exe)
+                _write_log("PULL", out or "(no output)")
+                if code == 0:
                     ok = True
                     if "Already up" in out or "Already up-to-date" in out:
                         msg = "Update: aktuell – Neustart…"
@@ -339,7 +412,9 @@ class HealthTab:
                     # Keep it short for the UI.
                     short = out.replace("\r", " ").replace("\n", " ")
                     short = " ".join(short.split())
-                    msg = f"Update: Fehler ({res.returncode}) {short[:60]}".strip()
+                    # Provide a short hint, but keep full output in the log.
+                    hint = "Auth?" if ("authentication" in short.lower() or "permission" in short.lower()) else ""
+                    msg = f"Update: Fehler ({code}) {hint} (Log)".strip()
             except Exception:
                 pass
 
