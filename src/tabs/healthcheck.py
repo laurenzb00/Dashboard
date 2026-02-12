@@ -2,6 +2,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import threading
 
 import tkinter as tk
 import customtkinter as ctk
@@ -137,10 +138,11 @@ class HealthTab:
         self.var_gap_pv = tk.StringVar(value="PV gap(24h): –")
         self.var_gap_heat = tk.StringVar(value="Heizung gap(24h): –")
         self.var_cache = tk.StringVar(value="Sparkline cache: –")
+        self.var_selfheal = tk.StringVar(value="Self-Heal: –")
 
         body = ctk.CTkFrame(self.card_data.content(), fg_color="transparent")
         body.pack(fill=tk.BOTH, expand=True)
-        for v in (self.var_db, self.var_pv, self.var_heat, self.var_gap_pv, self.var_gap_heat, self.var_cache):
+        for v in (self.var_db, self.var_pv, self.var_heat, self.var_gap_pv, self.var_gap_heat, self.var_cache, self.var_selfheal):
             ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 12), text_color=COLOR_TEXT).pack(anchor="w", pady=2)
 
         btn_row = ctk.CTkFrame(body, fg_color="transparent")
@@ -154,6 +156,14 @@ class HealthTab:
             command=self._rebuild_spark_cache,
         )
         self._rebuild_cache_btn.pack(anchor="w")
+
+        self._selfheal_btn = ctk.CTkButton(
+            btn_row,
+            text="Self-Heal (Cache + Ertrag)",
+            fg_color=COLOR_PRIMARY,
+            command=self._self_heal,
+        )
+        self._selfheal_btn.pack(anchor="w", pady=(8, 0))
 
         # Integration labels
         self.var_hue = tk.StringVar(value="Hue: –")
@@ -181,6 +191,60 @@ class HealthTab:
         except Exception:
             pass
         self.root.after(300, self.refresh)
+
+    def _self_heal(self) -> None:
+        """One-click repair: rebuild sparkline cache + repair PV yield data."""
+        if getattr(self, "_selfheal_running", False):
+            return
+        self._selfheal_running = True
+        try:
+            self.var_selfheal.set("Self-Heal: läuft…")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            ok_cache = False
+            ok_ertrag = False
+            err = None
+            ds = self.datastore
+            if ds is None and self.app is not None:
+                ds = getattr(self.app, "datastore", None)
+            try:
+                view = getattr(self.app, "sparkline_view", None) if self.app else None
+                if view and hasattr(view, "rebuild_cache_now"):
+                    try:
+                        view.rebuild_cache_now()
+                        ok_cache = True
+                    except Exception:
+                        ok_cache = False
+
+                try:
+                    from core.ertrag_validator import validate_and_repair_ertrag
+                    validate_and_repair_ertrag(ds, verbose=False)
+                    ok_ertrag = True
+                except Exception:
+                    ok_ertrag = False
+            except Exception as exc:
+                err = exc
+
+            def done() -> None:
+                ts = datetime.now().strftime("%H:%M")
+                if err is not None:
+                    self.var_selfheal.set(f"Self-Heal: Fehler ({type(err).__name__})")
+                else:
+                    parts = []
+                    parts.append("Cache OK" if ok_cache else "Cache –")
+                    parts.append("Ertrag OK" if ok_ertrag else "Ertrag –")
+                    self.var_selfheal.set(f"Self-Heal {ts}: " + " | ".join(parts))
+                self._selfheal_running = False
+                self.refresh()
+
+            try:
+                self.root.after(0, done)
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def refresh(self) -> None:
         ds = self.datastore

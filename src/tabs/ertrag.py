@@ -474,7 +474,9 @@ class ErtragTab:
                     self.ax.fill_between(xs, ys, ys_load, where=deficit > 0, color=COLOR_WARNING, alpha=0.18, label="Defizit")
 
             self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=11, rotation=0, labelpad=18, va="center")
-            locator = mdates.AutoDateLocator(minticks=4, maxticks=8)
+            # More x-axis labels (requested): allow more ticks while keeping
+            # Matplotlib's auto date interval selection.
+            locator = mdates.AutoDateLocator(minticks=6, maxticks=12)
             self.ax.xaxis.set_major_locator(locator)
             self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
             try:
