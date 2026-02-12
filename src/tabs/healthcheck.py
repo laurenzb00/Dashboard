@@ -83,10 +83,16 @@ class HealthTab:
             pass
 
         self._build_ui()
+        self._refresh_after_id = None
         self.root.after(500, self.refresh)
 
     def stop(self):
-        pass
+        try:
+            if self._refresh_after_id is not None:
+                self.root.after_cancel(self._refresh_after_id)
+        except Exception:
+            pass
+        self._refresh_after_id = None
 
     def _build_ui(self) -> None:
         container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
@@ -125,7 +131,7 @@ class HealthTab:
         self.card_int.add_title("Integrationen", icon="🔌")
 
         # Data labels
-        self.var_db = tk.StringVar(value="DB: –")
+        self.var_db = tk.StringVar(value="DB ingest: –")
         self.var_pv = tk.StringVar(value="PV: –")
         self.var_heat = tk.StringVar(value="Heizung: –")
         self.var_gap_pv = tk.StringVar(value="PV gap(24h): –")
@@ -181,12 +187,28 @@ class HealthTab:
         if ds is None and self.app is not None:
             ds = getattr(self.app, "datastore", None)
 
-        # DB + last records
+        # DB ingest freshness
         try:
-            ok = ds is not None
-            self.var_db.set(f"DB: {'OK' if ok else '–'}")
+            if ds is None:
+                self.var_db.set("DB ingest: –")
+            else:
+                dt = None
+                try:
+                    dt = ds.get_last_ingest_datetime()
+                except Exception:
+                    dt = None
+                if dt is None:
+                    try:
+                        dt = _parse_ts(ds.get_latest_timestamp())
+                    except Exception:
+                        dt = None
+                if dt is None:
+                    self.var_db.set("DB ingest: –")
+                else:
+                    local = dt.astimezone() if dt.tzinfo is not None else dt
+                    self.var_db.set(f"DB ingest: {_fmt_age_minutes(dt)} ({local.strftime('%H:%M')})")
         except Exception:
-            pass
+            self.var_db.set("DB ingest: –")
 
         try:
             fr = ds.get_last_fronius_record() if ds else None
@@ -260,6 +282,17 @@ class HealthTab:
                     self.var_tado.set("Tado: OK (ohne HomeState)")
         except Exception as exc:
             self.var_tado.set(f"Tado: Fehler ({type(exc).__name__})")
+
+        # Lightweight periodic refresh (keeps freshness values current)
+        try:
+            if self._refresh_after_id is not None:
+                self.root.after_cancel(self._refresh_after_id)
+        except Exception:
+            pass
+        try:
+            self._refresh_after_id = self.root.after(30_000, self.refresh)
+        except Exception:
+            self._refresh_after_id = None
 
         try:
             tab = getattr(self.app, "spotify_tab", None) if self.app else None

@@ -65,7 +65,23 @@ class BufferStorageView(tk.Frame):
     TEMP_MIN = 35.0
     TEMP_BLUE_MAX = 53.0
     TEMP_ORANGE_FROM = 55.0
-    TEMP_MAX = 80.0
+    TEMP_MAX = 75.0
+
+    @staticmethod
+    def _blend_hex(c1: str, c2: str, t: float) -> str:
+        """Blend two #RRGGBB colors; t=0 -> c1, t=1 -> c2."""
+        try:
+            a = c1.lstrip("#")
+            b = c2.lstrip("#")
+            r1, g1, b1 = int(a[0:2], 16), int(a[2:4], 16), int(a[4:6], 16)
+            r2, g2, b2 = int(b[0:2], 16), int(b[2:4], 16), int(b[4:6], 16)
+            t = max(0.0, min(1.0, float(t)))
+            r = int(round(r1 + (r2 - r1) * t))
+            g = int(round(g1 + (g2 - g1) * t))
+            bl = int(round(b1 + (b2 - b1) * t))
+            return f"#{r:02x}{g:02x}{bl:02x}"
+        except Exception:
+            return c1
 
     def _update_sparkline(self) -> None:
         if not hasattr(self, "spark_ax") or not hasattr(self, "spark_canvas"):
@@ -378,8 +394,8 @@ class BufferStorageView(tk.Frame):
         #
         # Targets (°C):
         # - Blue range dominated from TEMP_MIN..TEMP_BLUE_MAX
-        # - Green is intentionally short (transition band)
-        # - Orange..Red from TEMP_ORANGE_FROM..TEMP_MAX
+        # - No green band (requested)
+        # - Orange..Red from TEMP_ORANGE_FROM..TEMP_MAX (now capped at 75°C)
         t_min = float(BufferStorageView.TEMP_MIN)
         t_blue_max = float(BufferStorageView.TEMP_BLUE_MAX)
         t_orange_from = float(BufferStorageView.TEMP_ORANGE_FROM)
@@ -391,30 +407,24 @@ class BufferStorageView(tk.Frame):
             return max(0.0, min(1.0, (float(temp_c) - t_min) / span))
 
         # Keep the node colors visible by adding short plateaus.
-        # Green should exist, but remain small.
         cold_hold = min(t_blue_max, t_min + 5.0)
         blue_hold = max(t_blue_max - 1.0, t_min)
 
-        green_start = max(t_blue_max, t_orange_from - 0.75)
-        green_end = min(t_orange_from - 0.10, green_start + 0.35)
-        if green_end <= green_start:
-            green_end = min(t_orange_from - 0.05, green_start + 0.15)
+        orange_hold = min(t_max, t_orange_from + 6.0)
 
-        orange_hold = min(t_max, t_orange_from + 7.0)
+        # Start with a darker blue than COLOR_PRIMARY, derived from palette.
+        dark_blue = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_ROOT, 0.55)
 
         stops: list[tuple[float, str]] = []
         def add(temp_c: float, color: str) -> None:
             stops.append((p(temp_c), color))
 
-        # Blue: start at primary, then blend to info.
-        add(t_min, COLOR_PRIMARY)
+        # Blue: start dark, then primary, then blend to info.
+        add(t_min, dark_blue)
+        add(min(t_blue_max, t_min + 2.0), COLOR_PRIMARY)
         add(cold_hold, COLOR_PRIMARY)
         add(blue_hold, COLOR_INFO)
         add(t_blue_max, COLOR_INFO)
-
-        # Short green transition band.
-        add(green_start, COLOR_SUCCESS)
-        add(green_end, COLOR_SUCCESS)
 
         # Orange to red.
         add(t_orange_from, COLOR_WARNING)

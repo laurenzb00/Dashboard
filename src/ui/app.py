@@ -1681,54 +1681,22 @@ class MainApp:
             return None
 
     def _update_status_summary(self):
-        if not hasattr(self, "status"):
-            return
-        parts = []
-        for key in ("pv", "heating"):
-            info = self._source_health.get(key)
-            if not info:
-                continue
-            ts = info.get("ts")
-            if not ts:
-                parts.append(f"{info['label']} ⚠️ --")
-                continue
-            age = self._age_seconds(ts)
-            if age is None:
-                parts.append(f"{info['label']} ⚠️ --")
-                continue
-            icon = self._status_icon_ok if age <= 90 else self._status_icon_warn
-            parts.append(f"{info['label']} {icon} {self._format_age_compact(age)}")
-
-        if self._data_fresh_seconds is not None:
-            icon = self._status_icon_ok if self._data_fresh_seconds <= 120 else self._status_icon_warn
-            parts.append(f"DB {icon} {self._format_age_compact(self._data_fresh_seconds)}")
-        else:
-            parts.append(f"DB {self._status_icon_warn} --")
-
-        summary = " | ".join(parts)
-        if summary != self._last_status_compact:
-            self.status.update_status(summary)
-            self._last_status_compact = summary
+        # Legacy: previously wrote data-age summaries into the footer.
+        # The status bar now shows user-facing status messages, so we keep
+        # freshness info internal (e.g. for the Health tab) and do not render
+        # it in the StatusBar anymore.
+        return
 
     def _update_freshness_and_sparkline(self):
         last_ts = self._get_last_timestamp()
         if last_ts:
             delta = datetime.now() - last_ts
             seconds = int(delta.total_seconds())
-            if seconds < 60:
-                text = f"Daten: {seconds} s"
-            elif seconds < 3600:
-                text = f"Daten: {seconds//60} min"
-            else:
-                text = f"Daten: {seconds//3600} h"
-            self.status.update_data_freshness(text, alert=seconds > 60)
             self._data_fresh_seconds = seconds
         else:
-            self.status.update_data_freshness("Daten: --", alert=True)
             self._data_fresh_seconds = None
 
         # Sparkline moved into right card; keep footer minimal
-        self._update_status_summary()
         self._update_footer_lamps()
 
     def _get_last_timestamp(self) -> datetime | None:
