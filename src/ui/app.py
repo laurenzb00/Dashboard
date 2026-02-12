@@ -3,7 +3,10 @@ import customtkinter as ctk
 import os
 
 DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
-SHOW_STATUS_TAB = os.environ.get("DASHBOARD_HIDE_STATUS_TAB", "").strip().lower() not in ("1", "true", "yes", "on")
+_show_status = os.environ.get("DASHBOARD_SHOW_STATUS_TAB", "").strip().lower() in ("1", "true", "yes", "on")
+_hide_status = os.environ.get("DASHBOARD_HIDE_STATUS_TAB", "").strip().lower() in ("1", "true", "yes", "on")
+# Default: hidden (user requested). Re-enable via DASHBOARD_SHOW_STATUS_TAB=1.
+SHOW_STATUS_TAB = bool(_show_status) and not bool(_hide_status)
 
 
 def _dbg_print(msg: str) -> None:

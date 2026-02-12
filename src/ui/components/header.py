@@ -28,7 +28,7 @@ class HeaderBar(ctk.CTkFrame):
         on_come_home=None,
         on_exit=None,
     ):
-        super().__init__(parent, height=68, fg_color=COLOR_HEADER, corner_radius=16)
+        super().__init__(parent, height=74, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self.datastore = datastore
 
@@ -108,7 +108,7 @@ class HeaderBar(ctk.CTkFrame):
         self.clock_label = ctk.CTkLabel(
             center, 
             text="--:--", 
-            font=get_safe_font("Bahnschrift", 34, "bold"), 
+            font=get_safe_font("Bahnschrift", 38, "bold"), 
             text_color=COLOR_PRIMARY
         )
         self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 16))

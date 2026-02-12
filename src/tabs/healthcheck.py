@@ -159,33 +159,40 @@ class HealthTab:
 
         btn_row = ctk.CTkFrame(body, fg_color="transparent")
         btn_row.pack(fill=tk.X, pady=(10, 0))
+        btn_row.grid_columnconfigure(0, weight=0)
+        btn_row.grid_columnconfigure(1, weight=0)
+        btn_row.grid_columnconfigure(2, weight=0)
+        btn_row.grid_columnconfigure(3, weight=1)
         self._rebuild_cache_btn = ctk.CTkButton(
             btn_row,
-            text="Sparkline Cache neu bauen",
+            text="Cache neu bauen",
             fg_color=COLOR_CARD,
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
             command=self._rebuild_spark_cache,
+            width=170,
         )
-        self._rebuild_cache_btn.pack(anchor="w")
+        self._rebuild_cache_btn.grid(row=0, column=0, sticky="w")
 
         self._selfheal_btn = ctk.CTkButton(
             btn_row,
-            text="Self-Heal (Cache + Ertrag)",
+            text="Self-Heal",
             fg_color=COLOR_PRIMARY,
             command=self._self_heal,
+            width=140,
         )
-        self._selfheal_btn.pack(anchor="w", pady=(8, 0))
+        self._selfheal_btn.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         self._update_btn = ctk.CTkButton(
             btn_row,
-            text="Update (git pull + Neustart)",
+            text="Update + Neustart",
             fg_color=COLOR_CARD,
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
             command=self._git_pull_and_restart,
+            width=190,
         )
-        self._update_btn.pack(anchor="w", pady=(8, 0))
+        self._update_btn.grid(row=0, column=2, sticky="w", padx=(10, 0))
 
         # Integration labels
         self.var_hue = tk.StringVar(value="Hue: –")
