@@ -218,9 +218,11 @@ class CalendarTab:
                         title = str(event.get('summary', 'Event'))
                         dt_start = event.get('dtstart')
 
+                        all_day = False
                         if hasattr(dt_start, 'dt'):
                             start_dt = dt_start.dt
                             if isinstance(start_dt, datetime.date) and not isinstance(start_dt, datetime.datetime):
+                                all_day = True
                                 start_dt = datetime.datetime.combine(start_dt, datetime.time(0, 0))
                         else:
                             start_dt = start
@@ -237,7 +239,7 @@ class CalendarTab:
                             start_local = start_dt
                         if isinstance(start_local, datetime.datetime) and start_local.date() != start.date():
                             continue
-                        events.append({'title': title, 'start': start_local})
+                        events.append({'title': title, 'start': start_local, 'all_day': bool(all_day)})
                     except Exception:
                         pass
             except Exception as e:
@@ -248,7 +250,7 @@ class CalendarTab:
 
     @staticmethod
     def build_today_overlay_text(events: list[dict], now: datetime.datetime | None = None) -> str:
-        """Return compact statusbar text like: 'Heute: 2 Termine (nächster 14:30)'."""
+        """Return compact statusbar text like: 'Heute: 2 Termine (14:30 Meeting)'."""
         try:
             if now is None:
                 now = datetime.datetime.now().astimezone()
@@ -256,33 +258,60 @@ class CalendarTab:
         except Exception:
             return ""
 
-        safe_events = []
+        todays: list[dict] = []
         for e in events or []:
             try:
                 s = e.get('start')
-                if isinstance(s, datetime.datetime):
-                    safe_events.append(s)
+                if not isinstance(s, datetime.datetime):
+                    continue
+                if s.date() != today:
+                    continue
+                title = str(e.get('title') or '').strip()
+                if not title:
+                    title = "Termin"
+                all_day = bool(e.get('all_day', False))
+                todays.append({'start': s, 'title': title, 'all_day': all_day})
             except Exception:
                 continue
 
-        todays = [s for s in safe_events if s.date() == today]
+        todays.sort(key=lambda x: x.get('start'))
         count = len(todays)
         if count <= 0:
             return "Heute: 0 Termine"
 
-        next_dt = None
+        next_ev = None
         try:
-            future = [s for s in todays if s >= now]
+            future = [ev for ev in todays if isinstance(ev.get('start'), datetime.datetime) and ev['start'] >= now]
             if future:
-                next_dt = min(future)
+                next_ev = future[0]
+            else:
+                # Nothing upcoming; show last event of today as context.
+                next_ev = todays[-1]
         except Exception:
-            next_dt = None
+            next_ev = None
 
         term_word = "Termin" if count == 1 else "Termine"
         text = f"Heute: {count} {term_word}"
-        if next_dt is not None:
+
+        if next_ev is not None:
             try:
-                text += f" (nächster {next_dt.strftime('%H:%M')})"
+                s = next_ev.get('start')
+                title = (next_ev.get('title') or '').strip()
+                if len(title) > 32:
+                    title = title[:31] + "…"
+
+                if bool(next_ev.get('all_day', False)):
+                    # All-day events: avoid misleading 00:00 time.
+                    if title:
+                        text += f" (ganztägig {title})"
+                    else:
+                        text += " (ganztägig)"
+                else:
+                    t = s.strftime('%H:%M') if isinstance(s, datetime.datetime) else "--:--"
+                    if title:
+                        text += f" ({t} {title})"
+                    else:
+                        text += f" ({t})"
             except Exception:
                 pass
         return text
