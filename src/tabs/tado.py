@@ -333,7 +333,7 @@ class TadoTab:
             fg_color=COLOR_CARD,
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            command=lambda: self._nudge_target(-1.0),
+            command=lambda: self._nudge_target(-0.5),
         )
         minus_btn.pack(side=tk.LEFT)
         self._target_slider = ctk.CTkSlider(
@@ -356,30 +356,9 @@ class TadoTab:
             fg_color=COLOR_CARD,
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            command=lambda: self._nudge_target(+1.0),
-        )
-        plus_btn.pack(side=tk.LEFT)
-
-        quick_row = ctk.CTkFrame(ctrl, fg_color="transparent")
-        quick_row.pack(fill=tk.X, pady=(10, 0))
-        self._minus_half_btn = ctk.CTkButton(
-            quick_row,
-            text="−0.5°C",
-            fg_color=COLOR_CARD,
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            command=lambda: self._nudge_target(-0.5),
-        )
-        self._minus_half_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
-        self._plus_half_btn = ctk.CTkButton(
-            quick_row,
-            text="+0.5°C",
-            fg_color=COLOR_CARD,
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
             command=lambda: self._nudge_target(+0.5),
         )
-        self._plus_half_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
+        plus_btn.pack(side=tk.LEFT)
 
         btn_row = ctk.CTkFrame(ctrl, fg_color="transparent")
         btn_row.pack(fill=tk.X, pady=(14, 0))

@@ -28,13 +28,13 @@ class HeaderBar(ctk.CTkFrame):
         on_come_home=None,
         on_exit=None,
     ):
-        super().__init__(parent, height=55, fg_color=COLOR_HEADER, corner_radius=16)
+        super().__init__(parent, height=68, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self.datastore = datastore
 
         # Innerer Container mit Grid-Layout
         inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
         inner.grid_columnconfigure(0, weight=1, minsize=160, uniform="hdr")
         inner.grid_columnconfigure(1, weight=2, uniform="hdr")
@@ -81,9 +81,9 @@ class HeaderBar(ctk.CTkFrame):
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
             corner_radius=10,
-            font=get_safe_font("Bahnschrift", 18, "bold"),
-            width=52,
-            height=32,
+            font=get_safe_font("Bahnschrift", 20, "bold"),
+            width=64,
+            height=40,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -97,9 +97,9 @@ class HeaderBar(ctk.CTkFrame):
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
             corner_radius=10,
-            font=get_safe_font("Bahnschrift", 18, "bold"),
-            width=52,
-            height=32,
+            font=get_safe_font("Bahnschrift", 20, "bold"),
+            width=64,
+            height=40,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -120,7 +120,7 @@ class HeaderBar(ctk.CTkFrame):
         ctk.CTkLabel(
             light_control,
             text="💡",
-            font=get_safe_font("Bahnschrift", 18),
+            font=get_safe_font("Bahnschrift", 20),
             text_color=COLOR_WARNING,
             width=24
         ).pack(side=tk.LEFT, padx=(0, 6))
@@ -128,10 +128,10 @@ class HeaderBar(ctk.CTkFrame):
         self.light_switch = ctk.CTkSwitch(
             light_control,
             text="",
-            width=44,
-            height=22,
-            switch_width=44,
-            switch_height=22,
+            width=58,
+            height=28,
+            switch_width=58,
+            switch_height=28,
             fg_color=COLOR_BORDER,
             progress_color=COLOR_WARNING,
             button_color="#FFFFFF",

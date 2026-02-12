@@ -421,7 +421,7 @@ class MainApp:
         }
 
         # Define base header and status heights - moderner mit mehr Platz
-        self._base_header_h = 60  # Etwas mehr Luft im Header
+        self._base_header_h = 72  # Größerer Header (Buttons + Switch)
         self._base_status_h = 44  # Kompaktere Statusleiste
 
         # Start weekly Ertrag validation in background
@@ -653,7 +653,11 @@ class MainApp:
 
     def _add_other_tabs(self):
         _dbg_print("[TABS] Starte Initialisierung aller weiteren Tabs...")
-        """Integriert alle weiteren Tabs, StatusTab immer als letzter Tab (rechts)."""
+        """Integriert alle weiteren Tabs.
+
+        Hinweis: Der Health-Tab wird bewusst ganz am Ende hinzugefügt,
+        damit er immer ganz rechts steht.
+        """
         
         # Hue Tab (direkt mit CTk Tabview)
         if HueTab:
@@ -708,21 +712,6 @@ class MainApp:
                 self.tado_tab = None
         else:
             _dbg_print(f"[TABS] TadoTab nicht verfügbar (Import fehlgeschlagen)")
-
-        if HealthTab:
-            try:
-                _dbg_print("[TABS] HealthTab wird erstellt...")
-                self.tabview.add(emoji("🩺 Health", "Health"))
-                health_frame = self.tabview.tab(emoji("🩺 Health", "Health"))
-                try:
-                    health_frame.configure(fg_color=COLOR_ROOT)
-                except:
-                    pass
-                self.health_tab = HealthTab(self.root, self.notebook, datastore=self.datastore, app=self, tab_frame=health_frame)
-                _dbg_print("[TABS] HealthTab erfolgreich hinzugefügt.")
-            except Exception as e:
-                print(f"[ERROR] HealthTab init failed: {e}")
-                self.health_tab = None
 
         if CalendarTab:
             try:
@@ -802,6 +791,22 @@ class MainApp:
                 self.status_tab = None
         elif StatusTab:
             _dbg_print("[TABS] StatusTab ausgeblendet (DASHBOARD_HIDE_STATUS_TAB=1 zum Ausblenden aktiv)")
+
+        # HealthTab immer ganz rechts (letzter Tab)
+        if HealthTab:
+            try:
+                _dbg_print("[TABS] HealthTab wird erstellt...")
+                self.tabview.add(emoji("🩺 Health", "Health"))
+                health_frame = self.tabview.tab(emoji("🩺 Health", "Health"))
+                try:
+                    health_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
+                self.health_tab = HealthTab(self.root, self.notebook, datastore=self.datastore, app=self, tab_frame=health_frame)
+                _dbg_print("[TABS] HealthTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] HealthTab init failed: {e}")
+                self.health_tab = None
         _dbg_print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
 
     def _subscribe_view_updates(self) -> None:

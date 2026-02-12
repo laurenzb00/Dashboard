@@ -366,16 +366,15 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _build_cmap() -> LinearSegmentedColormap:
-        inferno = cm.get_cmap("inferno")
+        # Match the EnergyFlow node palette:
+        # cold -> INFO (cyan), ok -> SUCCESS (green), warm -> WARNING (amber), hot -> DANGER (red)
         return LinearSegmentedColormap.from_list(
-            "inferno_blue",
+            "dashboard_temp",
             [
-                (0.00, "#0b1f4b"),
-                (0.18, "#1e40af"),
-                (0.32, "#60a5fa"),
-                (0.50, inferno(0.50)),
-                (0.70, inferno(0.70)),
-                (1.00, inferno(1.00)),
+                (0.00, COLOR_INFO),
+                (0.45, COLOR_SUCCESS),
+                (0.75, COLOR_WARNING),
+                (1.00, COLOR_DANGER),
             ],
             N=256,
         )
