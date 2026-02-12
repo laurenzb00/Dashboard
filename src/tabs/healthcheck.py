@@ -386,19 +386,23 @@ class HealthTab:
                     _write_log("NO_GIT_BIN", f"repo_root={repo_root}\nPATH={os.environ.get('PATH','')}")
                     raise RuntimeError("no-git-bin")
 
-                # Safety: do not pull on a dirty working tree.
-                st = subprocess.run(
-                    [git_exe, "status", "--porcelain"],
-                    cwd=str(repo_root),
-                    capture_output=True,
-                    text=True,
-                    env=os.environ.copy(),
-                    timeout=30,
-                )
-                if (st.stdout or "").strip():
-                    msg = "Update: lokale Änderungen – abbrechen (Log)"
-                    _write_log("DIRTY", (st.stdout or "").strip())
-                    raise RuntimeError("dirty")
+                # Mirror typical terminal behavior: log dirty state but still try `git pull`.
+                dirty = ""
+                try:
+                    st = subprocess.run(
+                        [git_exe, "status", "--porcelain"],
+                        cwd=str(repo_root),
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    dirty = (st.stdout or "").strip()
+                except Exception:
+                    dirty = ""
+
+                if dirty:
+                    _write_log("DIRTY", dirty)
+                    msg = "Update: lokale Änderungen (versuche pull…)"
 
                 code, out = _run_pull_like_terminal(git_exe)
                 _write_log("PULL", out or "(no output)")
