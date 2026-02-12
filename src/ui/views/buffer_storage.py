@@ -406,29 +406,54 @@ class BufferStorageView(tk.Frame):
         def p(temp_c: float) -> float:
             return max(0.0, min(1.0, (float(temp_c) - t_min) / span))
 
-        # Keep the node colors visible by adding short plateaus.
-        cold_hold = min(t_blue_max, t_min + 5.0)
-        blue_hold = max(t_blue_max - 1.0, t_min)
-
-        orange_hold = min(t_max, t_orange_from + 6.0)
+        # Keep the node colors visible by adding short plateaus and multiple
+        # intermediate steps. All intermediate colors are derived by blending
+        # existing theme colors (no new hard-coded palette).
 
         # Start with a darker blue than COLOR_PRIMARY, derived from palette.
-        dark_blue = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_ROOT, 0.55)
+        dark_blue = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_ROOT, 0.70)
+        deep_blue = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_ROOT, 0.50)
+        mid_blue_1 = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_INFO, 0.25)
+        mid_blue_2 = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_INFO, 0.55)
+        ice_blue = BufferStorageView._blend_hex(COLOR_INFO, COLOR_TEXT, 0.18)
+
+        # Warm spectrum (orange -> red) with additional anchors for a stronger gradient.
+        warm_1 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.25)
+        warm_2 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.50)
+        warm_3 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.72)
+        warm_4 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.86)
+
+        # Transition between info-blue and orange right around the knee.
+        teal_1 = BufferStorageView._blend_hex(COLOR_INFO, COLOR_WARNING, 0.35)
+        teal_2 = BufferStorageView._blend_hex(COLOR_INFO, COLOR_WARNING, 0.65)
+
+        def clamp_t(x: float) -> float:
+            return max(t_min, min(t_max, float(x)))
 
         stops: list[tuple[float, str]] = []
         def add(temp_c: float, color: str) -> None:
-            stops.append((p(temp_c), color))
+            stops.append((p(clamp_t(temp_c)), color))
 
-        # Blue: start dark, then primary, then blend to info.
+        # --- Cold range (35..53): dark -> primary -> info (with richer gradient)
         add(t_min, dark_blue)
-        add(min(t_blue_max, t_min + 2.0), COLOR_PRIMARY)
-        add(cold_hold, COLOR_PRIMARY)
-        add(blue_hold, COLOR_INFO)
+        add(t_min + 1.0, deep_blue)
+        add(t_min + 2.0, COLOR_PRIMARY)
+        add(t_min + 6.0, mid_blue_1)
+        add(t_min + 12.0, mid_blue_2)
+        add(max(t_min + 16.0, t_blue_max - 4.0), COLOR_INFO)
+        add(t_blue_max - 2.0, ice_blue)
         add(t_blue_max, COLOR_INFO)
 
-        # Orange to red.
+        # --- Knee (53..55): smoothly go from info to orange
+        add(t_blue_max + 0.4, teal_1)
+        add(t_orange_from - 0.4, teal_2)
         add(t_orange_from, COLOR_WARNING)
-        add(orange_hold, COLOR_WARNING)
+
+        # --- Hot range (55..75): orange -> red with multiple anchors
+        add(t_orange_from + 2.0, warm_1)
+        add(t_orange_from + 5.0, warm_2)
+        add(t_orange_from + 9.0, warm_3)
+        add(t_max - 1.5, warm_4)
         add(t_max, COLOR_DANGER)
 
         # Ensure monotonic positions and avoid duplicates confusing Matplotlib.
@@ -439,7 +464,7 @@ class BufferStorageView(tk.Frame):
                 continue
             dedup.append((pos, col))
 
-        return LinearSegmentedColormap.from_list("dashboard_temp", dedup, N=256)
+        return LinearSegmentedColormap.from_list("dashboard_temp", dedup, N=512)
 
     def _temp_color(self, temp: float) -> str:
         rgba = self._build_cmap()(self.norm(temp))
