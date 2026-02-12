@@ -488,18 +488,11 @@ class MainApp:
                 pv_today_kwh = self._status_metrics.get("pv_today_kwh")
                 last_heat_event_dt = self._status_metrics.get("last_heat_event_dt")
 
-            from core.schema import PV_POWER_KW
-            pv_kw = data.get(PV_POWER_KW)
-            try:
-                pv_kw = float(pv_kw) if pv_kw is not None else None
-            except Exception:
-                pv_kw = None
-
-            heat_part = "Heizung: --"
+            heat_part = "Einheizen: --"
             try:
                 if last_heat_event_dt is not None:
                     age_s = (datetime.now().astimezone() - last_heat_event_dt).total_seconds()
-                    heat_part = f"Heizung: {last_heat_event_dt.strftime('%H:%M')} (vor {self._format_age_short(age_s)})"
+                    heat_part = f"Einheizen: {last_heat_event_dt.strftime('%H:%M')} (vor {self._format_age_short(age_s)})"
             except Exception:
                 pass
 
@@ -509,11 +502,6 @@ class MainApp:
                     pv_part = f"PV heute: {pv_today_kwh:.1f} kWh"
             except Exception:
                 pass
-
-            pv_now_part = ""
-            if pv_kw is not None:
-                # 0.1 kW reicht – weniger "Zappeln" in der Statuszeile.
-                pv_now_part = f"PV: {pv_kw:.1f} kW"
 
             cal_text = ""
             try:
@@ -526,12 +514,12 @@ class MainApp:
             def _compose_status(max_len: int = 140) -> str:
                 sep = " • "
                 parts: list[str] = []
-                for item in (heat_part, pv_part, pv_now_part, cal_text):
+                for item in (heat_part, pv_part, cal_text):
                     t = (item or "").strip()
                     if t:
                         parts.append(t)
 
-                # Drop least important parts first if too long (calendar, then PV now)
+                # Drop least important parts first if too long (calendar)
                 def joined(p: list[str]) -> str:
                     return sep.join(p)
 
@@ -543,10 +531,6 @@ class MainApp:
                     parts = [p for p in parts if p != cal_text]
                 if len(joined(parts)) <= max_len:
                     return joined(parts)
-
-                # Remove PV now
-                if pv_now_part and pv_now_part in parts:
-                    parts = [p for p in parts if p != pv_now_part]
                 s = joined(parts)
                 if len(s) <= max_len:
                     return s
