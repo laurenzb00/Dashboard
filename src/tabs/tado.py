@@ -28,9 +28,11 @@ if not TADO_ENABLED:
 
 # --- Robust: python-tado-Import mit Fallback ---
 Tado = None
+_TADO_IMPL = None  # "python_tado" | "pytado" | None
 try:
     from python_tado import Tado as _PythonTado
     Tado = _PythonTado
+    _TADO_IMPL = "python_tado"
 except ImportError as exc:
     if TADO_ENABLED:
         logging.warning("[TADO] python-tado Import fehlgeschlagen: %s", exc)
@@ -44,12 +46,14 @@ if Tado is None:
         from PyTado.interface import Tado as _PyTado
 
         Tado = _PyTado
+        _TADO_IMPL = "pytado"
         logging.info("[TADO] Import via PyTado.interface erfolgreich.")
     except ImportError as exc_pytado:
         try:
             from PyTado.interface.interface import Tado as _PyTado2
 
             Tado = _PyTado2
+            _TADO_IMPL = "pytado"
             logging.info("[TADO] Import via PyTado.interface.interface erfolgreich.")
         except ImportError as exc_pytado2:
             if TADO_ENABLED:
@@ -67,6 +71,8 @@ TADO_TOKEN_FILE = os.getenv(
 )
 TADO_CLIENT_ID = os.getenv("TADO_CLIENT_ID", "tado-web-app")
 TADO_SCOPE = os.getenv("TADO_SCOPE", "home.user")
+TADO_ECO_TEMP = float(os.getenv("TADO_ECO_TEMP", "19.0"))
+TADO_COMFORT_TEMP = float(os.getenv("TADO_COMFORT_TEMP", "21.0"))
 
 class TadoTab:
     """Tado Klima-Tab (Status + Steuerung).
@@ -483,7 +489,7 @@ class TadoTab:
         except Exception:
             return
         try:
-            self.api.set_temperature(self.zone_id, temp)
+            self._set_zone_temperature(temp)
             self._ui_set(self.var_status, "Manuell")
             self._ui_set(self.var_mode, "Manuell")
             self._ui_call(self._set_controls_enabled, True)
@@ -545,7 +551,7 @@ class TadoTab:
         try:
             if self.api and self.zone_id:
                 current = float(self.var_target.get())
-                self.api.set_temperature(self.zone_id, current)
+                self._set_zone_temperature(current)
                 self.var_status.set("Heizung aktiviert")
         except Exception:
             self.var_status.set("Fehler")
@@ -554,12 +560,99 @@ class TadoTab:
         """Zurück auf Automatik/Plan (reset override)."""
         try:
             if self.api and self.zone_id:
-                self.api.reset_zone_override(self.zone_id)
+                self._reset_zone_override()
                 self._ui_set(self.var_status, "Auto")
                 self._ui_set(self.var_mode, "Auto")
                 self._ui_call(self._set_controls_enabled, False)
         except Exception:
             self._ui_set(self.var_status, "Fehler")
+
+    # --- API compatibility helpers (python-tado vs PyTado) ---
+    def _call_any(self, *names: str, **kwargs):
+        api = getattr(self, "api", None)
+        if api is None:
+            raise RuntimeError("Tado API not connected")
+        last_exc = None
+        for name in names:
+            try:
+                fn = getattr(api, name)
+                return fn(**kwargs)
+            except TypeError as exc:
+                last_exc = exc
+            except AttributeError as exc:
+                last_exc = exc
+        if last_exc:
+            raise last_exc
+
+    def _get_zones(self):
+        return self._call_any("get_zones", "getZones")
+
+    def _get_zone_state(self, zone_id: int):
+        try:
+            fn = getattr(self.api, "get_zone_state")
+            return fn(zone_id)
+        except Exception:
+            fn = getattr(self.api, "getZoneState")
+            return fn(zone_id)
+
+    def _set_zone_temperature(self, temp_c: float) -> None:
+        # python-tado
+        try:
+            fn = getattr(self.api, "set_temperature")
+            fn(self.zone_id, temp_c)
+            return
+        except Exception:
+            pass
+        # PyTado via deprecated wrapper -> dynamic snake_case endpoint
+        try:
+            fn = getattr(self.api, "setZoneOverlay")
+            fn(self.zone_id, "MANUAL", setTemp=float(temp_c))
+            return
+        except Exception:
+            pass
+        # Try direct snake_case if available (dynamic)
+        fn = getattr(self.api, "set_zone_overlay")
+        fn(self.zone_id, overlay_mode="MANUAL", set_temp=float(temp_c), device_type="HEATING", power="ON")
+
+    def _reset_zone_override(self) -> None:
+        # python-tado
+        try:
+            fn = getattr(self.api, "reset_zone_override")
+            fn(self.zone_id)
+            return
+        except Exception:
+            pass
+        # PyTado
+        try:
+            fn = getattr(self.api, "resetZoneOverlay")
+            fn(self.zone_id)
+            return
+        except Exception:
+            pass
+        fn = getattr(self.api, "reset_zone_overlay")
+        fn(self.zone_id)
+
+    def apply_profile_safe(self, profile: str) -> bool:
+        """Apply a simple profile to the current zone.
+
+        - eco: set manual overlay to TADO_ECO_TEMP
+        - comfort: set manual overlay to TADO_COMFORT_TEMP
+        - auto: reset zone override
+        """
+        try:
+            p = (profile or "").strip().lower()
+            if p in ("auto", "schedule"):
+                self._reset_zone_override()
+                return True
+            if p in ("eco", "spar", "save"):
+                self._set_zone_temperature(float(TADO_ECO_TEMP))
+                return True
+            if p in ("comfort", "komfort", "home"):
+                self._set_zone_temperature(float(TADO_COMFORT_TEMP))
+                return True
+        except Exception:
+            return False
+        return False
 
     def _loop(self):
         """Hintergrund-Update Loop."""
@@ -577,8 +670,9 @@ class TadoTab:
 
         # Login
         try:
-            # Bevorzugt: direkter Login mit User/Pass (python-tado Standard)
-            if TADO_USER and TADO_PASS:
+            # Prefer direct User/Pass only for python-tado.
+            # PyTado uses token/device activation flow (token_file_path).
+            if _TADO_IMPL == "python_tado" and TADO_USER and TADO_PASS:
                 try:
                     self.api = Tado(TADO_USER, TADO_PASS)
                     self._ui_set(self.var_status, "Verbunden")
@@ -617,7 +711,7 @@ class TadoTab:
                             time.sleep(30)
                         return
             
-            zones = self.api.get_zones()
+            zones = self._get_zones()
             logging.debug("[TADO] zones gefunden: %s", len(zones))
             self.zones = zones or []
 
@@ -675,7 +769,7 @@ class TadoTab:
         # Update Loop
         while self.alive:
             try:
-                state = self.api.get_zone_state(self.zone_id)
+                state = self._get_zone_state(self.zone_id)
                 state = self._state_to_dict(state)
 
                 if not getattr(self, "_state_logged", False):

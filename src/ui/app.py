@@ -109,6 +109,11 @@ try:
 except ImportError:
     AnalyseTab = None
 
+try:
+    from tabs.healthcheck import HealthTab
+except ImportError:
+    HealthTab = None
+
 # StatusTab importieren
 try:
     from tabs.status import StatusTab
@@ -697,6 +702,21 @@ class MainApp:
         else:
             _dbg_print(f"[TABS] TadoTab nicht verfügbar (Import fehlgeschlagen)")
 
+        if HealthTab:
+            try:
+                _dbg_print("[TABS] HealthTab wird erstellt...")
+                self.tabview.add(emoji("🩺 Health", "Health"))
+                health_frame = self.tabview.tab(emoji("🩺 Health", "Health"))
+                try:
+                    health_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
+                self.health_tab = HealthTab(self.root, self.notebook, datastore=self.datastore, app=self, tab_frame=health_frame)
+                _dbg_print("[TABS] HealthTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] HealthTab init failed: {e}")
+                self.health_tab = None
+
         if CalendarTab:
             try:
                 _dbg_print("[TABS] CalendarTab wird erstellt...")
@@ -875,11 +895,14 @@ class MainApp:
         def worker() -> None:
             tado_ok = False
             spotify_ok = False
+            profile_ok = False
 
             try:
                 tab = getattr(self, "tado_tab", None)
                 if tab is not None and hasattr(tab, "set_away_safe"):
                     tado_ok = bool(tab.set_away_safe())
+                    if hasattr(tab, "apply_profile_safe"):
+                        profile_ok = bool(tab.apply_profile_safe("eco"))
             except Exception:
                 tado_ok = False
 
@@ -894,6 +917,8 @@ class MainApp:
                 parts = ["Haus verlassen: Hue aus"]
                 if tado_ok:
                     parts.append("Tado Away")
+                if profile_ok:
+                    parts.append("Eco")
                 if spotify_ok:
                     parts.append("Spotify Pause")
                 try:
@@ -942,11 +967,14 @@ class MainApp:
         def worker() -> None:
             tado_ok = False
             spotify_ok = False
+            profile_ok = False
 
             try:
                 tab = getattr(self, "tado_tab", None)
                 if tab is not None and hasattr(tab, "set_home_safe"):
                     tado_ok = bool(tab.set_home_safe())
+                    if hasattr(tab, "apply_profile_safe"):
+                        profile_ok = bool(tab.apply_profile_safe("comfort"))
             except Exception:
                 tado_ok = False
 
@@ -961,6 +989,8 @@ class MainApp:
                 parts = ["Komme heim: Hue an"]
                 if tado_ok:
                     parts.append("Tado Home")
+                if profile_ok:
+                    parts.append("Komfort")
                 if spotify_ok:
                     parts.append("Spotify Play")
                 try:

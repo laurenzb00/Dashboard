@@ -65,8 +65,45 @@ class HeaderBar(ctk.CTkFrame):
         # Mitte: Uhrzeit + Light Switch - horizontal, vertikal zentriert
         center = ctk.CTkFrame(inner, fg_color="transparent")
         center.grid(row=0, column=1, sticky="nsew")
-        center.grid_columnconfigure(0, weight=1)
-        center.grid_columnconfigure(1, weight=0)
+        center.grid_columnconfigure(0, weight=0)
+        center.grid_columnconfigure(1, weight=1)
+        center.grid_columnconfigure(2, weight=0)
+
+        # Actions (zwischen Datum und Uhrzeit)
+        actions = ctk.CTkFrame(center, fg_color="transparent")
+        actions.grid(row=0, column=0, sticky="w", padx=(0, 12))
+
+        self.leave_btn = ctk.CTkButton(
+            actions,
+            text="🏃",
+            command=self._on_leave_pressed,
+            fg_color="transparent",
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            corner_radius=10,
+            font=get_safe_font("Bahnschrift", 18, "bold"),
+            width=52,
+            height=32,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        self.leave_btn.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.home_btn = ctk.CTkButton(
+            actions,
+            text="🏠",
+            command=self._on_home_pressed,
+            fg_color="transparent",
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            corner_radius=10,
+            font=get_safe_font("Bahnschrift", 18, "bold"),
+            width=52,
+            height=32,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        self.home_btn.pack(side=tk.LEFT)
 
         self.clock_label = ctk.CTkLabel(
             center, 
@@ -74,11 +111,11 @@ class HeaderBar(ctk.CTkFrame):
             font=get_safe_font("Bahnschrift", 34, "bold"), 
             text_color=COLOR_PRIMARY
         )
-        self.clock_label.grid(row=0, column=0, sticky="ew", padx=(0, 16))
+        self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 16))
 
         # Light Control - Icon und Switch horizontal nebeneinander
         light_control = ctk.CTkFrame(center, fg_color="transparent")
-        light_control.grid(row=0, column=1, sticky="ns", padx=8)
+        light_control.grid(row=0, column=2, sticky="ns", padx=8)
         
         ctk.CTkLabel(
             light_control,
@@ -130,38 +167,6 @@ class HeaderBar(ctk.CTkFrame):
             anchor="e",
         )
         self.out_temp_label.grid(row=0, column=0, sticky="e")
-
-        self.leave_btn = ctk.CTkButton(
-            top_row,
-            text="🚪",
-            command=self._on_leave_pressed,
-            fg_color="transparent",
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            corner_radius=10,
-            font=get_safe_font("Bahnschrift", 14, "bold"),
-            width=38,
-            height=26,
-            border_width=1,
-            border_color=COLOR_BORDER,
-        )
-        self.leave_btn.grid(row=0, column=1, sticky="e", padx=(10, 0))
-
-        self.home_btn = ctk.CTkButton(
-            top_row,
-            text="🏠",
-            command=self._on_home_pressed,
-            fg_color="transparent",
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            corner_radius=10,
-            font=get_safe_font("Bahnschrift", 14, "bold"),
-            width=38,
-            height=26,
-            border_width=1,
-            border_color=COLOR_BORDER,
-        )
-        self.home_btn.grid(row=0, column=2, sticky="e", padx=(10, 0))
         
         self.out_temp_time = ctk.CTkLabel(
             right, 

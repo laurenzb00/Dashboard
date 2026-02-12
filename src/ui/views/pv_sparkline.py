@@ -100,6 +100,14 @@ class PVSparklineView(tk.Frame):
         self._last_redraw_ts = now
         self._update_sparkline()
 
+    def rebuild_cache_now(self) -> None:
+        """Force a DB refresh and rewrite the persisted sparkline cache."""
+        try:
+            self._spark_cache_ts = 0.0
+            self._update_sparkline()
+        except Exception:
+            pass
+
     def _record_spark_sample(self, data: dict) -> None:
         now_ts = time.time()
         if now_ts - self._last_spark_sample_ts < 60.0:

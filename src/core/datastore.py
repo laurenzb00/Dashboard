@@ -713,7 +713,20 @@ def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value))
+        raw = str(value).strip()
+        # Accept common ISO UTC suffix.
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        # Optional correction: if source stores local timestamps without tzinfo.
+        # Default remains "treat naive as UTC" (existing behavior).
+        if dt.tzinfo is None and os.environ.get("DASHBOARD_TS_ASSUME_LOCAL", "").strip().lower() in ("1", "true", "yes", "on"):
+            try:
+                local_tz = datetime.now().astimezone().tzinfo
+                dt = dt.replace(tzinfo=local_tz).astimezone(timezone.utc)
+            except Exception:
+                pass
+        return dt
     except Exception:
         return None
 
