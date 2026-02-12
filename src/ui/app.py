@@ -465,6 +465,8 @@ class MainApp:
             self.main_container,
             on_toggle_a=self.on_toggle_a,
             on_toggle_b=self.on_toggle_b,
+            on_leave=self.on_leave_home,
+            on_come_home=self.on_come_home,
             on_exit=self.on_exit,
         )
         self.header.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
@@ -539,7 +541,7 @@ class MainApp:
         self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
         # Statusbar - moderner Style mit besserem Spacing
-        self.status = StatusBar(self.main_container, on_exit=self.root.quit, on_toggle_fullscreen=self.toggle_fullscreen)
+        self.status = StatusBar(self.main_container, on_exit=self.on_exit, on_toggle_fullscreen=self.toggle_fullscreen)
         self.status.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         self._apply_fullscreen()
         self.build_tabs()
@@ -833,7 +835,153 @@ class MainApp:
 
     def on_exit(self):
         self.status.update_status("Beende...")
-        # Cleanup DataStore
+        try:
+            if hasattr(self, "hue_tab") and self.hue_tab:
+                try:
+                    self.hue_tab.cleanup()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            self.root.quit()
+        except Exception:
+            pass
+
+    def on_leave_home(self):
+        """"Haus verlassen"-Aktion (Away).
+
+        Best-effort:
+        - Hue: Gruppe 0 aus
+        - Tado: Presence -> Away
+        - Spotify: Wiedergabe pausieren
+        """
+        try:
+            self.status.update_status("Haus verlassen…")
+        except Exception:
+            pass
+
+        # Hue: switch all lights off (best-effort)
+        try:
+            if hasattr(self, "hue_tab") and self.hue_tab:
+                try:
+                    self.hue_tab._threaded_group_cmd(False)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Other services: do them in a worker thread to keep UI responsive.
+        def worker() -> None:
+            tado_ok = False
+            spotify_ok = False
+
+            try:
+                tab = getattr(self, "tado_tab", None)
+                if tab is not None and hasattr(tab, "set_away_safe"):
+                    tado_ok = bool(tab.set_away_safe())
+            except Exception:
+                tado_ok = False
+
+            try:
+                tab = getattr(self, "spotify_tab", None)
+                if tab is not None and hasattr(tab, "pause_playback_safe"):
+                    spotify_ok = bool(tab.pause_playback_safe())
+            except Exception:
+                spotify_ok = False
+
+            def apply() -> None:
+                parts = ["Haus verlassen: Hue aus"]
+                if tado_ok:
+                    parts.append("Tado Away")
+                if spotify_ok:
+                    parts.append("Spotify Pause")
+                try:
+                    self.status.update_status(" | ".join(parts))
+                except Exception:
+                    pass
+
+            try:
+                self.root.after(0, apply)
+            except Exception:
+                pass
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
+
+        try:
+            self.root.after(800, self._sync_hue_switch_state)
+        except Exception:
+            pass
+
+    def on_come_home(self):
+        """"Komme heim"-Aktion.
+
+        Best-effort:
+        - Hue: Gruppe 0 an
+        - Tado: Presence -> Home
+        - Spotify: Wiedergabe starten
+        """
+        try:
+            self.status.update_status("Komme heim…")
+        except Exception:
+            pass
+
+        # Hue: switch all lights on (best-effort)
+        try:
+            if hasattr(self, "hue_tab") and self.hue_tab:
+                try:
+                    self.hue_tab._threaded_group_cmd(True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        def worker() -> None:
+            tado_ok = False
+            spotify_ok = False
+
+            try:
+                tab = getattr(self, "tado_tab", None)
+                if tab is not None and hasattr(tab, "set_home_safe"):
+                    tado_ok = bool(tab.set_home_safe())
+            except Exception:
+                tado_ok = False
+
+            try:
+                tab = getattr(self, "spotify_tab", None)
+                if tab is not None and hasattr(tab, "resume_playback_safe"):
+                    spotify_ok = bool(tab.resume_playback_safe())
+            except Exception:
+                spotify_ok = False
+
+            def apply() -> None:
+                parts = ["Komme heim: Hue an"]
+                if tado_ok:
+                    parts.append("Tado Home")
+                if spotify_ok:
+                    parts.append("Spotify Play")
+                try:
+                    self.status.update_status(" | ".join(parts))
+                except Exception:
+                    pass
+
+            try:
+                self.root.after(0, apply)
+            except Exception:
+                pass
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
+
+        try:
+            self.root.after(800, self._sync_hue_switch_state)
+        except Exception:
+            pass
 
     def _apply_fullscreen(self):
         """Setzt echtes Vollbild (ohne overrideredirect) und zentriert das Fenster."""

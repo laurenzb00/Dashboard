@@ -802,7 +802,7 @@ class EnergyFlowView(tk.Frame):
 
         # SoC inside battery with outline for readability - moved down to avoid emoji overlap
         soc_color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_TEXT)
-        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=22, color=soc_color, outline=True)
+        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=26, color=soc_color, outline=True)
         return img
 
     def stop(self):

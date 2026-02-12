@@ -555,6 +555,32 @@ class SpotifyTab:
             logging.error("[SPOTIFY] API Fehler: %s", exc)
             return None
 
+    def pause_playback_safe(self) -> bool:
+        """Pause Spotify playback (best-effort).
+
+        Returns True if the API call was attempted with a client.
+        """
+        if not self.client:
+            return False
+        try:
+            self._safe_spotify_call(self.client.pause_playback)
+            return True
+        except Exception:
+            return False
+
+    def resume_playback_safe(self) -> bool:
+        """Resume Spotify playback (best-effort).
+
+        Returns True if the API call was attempted with a client.
+        """
+        if not self.client:
+            return False
+        try:
+            self._safe_spotify_call(self.client.start_playback)
+            return True
+        except Exception:
+            return False
+
     # ------------------------------------------------------------------
     # Now Playing Updates
     # ------------------------------------------------------------------

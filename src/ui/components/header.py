@@ -18,7 +18,16 @@ class HeaderBar(ctk.CTkFrame):
     """Moderner Header mit CustomTkinter - nahtlose Integration."""
 
 
-    def __init__(self, parent: tk.Widget, datastore=None, on_toggle_a=None, on_toggle_b=None, on_exit=None):
+    def __init__(
+        self,
+        parent: tk.Widget,
+        datastore=None,
+        on_toggle_a=None,
+        on_toggle_b=None,
+        on_leave=None,
+        on_come_home=None,
+        on_exit=None,
+    ):
         super().__init__(parent, height=55, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self.datastore = datastore
@@ -99,19 +108,60 @@ class HeaderBar(ctk.CTkFrame):
         # Callbacks speichern
         self._on_toggle_a = on_toggle_a
         self._on_toggle_b = on_toggle_b
+        self._on_leave = on_leave
+        self._on_come_home = on_come_home
+        self._on_exit = on_exit  # fallback only
 
         # Rechts: Außentemp mit modernem Style
         right = ctk.CTkFrame(inner, fg_color="transparent")
         right.grid(row=0, column=2, sticky="ne")
 
+        top_row = ctk.CTkFrame(right, fg_color="transparent")
+        top_row.pack(anchor="ne", side=tk.TOP, fill=tk.X)
+        top_row.grid_columnconfigure(0, weight=1)
+        top_row.grid_columnconfigure(1, weight=0)
+        top_row.grid_columnconfigure(2, weight=0)
+
         self.out_temp_label = ctk.CTkLabel(
-            right, 
-            text="--.- °C", 
-            font=get_safe_font("Bahnschrift", 16, "bold"), 
+            top_row,
+            text="--.- °C",
+            font=get_safe_font("Bahnschrift", 16, "bold"),
             text_color=COLOR_WARNING,
-            anchor="e"
+            anchor="e",
         )
-        self.out_temp_label.pack(anchor="ne", side=tk.TOP)
+        self.out_temp_label.grid(row=0, column=0, sticky="e")
+
+        self.leave_btn = ctk.CTkButton(
+            top_row,
+            text="🚪",
+            command=self._on_leave_pressed,
+            fg_color="transparent",
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            corner_radius=10,
+            font=get_safe_font("Bahnschrift", 14, "bold"),
+            width=38,
+            height=26,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        self.leave_btn.grid(row=0, column=1, sticky="e", padx=(10, 0))
+
+        self.home_btn = ctk.CTkButton(
+            top_row,
+            text="🏠",
+            command=self._on_home_pressed,
+            fg_color="transparent",
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            corner_radius=10,
+            font=get_safe_font("Bahnschrift", 14, "bold"),
+            width=38,
+            height=26,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        self.home_btn.grid(row=0, column=2, sticky="e", padx=(10, 0))
         
         self.out_temp_time = ctk.CTkLabel(
             right, 
@@ -136,6 +186,24 @@ class HeaderBar(ctk.CTkFrame):
             # Switch ist Aus
             if self._on_toggle_b:
                 self._on_toggle_b()
+
+    def _on_leave_pressed(self) -> None:
+        try:
+            if self._on_leave:
+                self._on_leave()
+                return
+            # Backward-compatible fallback
+            if self._on_exit:
+                self._on_exit()
+        except Exception:
+            pass
+
+    def _on_home_pressed(self) -> None:
+        try:
+            if self._on_come_home:
+                self._on_come_home()
+        except Exception:
+            pass
 
     def set_light_switch_state(self, is_on: bool) -> None:
         """Set switch UI state without triggering callbacks."""

@@ -128,6 +128,75 @@ class TadoTab:
                 pass
             self._pending_apply_job = None
 
+    def set_away_safe(self) -> bool:
+        """Set Tado to 'Away' presence (best-effort).
+
+        Supports both python-tado and PyTado variants.
+        Returns True if a compatible method was found and invoked.
+        """
+        api = getattr(self, "api", None)
+        if api is None:
+            return False
+
+        # PyTado (installed in this project) uses setAway()/setHome().
+        for name in ("setAway", "set_away", "setAwayMode", "set_away_mode"):
+            fn = getattr(api, name, None)
+            if callable(fn):
+                try:
+                    fn()
+                    return True
+                except Exception:
+                    return False
+
+        # Fallback: changePresence("AWAY") (some versions)
+        fn = getattr(api, "changePresence", None)
+        if callable(fn):
+            try:
+                fn("AWAY")
+                return True
+            except Exception:
+                return False
+
+        # As a last resort, at least drop any manual override back to schedule.
+        try:
+            zone_id = getattr(self, "zone_id", None)
+            if zone_id and callable(getattr(api, "reset_zone_override", None)):
+                api.reset_zone_override(zone_id)
+                return True
+        except Exception:
+            return False
+
+        return False
+
+    def set_home_safe(self) -> bool:
+        """Set Tado to 'Home' presence (best-effort).
+
+        Supports both python-tado and PyTado variants.
+        Returns True if a compatible method was found and invoked.
+        """
+        api = getattr(self, "api", None)
+        if api is None:
+            return False
+
+        for name in ("setHome", "set_home", "setHomeMode", "set_home_mode"):
+            fn = getattr(api, name, None)
+            if callable(fn):
+                try:
+                    fn()
+                    return True
+                except Exception:
+                    return False
+
+        fn = getattr(api, "changePresence", None)
+        if callable(fn):
+            try:
+                fn("HOME")
+                return True
+            except Exception:
+                return False
+
+        return False
+
     def _build_ui(self) -> None:
         # Layout: header + two cards
         container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
