@@ -101,7 +101,8 @@ class ModernBoilerWidget:
         """Aktualisiert die Heatmap mit modernen Chip-Style Labels"""
         self.ax.clear()
 
-        layers = 24
+        # Higher vertical resolution -> smoother transitions (less "blocky")
+        layers = 96
         temps = np.linspace(temp_bot, temp_top, layers)
         heatmap_data = np.tile(temps[:, np.newaxis], (1, 3))
 
@@ -114,7 +115,7 @@ class ModernBoilerWidget:
             aspect='auto',
             cmap=cmap,
             norm=norm,
-            interpolation='gaussian',
+            interpolation='bicubic',
             origin='lower'
         )
 

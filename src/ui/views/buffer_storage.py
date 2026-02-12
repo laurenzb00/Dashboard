@@ -247,10 +247,28 @@ class BufferStorageView(tk.Frame):
 
     def _build_stratified_data(self, top, mid, bot):
         """
-        Returns a 3x1 numpy array for buffer visualization.
-        Array order: [bot, mid, top] (bottom to top) to match origin="lower" in imshow.
+        Returns a stratified 2D numpy array for buffer visualization.
+        Array order is bottom->top to match origin="lower" in imshow.
+
+        Previous implementation used a 3x1 array ([bot, mid, top]) which looks very blocky.
+        We upsample vertically (piecewise linear bot->mid->top) and tile horizontally so
+        Matplotlib interpolation produces smooth transitions.
         """
-        arr = np.array([[bot], [mid], [top]], dtype=float)
+        try:
+            t_top = float(top)
+            t_mid = float(mid)
+            t_bot = float(bot)
+        except Exception:
+            t_top, t_mid, t_bot = 0.0, 0.0, 0.0
+
+        layers = 120
+        split = layers // 2
+        lower = np.linspace(t_bot, t_mid, split, endpoint=False, dtype=float)
+        upper = np.linspace(t_mid, t_top, layers - split, endpoint=True, dtype=float)
+        temps = np.concatenate([lower, upper], axis=0)
+
+        cols = 12
+        arr = np.tile(temps[:, np.newaxis], (1, cols))
         arr[np.isnan(arr)] = 0.0
         return arr
 
@@ -319,7 +337,7 @@ class BufferStorageView(tk.Frame):
         self.im = self.ax.imshow(
             self.data,
             aspect="auto",
-            interpolation="gaussian",
+            interpolation="bicubic",
             cmap=self._build_cmap(),
             norm=self.norm,
             origin="lower",
