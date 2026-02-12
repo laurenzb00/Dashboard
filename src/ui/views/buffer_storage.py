@@ -372,10 +372,14 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _build_cmap() -> LinearSegmentedColormap:
-        # Requested scale:
-        # - dark/primary blue -> light/info blue from 35..53°C
-        # - very small green sector
-        # - orange -> red from 55..80°C
+        # Heatmap scale, oriented on the dashboard node colors.
+        # The node colors should appear as meaningful anchors on the bar,
+        # with smooth gradients between them.
+        #
+        # Targets (°C):
+        # - Blue range dominated from TEMP_MIN..TEMP_BLUE_MAX
+        # - Green is intentionally short (transition band)
+        # - Orange..Red from TEMP_ORANGE_FROM..TEMP_MAX
         t_min = float(BufferStorageView.TEMP_MIN)
         t_blue_max = float(BufferStorageView.TEMP_BLUE_MAX)
         t_orange_from = float(BufferStorageView.TEMP_ORANGE_FROM)
@@ -386,20 +390,46 @@ class BufferStorageView(tk.Frame):
         def p(temp_c: float) -> float:
             return max(0.0, min(1.0, (float(temp_c) - t_min) / span))
 
-        # Minimal green band: keep it around ~1°C wide.
-        green_start = min(t_orange_from, max(t_blue_max, t_orange_from - 1.0))
+        # Keep the node colors visible by adding short plateaus.
+        # Green should exist, but remain small.
+        cold_hold = min(t_blue_max, t_min + 5.0)
+        blue_hold = max(t_blue_max - 1.0, t_min)
 
-        return LinearSegmentedColormap.from_list(
-            "dashboard_temp",
-            [
-                (p(t_min), COLOR_PRIMARY),
-                (p(t_blue_max), COLOR_INFO),
-                (p(green_start), COLOR_SUCCESS),
-                (p(t_orange_from), COLOR_WARNING),
-                (p(t_max), COLOR_DANGER),
-            ],
-            N=256,
-        )
+        green_start = max(t_blue_max, t_orange_from - 0.75)
+        green_end = min(t_orange_from - 0.10, green_start + 0.35)
+        if green_end <= green_start:
+            green_end = min(t_orange_from - 0.05, green_start + 0.15)
+
+        orange_hold = min(t_max, t_orange_from + 7.0)
+
+        stops: list[tuple[float, str]] = []
+        def add(temp_c: float, color: str) -> None:
+            stops.append((p(temp_c), color))
+
+        # Blue: start at primary, then blend to info.
+        add(t_min, COLOR_PRIMARY)
+        add(cold_hold, COLOR_PRIMARY)
+        add(blue_hold, COLOR_INFO)
+        add(t_blue_max, COLOR_INFO)
+
+        # Short green transition band.
+        add(green_start, COLOR_SUCCESS)
+        add(green_end, COLOR_SUCCESS)
+
+        # Orange to red.
+        add(t_orange_from, COLOR_WARNING)
+        add(orange_hold, COLOR_WARNING)
+        add(t_max, COLOR_DANGER)
+
+        # Ensure monotonic positions and avoid duplicates confusing Matplotlib.
+        stops.sort(key=lambda item: item[0])
+        dedup: list[tuple[float, str]] = []
+        for pos, col in stops:
+            if dedup and abs(pos - dedup[-1][0]) < 1e-6 and col == dedup[-1][1]:
+                continue
+            dedup.append((pos, col))
+
+        return LinearSegmentedColormap.from_list("dashboard_temp", dedup, N=256)
 
     def _temp_color(self, temp: float) -> str:
         rgba = self._build_cmap()(self.norm(temp))
