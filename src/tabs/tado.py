@@ -93,6 +93,8 @@ class TadoTab:
         self._suppress_target_send = False
         self._suppress_mode_send = False
         self._device_url: str | None = None
+        self._manual_timer_after_id = None
+        self._manual_timer_deadline_mono: float | None = None
         logging.info("[TADO] Tab initialisiert")
         
         # UI Variablen
@@ -132,6 +134,14 @@ class TadoTab:
             except Exception:
                 pass
             self._pending_apply_job = None
+
+        if self._manual_timer_after_id is not None:
+            try:
+                self.root.after_cancel(self._manual_timer_after_id)
+            except Exception:
+                pass
+            self._manual_timer_after_id = None
+            self._manual_timer_deadline_mono = None
 
     def set_away_safe(self) -> bool:
         """Set Tado to 'Away' presence (best-effort).
@@ -370,6 +380,16 @@ class TadoTab:
             command=self._apply_target_temperature,
         )
         self._apply_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        self._apply_1h_btn = ctk.CTkButton(
+            btn_row,
+            text="1h",
+            fg_color=COLOR_CARD,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            command=self._apply_target_temperature_1h,
+        )
+        self._apply_1h_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 6))
         self._auto_btn = ctk.CTkButton(
             btn_row,
             text="Auto",
@@ -430,6 +450,11 @@ class TadoTab:
                 btn.configure(state=state)
             except Exception:
                 pass
+        try:
+            if getattr(self, "_apply_1h_btn", None) is not None:
+                self._apply_1h_btn.configure(state=state)
+        except Exception:
+            pass
 
     def _on_mode_changed(self, *_args) -> None:
         if self._suppress_mode_send:
@@ -466,6 +491,7 @@ class TadoTab:
         self._pending_apply_job = None
         if not (self.api and self.zone_id):
             return
+        self._cancel_manual_timer()
         try:
             temp = float(self.var_target.get())
         except Exception:
@@ -477,6 +503,69 @@ class TadoTab:
             self._ui_call(self._set_controls_enabled, True)
         except Exception as e:
             self._ui_set(self.var_status, f"Fehler: {type(e).__name__}")
+
+    def _apply_target_temperature_1h(self) -> None:
+        """Apply manual target temperature and automatically return to Auto after 1 hour.
+
+        This is a local timer (dashboard must remain running).
+        """
+        self._pending_apply_job = None
+        if not (self.api and self.zone_id):
+            return
+        self._cancel_manual_timer()
+        try:
+            temp = float(self.var_target.get())
+        except Exception:
+            return
+        try:
+            self._set_zone_temperature(temp)
+            self._ui_set(self.var_status, "Manuell (1h)")
+            self._ui_set(self.var_mode, "Manuell")
+            self._ui_call(self._set_controls_enabled, True)
+            self._start_manual_timer(seconds=3600)
+        except Exception as e:
+            self._ui_set(self.var_status, f"Fehler: {type(e).__name__}")
+
+    def _cancel_manual_timer(self) -> None:
+        try:
+            if self._manual_timer_after_id is not None:
+                self.root.after_cancel(self._manual_timer_after_id)
+        except Exception:
+            pass
+        self._manual_timer_after_id = None
+        self._manual_timer_deadline_mono = None
+
+    def _start_manual_timer(self, seconds: int) -> None:
+        try:
+            import time as _time
+            self._manual_timer_deadline_mono = _time.monotonic() + float(seconds)
+        except Exception:
+            self._manual_timer_deadline_mono = None
+
+        def _timer_fire() -> None:
+            self._manual_timer_after_id = None
+            # Only revert if we're still in manual mode.
+            try:
+                manual = (self.var_mode.get() or "").strip().lower().startswith("man")
+            except Exception:
+                manual = True
+            if not manual:
+                self._manual_timer_deadline_mono = None
+                return
+            try:
+                self._reset_zone_override()
+                self._ui_set(self.var_status, "Auto (Timer)")
+                self._ui_set(self.var_mode, "Auto")
+                self._ui_call(self._set_controls_enabled, False)
+            except Exception:
+                # Best-effort; keep UI as-is.
+                pass
+            self._manual_timer_deadline_mono = None
+
+        try:
+            self._manual_timer_after_id = self.root.after(int(max(1, seconds) * 1000), _timer_fire)
+        except Exception:
+            self._manual_timer_after_id = None
 
     def _get_nested(self, data: dict, *keys, default=None):
         cur = data
@@ -542,6 +631,7 @@ class TadoTab:
         """Zurück auf Automatik/Plan (reset override)."""
         try:
             if self.api and self.zone_id:
+                self._cancel_manual_timer()
                 self._reset_zone_override()
                 self._ui_set(self.var_status, "Auto")
                 self._ui_set(self.var_mode, "Auto")

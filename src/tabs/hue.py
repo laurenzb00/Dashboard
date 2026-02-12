@@ -29,6 +29,25 @@ from ui.styles import (
 
 HUE_BRIDGE_IP = "192.168.1.111"
 
+
+def _hue_transition_ds() -> int:
+    """Default Hue transition time in deciseconds (1/10s)."""
+    import os
+    try:
+        ds = os.getenv("HUE_TRANSITION_DS")
+        if ds is not None and str(ds).strip() != "":
+            return max(0, int(float(ds)))
+    except Exception:
+        pass
+    try:
+        ms = os.getenv("HUE_TRANSITION_MS")
+        if ms is not None and str(ms).strip() != "":
+            return max(0, int(round(float(ms) / 100.0)))
+    except Exception:
+        pass
+    # Default: ~1.5s fade
+    return 15
+
 class HueTab:
     def __init__(self, root, notebook, tab_frame=None):
         self.root = root
@@ -706,7 +725,11 @@ class HueTab:
             if not self.bridge:
                 return
             try:
-                self.bridge.set_light(light_id, "on", target)
+                tt = _hue_transition_ds()
+                try:
+                    self.bridge.set_light(light_id, "on", target, transitiontime=tt)
+                except TypeError:
+                    self.bridge.set_light(light_id, "on", target)
                 state["on"] = target
                 self._light_state[int(light_id)] = state
                 self._ui_call(self._update_light_card, int(light_id), state)
@@ -726,7 +749,11 @@ class HueTab:
             if not self.bridge:
                 return
             try:
-                self.bridge.set_light(light_id, "bri", bri_val)
+                tt = _hue_transition_ds()
+                try:
+                    self.bridge.set_light(light_id, "bri", bri_val, transitiontime=tt)
+                except TypeError:
+                    self.bridge.set_light(light_id, "bri", bri_val)
                 state["bri"] = bri_val
                 self._light_state[int(light_id)] = state
             except Exception:
@@ -740,7 +767,11 @@ class HueTab:
             return
         try:
             bri_val = int((percent / 100) * 254)
-            self.bridge.set_group(0, "bri", bri_val)
+            tt = _hue_transition_ds()
+            try:
+                self.bridge.set_group(0, "bri", bri_val, transitiontime=tt)
+            except TypeError:
+                self.bridge.set_group(0, "bri", bri_val)
         except Exception as e:
             print(f"[HUE] Master brightness error: {e}")
 
@@ -767,7 +798,11 @@ class HueTab:
         if not self.bridge:
             return
         try:
-            self.bridge.set_group(0, "on", state)
+            tt = _hue_transition_ds()
+            try:
+                self.bridge.set_group(0, "on", state, transitiontime=tt)
+            except TypeError:
+                self.bridge.set_group(0, "on", state)
             print(f"[HUE] Set all lights to {state}")
         except Exception as e:
             print(f"[HUE] Group command error: {e}")

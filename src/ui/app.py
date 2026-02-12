@@ -500,7 +500,17 @@ class MainApp:
             if pv_kw is not None:
                 pv_now_part = f" | PV: {pv_kw:.2f} kW"
 
-            status_str = f"{heat_part} | {pv_part}{pv_now_part}"
+            cal_part = ""
+            try:
+                tab = getattr(self, "calendar_tab", None)
+                if tab is not None and callable(getattr(tab, "get_today_overlay_text", None)):
+                    cal_text = (tab.get_today_overlay_text() or "").strip()
+                    if cal_text:
+                        cal_part = f" | {cal_text}"
+            except Exception:
+                cal_part = ""
+
+            status_str = f"{heat_part} | {pv_part}{pv_now_part}{cal_part}"
             if hasattr(self, "status"):
                 try:
                     self.status.set_auto_status(status_str)

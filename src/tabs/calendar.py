@@ -45,6 +45,12 @@ class CalendarTab:
         self.events_data = []
         self._events_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self._refresh_inflight = False
+
+        # Separate cache for statusbar overlay (today's events), independent of displayed month.
+        self.today_events_data: list[dict] = []
+        self._today_overlay_text: str = ""
+        self._today_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._today_refresh_inflight = False
         
         # Tab Frame - Use provided frame or create legacy one
         if tab_frame is not None:
@@ -109,6 +115,10 @@ class CalendarTab:
         # Start Update Loop (no Tk calls from worker threads)
         self.root.after(0, self._schedule_refresh)
         self.root.after(200, self._poll_queue)
+
+        # Today overlay refresh for statusbar
+        self.root.after(0, self._schedule_today_refresh)
+        self.root.after(250, self._poll_today_queue)
 
     def stop(self):
         self.alive = False
@@ -187,6 +197,102 @@ class CalendarTab:
                 continue
         
         return sorted(events, key=lambda e: e['start'])
+
+    def _load_today_events(self):
+        """Load today's events for the statusbar overlay (does not affect UI month view)."""
+        events = []
+        tz = pytz.timezone('Europe/Vienna')
+        now = datetime.datetime.now(tz)
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + datetime.timedelta(days=1)
+
+        for url in ICAL_URLS:
+            try:
+                response = requests.get(url, timeout=5)
+                response.raise_for_status()
+                cal = icalendar.Calendar.from_ical(response.content)
+                expanded = recurring_ical_events.of(cal).between(start, end)
+
+                for event in expanded:
+                    try:
+                        title = str(event.get('summary', 'Event'))
+                        dt_start = event.get('dtstart')
+
+                        if hasattr(dt_start, 'dt'):
+                            start_dt = dt_start.dt
+                            if isinstance(start_dt, datetime.date) and not isinstance(start_dt, datetime.datetime):
+                                start_dt = datetime.datetime.combine(start_dt, datetime.time(0, 0))
+                        else:
+                            start_dt = start
+
+                        if isinstance(start_dt, datetime.datetime) and start_dt.tzinfo is None:
+                            start_dt = tz.localize(start_dt)
+                        if isinstance(start_dt, datetime.date) and not isinstance(start_dt, datetime.datetime):
+                            start_dt = tz.localize(datetime.datetime.combine(start_dt, datetime.time(0, 0)))
+
+                        # Only keep events that start today in local tz
+                        try:
+                            start_local = start_dt.astimezone(tz) if isinstance(start_dt, datetime.datetime) else start_dt
+                        except Exception:
+                            start_local = start_dt
+                        if isinstance(start_local, datetime.datetime) and start_local.date() != start.date():
+                            continue
+                        events.append({'title': title, 'start': start_local})
+                    except Exception:
+                        pass
+            except Exception as e:
+                # Do not spam UI; best-effort.
+                continue
+
+        return sorted(events, key=lambda e: e['start'])
+
+    @staticmethod
+    def build_today_overlay_text(events: list[dict], now: datetime.datetime | None = None) -> str:
+        """Return compact statusbar text like: 'Heute: 2 Termine (nächster 14:30)'."""
+        try:
+            if now is None:
+                now = datetime.datetime.now().astimezone()
+            today = now.date()
+        except Exception:
+            return ""
+
+        safe_events = []
+        for e in events or []:
+            try:
+                s = e.get('start')
+                if isinstance(s, datetime.datetime):
+                    safe_events.append(s)
+            except Exception:
+                continue
+
+        todays = [s for s in safe_events if s.date() == today]
+        count = len(todays)
+        if count <= 0:
+            return "Heute: 0 Termine"
+
+        next_dt = None
+        try:
+            future = [s for s in todays if s >= now]
+            if future:
+                next_dt = min(future)
+        except Exception:
+            next_dt = None
+
+        term_word = "Termin" if count == 1 else "Termine"
+        text = f"Heute: {count} {term_word}"
+        if next_dt is not None:
+            try:
+                text += f" (nächster {next_dt.strftime('%H:%M')})"
+            except Exception:
+                pass
+        return text
+
+    def get_today_overlay_text(self) -> str:
+        """Best-effort cached overlay text for the statusbar."""
+        try:
+            return (self._today_overlay_text or "").strip()
+        except Exception:
+            return ""
 
     def _render_calendar(self):
         """Rendere Kalender."""
@@ -294,6 +400,43 @@ class CalendarTab:
             self._events_queue.put(("ok", events))
         except Exception as e:
             self._events_queue.put(("err", e))
+
+    def _schedule_today_refresh(self):
+        if not self.alive or self._today_refresh_inflight:
+            return
+        self._today_refresh_inflight = True
+        threading.Thread(target=self._load_today_events_worker, daemon=True).start()
+
+    def _load_today_events_worker(self):
+        try:
+            events = self._load_today_events()
+            self._today_queue.put(("ok", events))
+        except Exception as e:
+            self._today_queue.put(("err", e))
+
+    def _poll_today_queue(self):
+        if not self.alive:
+            return
+        try:
+            status, payload = self._today_queue.get_nowait()
+        except queue.Empty:
+            self.root.after(250, self._poll_today_queue)
+            return
+
+        if status == "ok":
+            self.today_events_data = list(payload) if payload else []
+            try:
+                self._today_overlay_text = self.build_today_overlay_text(self.today_events_data)
+            except Exception:
+                self._today_overlay_text = ""
+        else:
+            # Keep last known overlay; do not overwrite with errors.
+            pass
+
+        self._today_refresh_inflight = False
+        if self.alive:
+            self.root.after(600000, self._schedule_today_refresh)
+            self.root.after(250, self._poll_today_queue)
 
     def _poll_queue(self):
         if not self.alive:
