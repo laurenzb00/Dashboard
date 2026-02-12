@@ -474,11 +474,33 @@ class ErtragTab:
                     self.ax.fill_between(xs, ys, ys_load, where=deficit > 0, color=COLOR_WARNING, alpha=0.18, label="Defizit")
 
             self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=11, rotation=0, labelpad=18, va="center")
-            # More x-axis labels (requested): allow more ticks while keeping
-            # Matplotlib's auto date interval selection.
-            locator = mdates.AutoDateLocator(minticks=6, maxticks=12)
-            self.ax.xaxis.set_major_locator(locator)
-            self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+            # X axis: for 30d show explicit day labels to better match days.
+            # For longer windows, keep Matplotlib's concise auto formatting.
+            if int(window_days) <= 31:
+                major_locator = mdates.DayLocator(interval=2)
+                minor_locator = mdates.DayLocator(interval=1)
+                self.ax.xaxis.set_major_locator(major_locator)
+                self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
+                self.ax.xaxis.set_minor_locator(minor_locator)
+                try:
+                    self.ax.grid(True, which="minor", axis="x", color=COLOR_BORDER, alpha=0.12, linewidth=0.5)
+                    self.ax.tick_params(axis="x", which="minor", length=2, width=0.4, colors=COLOR_BORDER)
+                except Exception:
+                    pass
+                try:
+                    for lbl in self.ax.get_xticklabels():
+                        lbl.set_rotation(45)
+                        lbl.set_ha("right")
+                except Exception:
+                    pass
+            else:
+                locator = mdates.AutoDateLocator(minticks=6, maxticks=12)
+                self.ax.xaxis.set_major_locator(locator)
+                self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+                try:
+                    self.ax.xaxis.set_minor_locator(mdates.NullLocator())
+                except Exception:
+                    pass
             try:
                 self.ax.xaxis.get_offset_text().set_visible(False)
             except Exception:
