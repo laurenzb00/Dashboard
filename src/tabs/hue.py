@@ -807,6 +807,78 @@ class HueTab:
         except Exception as e:
             print(f"[HUE] Group command error: {e}")
 
+    def activate_scene_by_name_safe(self, scene_name: str) -> None:
+        """Best-effort: aktiviert alle Szenen mit diesem Namen (pro Gruppe).
+
+        Typischer Use-Case: Home-Button -> Szene "Hell" in allen Räumen.
+        Falls keine Szene gefunden wird, passiert nichts (Caller kann fallbacken).
+        """
+
+        name = (scene_name or "").strip()
+        if not name:
+            return
+
+        # Quick UI feedback
+        try:
+            self.status_var.set(f"⏱ Szene: {name}…")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            if not self.bridge:
+                self._ui_call(self.status_var.set, "⚠ Hue: Keine Verbindung")
+                return
+
+            try:
+                scenes = self.bridge.get_scene() or {}
+            except Exception as e:
+                print(f"[HUE] get_scene error: {e}")
+                self._ui_call(self.status_var.set, "⚠ Hue: Szenen nicht verfügbar")
+                return
+
+            target = name.casefold()
+            matches: list[tuple[int, str]] = []
+            for scene_id, scene_data in scenes.items():
+                try:
+                    if scene_data.get("recycle") is True:
+                        continue
+                    sname = (scene_data.get("name") or "").strip().casefold()
+                    if sname != target:
+                        continue
+                    gid = scene_data.get("group")
+                    if gid is None:
+                        continue
+                    matches.append((int(gid), str(scene_id)))
+                except Exception:
+                    continue
+
+            if not matches:
+                self._ui_call(self.status_var.set, f"⚠ Szene nicht gefunden: {name}")
+                return
+
+            ok = 0
+            try:
+                with self._bridge_lock:
+                    for gid, sid in matches:
+                        try:
+                            resp = self.bridge.activate_scene(group_id=gid, scene_id=sid)
+                            ok += 1
+                            print(f"[HUE] Activated scene '{name}' id={sid} (group={gid}) -> {resp}")
+                        except Exception as e:
+                            print(f"[HUE] activate_scene error (group={gid}, scene={sid}): {e}")
+            except Exception as e:
+                print(f"[HUE] Scene activation bulk error: {e}")
+
+            if ok > 0:
+                self._ui_call(self.status_var.set, f"✓ Szene aktiviert: {name}")
+            else:
+                self._ui_call(self.status_var.set, f"⚠ Szene Fehler: {name}")
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
+
     def cleanup(self):
         """Cleanup."""
         self.alive = False

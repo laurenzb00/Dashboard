@@ -12,7 +12,13 @@ class StatusBar(ctk.CTkFrame):
 
     def set_status(self, text: str):
         """Set the visible status message text."""
-        self._status_text = text or ""
+        new_text = text or ""
+        try:
+            if new_text == getattr(self, "_status_text", ""):
+                return
+        except Exception:
+            pass
+        self._status_text = new_text
         shown = self._status_text
         # Keep the status bar compact on 1024x600 screens.
         if len(shown) > 140:

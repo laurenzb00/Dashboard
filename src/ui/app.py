@@ -193,14 +193,19 @@ class MainApp:
     def _compute_last_heating_event_dt(self) -> datetime | None:
         """Heuristik: letzte 'Einheiz'-Phase erkennen.
 
-        Regel (User-Spec): Nach einer längeren, langsamen Abkühlphase müssen
-        *Kessel und Puffer* jeweils um mindestens 5°C steigen; der Beginn des
-        Anstiegs ist der Zeitpunkt "zuletzt eingeheizt".
+        User-Spec (aktuell):
+        - Temperaturen müssen davor NICHT fallen.
+        - Entscheidend ist, ob innerhalb der letzten ~2h ein klarer Anstieg vorhanden ist.
+        - Beim Einheizen steigt die Kesseltemperatur schnell und stark an,
+          während Puffer oben ggf. nur langsam und nur um wenige Grad (3–5°C) steigt.
+
+        Rückgabewert: Zeitpunkt des (geschätzten) Startpunkts des Einheizens.
         """
         if not getattr(self, "datastore", None):
             return None
         try:
-            rows = self.datastore.get_recent_heating(hours=48, limit=2600)
+            # Request more than 2h to tolerate irregular sampling; filter below.
+            rows = self.datastore.get_recent_heating(hours=6, limit=2600)
         except Exception:
             return None
 
@@ -222,85 +227,90 @@ class MainApp:
                 continue
             points.append((dt, kessel, puffer))
 
-        if len(points) < 10:
+        if len(points) < 8:
             return None
 
-        # Parameters tuned for noisy sensor data and 48h window.
-        RISE_MIN_DEG = 5.0
-        DECLINE_MIN_MINUTES = 75  # "länger"
-        DECLINE_MIN_DROP_DEG = 1.5
-        DECLINE_SLOW_MIN_CPH = 0.1
-        DECLINE_SLOW_MAX_CPH = 5.0
-        RISE_LOOKAHEAD_MINUTES = 240
-        START_DELTA_EPS = 0.15
+        # Ensure chronological order (datastore ordering can vary).
+        try:
+            points.sort(key=lambda x: x[0])
+        except Exception:
+            pass
+
+        now_dt = points[-1][0]
+        window_start = now_dt - timedelta(hours=2)
+        # Keep only the last 2h window (plus 1 extra point before for slope checks).
+        start_idx = 0
+        for idx in range(len(points)):
+            if points[idx][0] >= window_start:
+                start_idx = max(0, idx - 1)
+                break
+        points = points[start_idx:]
+
+        if len(points) < 6:
+            return None
+
+        # Parameters tuned for noisy sensor data and a short (2h) window.
+        # A "heating event" is primarily a fast, strong Kessel rise.
+        KESSEL_RISE_STRONG_DEG = 10.0
+        KESSEL_RISE_MIN_DEG = 8.0
+        KESSEL_LOOKAHEAD_MINUTES = 60
+        # Optional small Puffer rise confirmation (slow, few degrees).
+        PUFFER_RISE_MIN_DEG = 2.5
+        PUFFER_LOOKAHEAD_MINUTES = 120
+        # Start-of-rise: require short-term positive move to avoid noise.
+        START_DELTA_EPS = 0.3
+        START_CONFIRM_MINUTES = 15
+        # Ignore wild single-step spikes.
+        MAX_SINGLE_STEP_DEG = 4.0
 
         last_event: datetime | None = None
 
-        # Helper to find index at/before a timestamp
-        def _find_index_before(t: datetime, start_idx: int, end_idx: int) -> int:
-            idx = start_idx
-            for j in range(end_idx, start_idx - 1, -1):
-                if points[j][0] <= t:
-                    idx = j
-                    break
-            return idx
-
-        for i in range(2, len(points) - 2):
+        for i in range(1, len(points) - 2):
             dt_i, k_i, p_i = points[i]
 
-            # 1) Check we have a "long slow decline" before i
-            dt_decline_start = dt_i - timedelta(minutes=DECLINE_MIN_MINUTES)
-            j = _find_index_before(dt_decline_start, 0, i)
-            if j >= i:
-                continue
-            dt_j, k_j, p_j = points[j]
-            hours = max(1e-9, (dt_i - dt_j).total_seconds() / 3600.0)
+            # Basic spike guard
+            try:
+                prev_dt, prev_k, prev_p = points[i - 1]
+                if abs(k_i - prev_k) > MAX_SINGLE_STEP_DEG and (dt_i - prev_dt).total_seconds() < 20 * 60:
+                    continue
+            except Exception:
+                pass
 
-            dk_total = k_i - k_j
-            dp_total = p_i - p_j
-            if dk_total > -DECLINE_MIN_DROP_DEG or dp_total > -DECLINE_MIN_DROP_DEG:
-                continue
-
-            k_slope = dk_total / hours  # negative for decline
-            p_slope = dp_total / hours
-            if not (-DECLINE_SLOW_MAX_CPH <= k_slope <= -DECLINE_SLOW_MIN_CPH):
-                continue
-            if not (-DECLINE_SLOW_MAX_CPH <= p_slope <= -DECLINE_SLOW_MIN_CPH):
-                continue
-
-            # Avoid cases where the "decline" is very jagged.
-            jagged = 0
-            steps = 0
-            for t in range(j + 1, i + 1):
-                steps += 1
-                if (points[t][1] - points[t - 1][1]) > 0.35:
-                    jagged += 1
-                if (points[t][2] - points[t - 1][2]) > 0.35:
-                    jagged += 1
-            if steps > 0 and (jagged / max(1, steps * 2)) > 0.25:
-                continue
-
-            # 2) Determine if i is the *start of rise*
-            # Require immediate slope to be >= small epsilon for both series.
-            prev_dt, prev_k, prev_p = points[i - 1]
-            next_dt, next_k, next_p = points[i + 1]
-            if (k_i - prev_k) < -0.4 or (p_i - prev_p) < -0.4:
-                continue
-            if (next_k - k_i) < START_DELTA_EPS or (next_p - p_i) < START_DELTA_EPS:
-                continue
-
-            # 3) Look ahead: both must rise by >= 5°C (from start) within lookahead window.
-            dt_limit = dt_i + timedelta(minutes=RISE_LOOKAHEAD_MINUTES)
-            max_k = k_i
-            max_p = p_i
+            # 1) Confirm start-of-rise with a short confirmation window on Kessel.
+            dt_confirm = dt_i + timedelta(minutes=START_CONFIRM_MINUTES)
+            k_confirm_max = k_i
             for t in range(i + 1, len(points)):
-                if points[t][0] > dt_limit:
+                if points[t][0] > dt_confirm:
+                    break
+                if points[t][1] > k_confirm_max:
+                    k_confirm_max = points[t][1]
+            if (k_confirm_max - k_i) < START_DELTA_EPS:
+                continue
+
+            # 2) Look ahead for strong Kessel rise.
+            dt_k_limit = dt_i + timedelta(minutes=KESSEL_LOOKAHEAD_MINUTES)
+            max_k = k_i
+            for t in range(i + 1, len(points)):
+                if points[t][0] > dt_k_limit:
                     break
                 if points[t][1] > max_k:
                     max_k = points[t][1]
+            k_rise = max_k - k_i
+            if k_rise < KESSEL_RISE_MIN_DEG:
+                continue
+
+            # 3) Optional Puffer rise (slow). Only require it for the weaker Kessel case.
+            dt_p_limit = dt_i + timedelta(minutes=PUFFER_LOOKAHEAD_MINUTES)
+            max_p = p_i
+            for t in range(i + 1, len(points)):
+                if points[t][0] > dt_p_limit:
+                    break
                 if points[t][2] > max_p:
                     max_p = points[t][2]
-            if (max_k - k_i) >= RISE_MIN_DEG and (max_p - p_i) >= RISE_MIN_DEG:
+            p_rise = max_p - p_i
+
+            if k_rise >= KESSEL_RISE_STRONG_DEG or p_rise >= PUFFER_RISE_MIN_DEG:
+                # Keep the most recent detected event in the 2h window.
                 last_event = dt_i
 
         return last_event
@@ -414,6 +424,7 @@ class MainApp:
         data = {}
         self._tick_count += 1
         now = time.time()
+        now_mono = time.monotonic()
         try:
             # --- Datenquellen: Letzte Timestamps holen ---
             pv = self.datastore.get_last_fronius_record() or {}
@@ -464,7 +475,7 @@ class MainApp:
 
             # --- Statusmeldungen (unten) ---
             try:
-                self._refresh_status_metrics_if_needed(time.monotonic())
+                self._refresh_status_metrics_if_needed(now_mono)
             except Exception:
                 pass
 
@@ -481,11 +492,11 @@ class MainApp:
             except Exception:
                 pv_kw = None
 
-            heat_part = "Zuletzt eingeheizt: --"
+            heat_part = "Heizung: --"
             try:
                 if last_heat_event_dt is not None:
                     age_s = (datetime.now().astimezone() - last_heat_event_dt).total_seconds()
-                    heat_part = f"Zuletzt eingeheizt: {last_heat_event_dt.strftime('%H:%M')} (vor {self._format_age_short(age_s)})"
+                    heat_part = f"Heizung: {last_heat_event_dt.strftime('%H:%M')} (vor {self._format_age_short(age_s)})"
             except Exception:
                 pass
 
@@ -498,25 +509,75 @@ class MainApp:
 
             pv_now_part = ""
             if pv_kw is not None:
-                pv_now_part = f" | PV: {pv_kw:.2f} kW"
+                # 0.1 kW reicht – weniger "Zappeln" in der Statuszeile.
+                pv_now_part = f"PV: {pv_kw:.1f} kW"
 
-            cal_part = ""
+            cal_text = ""
             try:
                 tab = getattr(self, "calendar_tab", None)
                 if tab is not None and callable(getattr(tab, "get_today_overlay_text", None)):
                     cal_text = (tab.get_today_overlay_text() or "").strip()
-                    if cal_text:
-                        cal_part = f" | {cal_text}"
             except Exception:
-                cal_part = ""
+                cal_text = ""
 
-            status_str = f"{heat_part} | {pv_part}{pv_now_part}{cal_part}"
-            if hasattr(self, "status"):
+            def _compose_status(max_len: int = 140) -> str:
+                sep = " • "
+                parts: list[str] = []
+                for item in (heat_part, pv_part, pv_now_part, cal_text):
+                    t = (item or "").strip()
+                    if t:
+                        parts.append(t)
+
+                # Drop least important parts first if too long (calendar, then PV now)
+                def joined(p: list[str]) -> str:
+                    return sep.join(p)
+
+                if len(joined(parts)) <= max_len:
+                    return joined(parts)
+
+                # Remove calendar
+                if cal_text and cal_text in parts:
+                    parts = [p for p in parts if p != cal_text]
+                if len(joined(parts)) <= max_len:
+                    return joined(parts)
+
+                # Remove PV now
+                if pv_now_part and pv_now_part in parts:
+                    parts = [p for p in parts if p != pv_now_part]
+                s = joined(parts)
+                if len(s) <= max_len:
+                    return s
+
+                # Last resort: hard cut (rare, but prevents important bits from being cut at the very end)
+                return (s[: max_len - 1] + "…") if max_len > 1 else "…"
+
+            status_str = _compose_status(140)
+
+            # Throttle auto-status updates to reduce visual noise.
+            try:
+                last_emit = getattr(self, "_auto_status_last_emit", 0.0)
+                last_text = getattr(self, "_auto_status_last_text", "")
+            except Exception:
+                last_emit = 0.0
+                last_text = ""
+
+            should_emit = False
+            try:
+                if status_str != last_text and (now_mono - float(last_emit)) >= 2.0:
+                    should_emit = True
+            except Exception:
+                should_emit = True
+
+            if should_emit and hasattr(self, "status"):
                 try:
                     self.status.set_auto_status(status_str)
                 except Exception:
-                    # Fallback (older StatusBar)
                     self.status.update_status(status_str)
+                try:
+                    self._auto_status_last_emit = now_mono
+                    self._auto_status_last_text = status_str
+                except Exception:
+                    pass
 
             # --- Rate-limitiertes Logging (alle 10s) ---
             if not hasattr(self, '_last_log_tick'):
@@ -1183,11 +1244,14 @@ class MainApp:
         except Exception:
             pass
 
-        # Hue: switch all lights on (best-effort)
+        # Hue: prefer activating scene "Hell" (best-effort); fallback to all on
         try:
             if hasattr(self, "hue_tab") and self.hue_tab:
                 try:
-                    self.hue_tab._threaded_group_cmd(True)
+                    if hasattr(self.hue_tab, "activate_scene_by_name_safe"):
+                        self.hue_tab.activate_scene_by_name_safe("Hell")
+                    else:
+                        self.hue_tab._threaded_group_cmd(True)
                 except Exception:
                     pass
         except Exception:
@@ -1215,7 +1279,7 @@ class MainApp:
                 spotify_ok = False
 
             def apply() -> None:
-                parts = ["Komme heim: Hue an"]
+                parts = ["Komme heim: Hue Hell"]
                 if tado_ok:
                     parts.append("Tado Home")
                 if profile_ok:

@@ -3,6 +3,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 import threading
+import subprocess
+import shutil
 
 import tkinter as tk
 import customtkinter as ctk
@@ -139,10 +141,20 @@ class HealthTab:
         self.var_gap_heat = tk.StringVar(value="Heizung gap(24h): –")
         self.var_cache = tk.StringVar(value="Sparkline cache: –")
         self.var_selfheal = tk.StringVar(value="Self-Heal: –")
+        self.var_update = tk.StringVar(value="Update: –")
 
         body = ctk.CTkFrame(self.card_data.content(), fg_color="transparent")
         body.pack(fill=tk.BOTH, expand=True)
-        for v in (self.var_db, self.var_pv, self.var_heat, self.var_gap_pv, self.var_gap_heat, self.var_cache, self.var_selfheal):
+        for v in (
+            self.var_db,
+            self.var_pv,
+            self.var_heat,
+            self.var_gap_pv,
+            self.var_gap_heat,
+            self.var_cache,
+            self.var_selfheal,
+            self.var_update,
+        ):
             ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 12), text_color=COLOR_TEXT).pack(anchor="w", pady=2)
 
         btn_row = ctk.CTkFrame(body, fg_color="transparent")
@@ -164,6 +176,16 @@ class HealthTab:
             command=self._self_heal,
         )
         self._selfheal_btn.pack(anchor="w", pady=(8, 0))
+
+        self._update_btn = ctk.CTkButton(
+            btn_row,
+            text="Update (git pull + Neustart)",
+            fg_color=COLOR_CARD,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            command=self._git_pull_and_restart,
+        )
+        self._update_btn.pack(anchor="w", pady=(8, 0))
 
         # Integration labels
         self.var_hue = tk.StringVar(value="Hue: –")
@@ -238,6 +260,113 @@ class HealthTab:
                     self.var_selfheal.set(f"Self-Heal {ts}: " + " | ".join(parts))
                 self._selfheal_running = False
                 self.refresh()
+
+            try:
+                self.root.after(0, done)
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _git_pull_and_restart(self) -> None:
+        """Pull latest changes and quit so the service can restart the app."""
+        if getattr(self, "_update_running", False):
+            return
+        self._update_running = True
+
+        try:
+            self.var_update.set("Update: läuft…")
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "_update_btn"):
+                self._update_btn.configure(state="disabled")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            ok = False
+            msg = "Update: –"
+            repo_root = Path(__file__).resolve().parents[2]
+
+            try:
+                if not (repo_root / ".git").exists():
+                    msg = "Update: kein Git-Repo (.git fehlt)"
+                    raise RuntimeError("no-git")
+
+                if shutil.which("git") is None:
+                    msg = "Update: git nicht gefunden"
+                    raise RuntimeError("no-git-bin")
+
+                # Safety: do not pull on a dirty working tree.
+                st = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=str(repo_root),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if (st.stdout or "").strip():
+                    msg = "Update: lokale Änderungen – abbrechen"
+                    raise RuntimeError("dirty")
+
+                # Fast-forward only to avoid merge prompts on a service.
+                res = subprocess.run(
+                    ["git", "pull", "--ff-only"],
+                    cwd=str(repo_root),
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+
+                out = (res.stdout or "") + "\n" + (res.stderr or "")
+                out = out.strip()
+                if res.returncode == 0:
+                    ok = True
+                    if "Already up" in out or "Already up-to-date" in out:
+                        msg = "Update: aktuell – Neustart…"
+                    else:
+                        msg = "Update: OK – Neustart…"
+                else:
+                    # Keep it short for the UI.
+                    short = out.replace("\r", " ").replace("\n", " ")
+                    short = " ".join(short.split())
+                    msg = f"Update: Fehler ({res.returncode}) {short[:60]}".strip()
+            except Exception:
+                pass
+
+            def done() -> None:
+                try:
+                    self.var_update.set(msg)
+                except Exception:
+                    pass
+
+                try:
+                    if hasattr(self, "_update_btn"):
+                        self._update_btn.configure(state="normal")
+                except Exception:
+                    pass
+
+                self._update_running = False
+
+                if ok:
+                    def _restart() -> None:
+                        try:
+                            if self.app is not None and hasattr(self.app, "on_exit"):
+                                self.app.on_exit()
+                            else:
+                                self.root.quit()
+                        except Exception:
+                            try:
+                                self.root.quit()
+                            except Exception:
+                                pass
+
+                    try:
+                        self.root.after(800, _restart)
+                    except Exception:
+                        _restart()
 
             try:
                 self.root.after(0, done)
