@@ -13,6 +13,7 @@ import platform
 import shutil
 import subprocess
 from datetime import datetime, timedelta
+from datetime import timezone
 import logging
 import time
 import threading
@@ -154,6 +155,186 @@ class TabviewWrapper:
 
 
 class MainApp:
+    @staticmethod
+    def _safe_parse_iso_dt(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            raw = str(value).strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                # Treat naive timestamps as local time.
+                dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+            return dt
+        except Exception:
+            return None
+
+    @staticmethod
+    def _format_age_short(seconds: float | None) -> str:
+        if seconds is None:
+            return "--"
+        try:
+            total = max(0, int(seconds))
+        except Exception:
+            return "--"
+        if total < 60:
+            return f"{total}s"
+        minutes, _ = divmod(total, 60)
+        if minutes < 60:
+            return f"{minutes}m"
+        hours, minutes = divmod(minutes, 60)
+        if hours < 24:
+            return f"{hours}h {minutes:02d}m"
+        days, hours = divmod(hours, 24)
+        return f"{days}d {hours:02d}h"
+
+    def _compute_last_heating_event_dt(self) -> datetime | None:
+        """Heuristik: letzte 'Einheiz'-Phase erkennen.
+
+        Regel (User-Spec): Nach einer längeren, langsamen Abkühlphase müssen
+        *Kessel und Puffer* jeweils um mindestens 5°C steigen; der Beginn des
+        Anstiegs ist der Zeitpunkt "zuletzt eingeheizt".
+        """
+        if not getattr(self, "datastore", None):
+            return None
+        try:
+            rows = self.datastore.get_recent_heating(hours=48, limit=2600)
+        except Exception:
+            return None
+
+        points: list[tuple[datetime, float, float]] = []
+        for row in rows:
+            dt = self._safe_parse_iso_dt(row.get("timestamp"))
+            if dt is None:
+                continue
+            try:
+                kessel = float(row.get("kessel")) if row.get("kessel") is not None else None
+            except Exception:
+                kessel = None
+            buf_val = row.get("top")
+            try:
+                puffer = float(buf_val) if buf_val is not None else None
+            except Exception:
+                puffer = None
+            if kessel is None or puffer is None:
+                continue
+            points.append((dt, kessel, puffer))
+
+        if len(points) < 10:
+            return None
+
+        # Parameters tuned for noisy sensor data and 48h window.
+        RISE_MIN_DEG = 5.0
+        DECLINE_MIN_MINUTES = 75  # "länger"
+        DECLINE_MIN_DROP_DEG = 1.5
+        DECLINE_SLOW_MIN_CPH = 0.1
+        DECLINE_SLOW_MAX_CPH = 5.0
+        RISE_LOOKAHEAD_MINUTES = 240
+        START_DELTA_EPS = 0.15
+
+        last_event: datetime | None = None
+
+        # Helper to find index at/before a timestamp
+        def _find_index_before(t: datetime, start_idx: int, end_idx: int) -> int:
+            idx = start_idx
+            for j in range(end_idx, start_idx - 1, -1):
+                if points[j][0] <= t:
+                    idx = j
+                    break
+            return idx
+
+        for i in range(2, len(points) - 2):
+            dt_i, k_i, p_i = points[i]
+
+            # 1) Check we have a "long slow decline" before i
+            dt_decline_start = dt_i - timedelta(minutes=DECLINE_MIN_MINUTES)
+            j = _find_index_before(dt_decline_start, 0, i)
+            if j >= i:
+                continue
+            dt_j, k_j, p_j = points[j]
+            hours = max(1e-9, (dt_i - dt_j).total_seconds() / 3600.0)
+
+            dk_total = k_i - k_j
+            dp_total = p_i - p_j
+            if dk_total > -DECLINE_MIN_DROP_DEG or dp_total > -DECLINE_MIN_DROP_DEG:
+                continue
+
+            k_slope = dk_total / hours  # negative for decline
+            p_slope = dp_total / hours
+            if not (-DECLINE_SLOW_MAX_CPH <= k_slope <= -DECLINE_SLOW_MIN_CPH):
+                continue
+            if not (-DECLINE_SLOW_MAX_CPH <= p_slope <= -DECLINE_SLOW_MIN_CPH):
+                continue
+
+            # Avoid cases where the "decline" is very jagged.
+            jagged = 0
+            steps = 0
+            for t in range(j + 1, i + 1):
+                steps += 1
+                if (points[t][1] - points[t - 1][1]) > 0.35:
+                    jagged += 1
+                if (points[t][2] - points[t - 1][2]) > 0.35:
+                    jagged += 1
+            if steps > 0 and (jagged / max(1, steps * 2)) > 0.25:
+                continue
+
+            # 2) Determine if i is the *start of rise*
+            # Require immediate slope to be >= small epsilon for both series.
+            prev_dt, prev_k, prev_p = points[i - 1]
+            next_dt, next_k, next_p = points[i + 1]
+            if (k_i - prev_k) < -0.4 or (p_i - prev_p) < -0.4:
+                continue
+            if (next_k - k_i) < START_DELTA_EPS or (next_p - p_i) < START_DELTA_EPS:
+                continue
+
+            # 3) Look ahead: both must rise by >= 5°C (from start) within lookahead window.
+            dt_limit = dt_i + timedelta(minutes=RISE_LOOKAHEAD_MINUTES)
+            max_k = k_i
+            max_p = p_i
+            for t in range(i + 1, len(points)):
+                if points[t][0] > dt_limit:
+                    break
+                if points[t][1] > max_k:
+                    max_k = points[t][1]
+                if points[t][2] > max_p:
+                    max_p = points[t][2]
+            if (max_k - k_i) >= RISE_MIN_DEG and (max_p - p_i) >= RISE_MIN_DEG:
+                last_event = dt_i
+
+        return last_event
+
+    def _refresh_status_metrics_if_needed(self, now_monotonic: float) -> None:
+        if not hasattr(self, "_status_metrics"):
+            self._status_metrics = {
+                "last_refresh": 0.0,
+                "pv_today_kwh": None,
+                "last_heat_event_dt": None,
+            }
+        if now_monotonic - float(self._status_metrics.get("last_refresh") or 0.0) < 30.0:
+            return
+
+        # PV today (kWh)
+        pv_today_kwh = None
+        try:
+            daily = self.datastore.get_daily_totals(days=2) if self.datastore else []
+            today_key = datetime.now(timezone.utc).date().isoformat()
+            for item in reversed(daily or []):
+                if str(item.get("day")) == today_key:
+                    pv_today_kwh = float(item.get("pv_kwh") or 0.0)
+                    break
+            if pv_today_kwh is None and daily:
+                pv_today_kwh = float(daily[-1].get("pv_kwh") or 0.0)
+        except Exception:
+            pv_today_kwh = None
+
+        # Last heating event
+        last_heat_event_dt = self._compute_last_heating_event_dt()
+
+        self._status_metrics["pv_today_kwh"] = pv_today_kwh
+        self._status_metrics["last_heat_event_dt"] = last_heat_event_dt
+        self._status_metrics["last_refresh"] = now_monotonic
     def build_tabs(self):
         """Robustly rebuilds all tabs, ensuring correct references after UI changes (fullscreen, etc)."""
         # CTkTabview: Tabs können nicht dynamisch entfernt werden, daher nur _add_other_tabs aufrufen
@@ -281,25 +462,51 @@ class MainApp:
                     except Exception:
                         logging.exception("historical_tab update_data failed")
 
-            # --- Debug-Statusanzeige (unten rechts in Statusbar) ---
-            last_update = datetime.now().strftime('%H:%M:%S')
-            pv_ts = pv.get("timestamp")
-            heat_ts = heat.get("timestamp")
-            pv_age = None
-            heat_age = None
-            if pv_ts:
+            # --- Statusmeldungen (unten) ---
+            try:
+                self._refresh_status_metrics_if_needed(time.monotonic())
+            except Exception:
+                pass
+
+            pv_today_kwh = None
+            last_heat_event_dt = None
+            if hasattr(self, "_status_metrics"):
+                pv_today_kwh = self._status_metrics.get("pv_today_kwh")
+                last_heat_event_dt = self._status_metrics.get("last_heat_event_dt")
+
+            from core.schema import PV_POWER_KW
+            pv_kw = data.get(PV_POWER_KW)
+            try:
+                pv_kw = float(pv_kw) if pv_kw is not None else None
+            except Exception:
+                pv_kw = None
+
+            heat_part = "Zuletzt eingeheizt: --"
+            try:
+                if last_heat_event_dt is not None:
+                    age_s = (datetime.now().astimezone() - last_heat_event_dt).total_seconds()
+                    heat_part = f"Zuletzt eingeheizt: {last_heat_event_dt.strftime('%H:%M')} (vor {self._format_age_short(age_s)})"
+            except Exception:
+                pass
+
+            pv_part = "PV heute: --"
+            try:
+                if pv_today_kwh is not None:
+                    pv_part = f"PV heute: {pv_today_kwh:.1f} kWh"
+            except Exception:
+                pass
+
+            pv_now_part = ""
+            if pv_kw is not None:
+                pv_now_part = f" | PV: {pv_kw:.2f} kW"
+
+            status_str = f"{heat_part} | {pv_part}{pv_now_part}"
+            if hasattr(self, "status"):
                 try:
-                    pv_age = round(now - self._parse_ts(pv_ts))
+                    self.status.set_auto_status(status_str)
                 except Exception:
-                    pv_age = None
-            if heat_ts:
-                try:
-                    heat_age = round(now - self._parse_ts(heat_ts))
-                except Exception:
-                    heat_age = None
-            status_str = f"BMK age: {heat_age if heat_age is not None else '-'}s | Fronius age: {pv_age if pv_age is not None else '-'}s | last update: {last_update}"
-            if hasattr(self, 'status'):
-                self.status.update_status(status_str)
+                    # Fallback (older StatusBar)
+                    self.status.update_status(status_str)
 
             # --- Rate-limitiertes Logging (alle 10s) ---
             if not hasattr(self, '_last_log_tick'):

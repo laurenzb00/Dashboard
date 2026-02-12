@@ -11,13 +11,27 @@ class StatusBar(ctk.CTkFrame):
     """
 
     def set_status(self, text: str):
-        """Set the status label text (API-consistent)."""
-        self._status_text = text
-        if hasattr(self, "status_label"):
-            try:
-                self.status_label.configure(text=text)
-            except Exception:
-                pass
+        """Set the visible status message text."""
+        self._status_text = text or ""
+        shown = self._status_text
+        # Keep the status bar compact on 1024x600 screens.
+        if len(shown) > 140:
+            shown = shown[:139] + "…"
+        for attr in ("message_label", "status_label"):
+            if hasattr(self, attr):
+                try:
+                    getattr(self, attr).configure(text=shown)
+                except Exception:
+                    pass
+
+    def set_auto_status(self, text: str) -> None:
+        """Set status text only if no recent manual status is active."""
+        try:
+            if time.monotonic() < (self._manual_until or 0.0):
+                return
+        except Exception:
+            pass
+        self.set_status(text)
 
     def __init__(self, parent: tk.Widget, on_exit=None, on_toggle_fullscreen=None):
         super().__init__(parent, height=36, fg_color=COLOR_HEADER, corner_radius=16)
@@ -25,6 +39,7 @@ class StatusBar(ctk.CTkFrame):
         self._status_text = ""
         self._start_monotonic = time.monotonic()
         self._uptime_after_id: str | None = None
+        self._manual_until: float | None = None
 
         # Innerer Container
         inner = ctk.CTkFrame(self, fg_color="transparent")
@@ -33,19 +48,30 @@ class StatusBar(ctk.CTkFrame):
         inner.grid_columnconfigure(0, weight=1)
         inner.grid_columnconfigure(1, weight=0)
         inner.grid_columnconfigure(2, weight=0)
+        inner.grid_columnconfigure(3, weight=0)
 
-        # Optional (hidden) label to keep API-compatible state, but not shown.
+        # Visible status message (left)
+        self.message_label = ctk.CTkLabel(
+            inner,
+            text="",
+            text_color=COLOR_TEXT,
+            font=get_safe_font("Bahnschrift", 11),
+            anchor="w",
+        )
+        self.message_label.grid(row=0, column=0, sticky="w", padx=(0, 10))
+
+        # Optional (hidden) label to keep API-compatible state (some tabs call update_status)
         self.status_label = ctk.CTkLabel(inner, text="", text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 11))
 
-        # Laufzeit-Anzeige (Uptime seit Start) - moderner Style
+        # Laufzeit-Anzeige (rechts, klein)
         self.uptime_label = ctk.CTkLabel(
             inner,
             text="",
             text_color=COLOR_SUBTEXT,
             font=get_safe_font("Bahnschrift", 10),
-            anchor="w",
+            anchor="e",
         )
-        self.uptime_label.grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.uptime_label.grid(row=0, column=1, sticky="e", padx=(6, 6))
 
         # Window and Exit Buttons - schönerer moderner Style
         self.window_btn = ctk.CTkButton(
@@ -62,7 +88,7 @@ class StatusBar(ctk.CTkFrame):
             border_width=1,
             border_color=COLOR_BORDER
         )
-        self.window_btn.grid(row=0, column=1, sticky="e", padx=(6, 4))
+        self.window_btn.grid(row=0, column=2, sticky="e", padx=(6, 4))
 
         self.exit_btn = ctk.CTkButton(
             inner, 
@@ -77,7 +103,7 @@ class StatusBar(ctk.CTkFrame):
             height=28,
             border_width=0
         )
-        self.exit_btn.grid(row=0, column=2, sticky="e", padx=(4, 0))
+        self.exit_btn.grid(row=0, column=3, sticky="e", padx=(4, 0))
 
         # Start periodic uptime refresh (3 minutes are enough)
         self._refresh_uptime()
@@ -108,7 +134,7 @@ class StatusBar(ctk.CTkFrame):
             if not self.winfo_exists():
                 return
             uptime = time.monotonic() - self._start_monotonic
-            self.uptime_label.configure(text=f"Laufzeit: {self._format_uptime(uptime)}")
+            self.uptime_label.configure(text=f"⏱ {self._format_uptime(uptime)}")
         except Exception:
             return
         # Update every 3 minutes (180000 ms)
@@ -122,6 +148,11 @@ class StatusBar(ctk.CTkFrame):
         return
 
     def update_status(self, text: str):
+        # Manual status should temporarily override auto-status updates.
+        try:
+            self._manual_until = time.monotonic() + 6.0
+        except Exception:
+            self._manual_until = None
         self.set_status(text)
 
     def update_center(self, text: str):

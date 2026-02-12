@@ -61,6 +61,12 @@ DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true
 
 class BufferStorageView(tk.Frame):
 
+    # Heatmap scale targets (°C)
+    TEMP_MIN = 35.0
+    TEMP_BLUE_MAX = 53.0
+    TEMP_ORANGE_FROM = 55.0
+    TEMP_MAX = 80.0
+
     def _update_sparkline(self) -> None:
         if not hasattr(self, "spark_ax") or not hasattr(self, "spark_canvas"):
             return
@@ -293,7 +299,7 @@ class BufferStorageView(tk.Frame):
         self.ax.set_axis_off()
         self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
 
-        self.norm = Normalize(vmin=35, vmax=80)
+        self.norm = Normalize(vmin=self.TEMP_MIN, vmax=self.TEMP_MAX)
         self.im = self.ax.imshow(
             self.data,
             aspect="auto",
@@ -366,15 +372,31 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _build_cmap() -> LinearSegmentedColormap:
-        # Match the EnergyFlow node palette:
-        # cold -> INFO (cyan), ok -> SUCCESS (green), warm -> WARNING (amber), hot -> DANGER (red)
+        # Requested scale:
+        # - dark/primary blue -> light/info blue from 35..53°C
+        # - very small green sector
+        # - orange -> red from 55..80°C
+        t_min = float(BufferStorageView.TEMP_MIN)
+        t_blue_max = float(BufferStorageView.TEMP_BLUE_MAX)
+        t_orange_from = float(BufferStorageView.TEMP_ORANGE_FROM)
+        t_max = float(BufferStorageView.TEMP_MAX)
+
+        span = max(1e-6, (t_max - t_min))
+
+        def p(temp_c: float) -> float:
+            return max(0.0, min(1.0, (float(temp_c) - t_min) / span))
+
+        # Minimal green band: keep it around ~1°C wide.
+        green_start = min(t_orange_from, max(t_blue_max, t_orange_from - 1.0))
+
         return LinearSegmentedColormap.from_list(
             "dashboard_temp",
             [
-                (0.00, COLOR_INFO),
-                (0.45, COLOR_SUCCESS),
-                (0.75, COLOR_WARNING),
-                (1.00, COLOR_DANGER),
+                (p(t_min), COLOR_PRIMARY),
+                (p(t_blue_max), COLOR_INFO),
+                (p(green_start), COLOR_SUCCESS),
+                (p(t_orange_from), COLOR_WARNING),
+                (p(t_max), COLOR_DANGER),
             ],
             N=256,
         )
