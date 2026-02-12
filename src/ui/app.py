@@ -554,6 +554,13 @@ class MainApp:
         self._start_hue_switch_sync()
         self.root.after(500, self.update_tick)
 
+        # Apply a height budget once after initial layout settles so that
+        # 600px-tall screens (1014x600 / 1024x600) don't clip content.
+        try:
+            self.root.after(350, self._apply_compact_height_budget)
+        except Exception:
+            pass
+
     def _start_hue_switch_sync(self) -> None:
         if getattr(self, "_hue_switch_sync_started", False):
             return
@@ -1019,7 +1026,17 @@ class MainApp:
             self.root.attributes("-fullscreen", True)
             self.is_fullscreen = True
             self.root.resizable(False, False)
-            self.root.geometry("1024x600+0+0")
+            sw = max(1, self.root.winfo_screenwidth())
+            sh = max(1, self.root.winfo_screenheight())
+            w = min(sw, 1024)
+            h = min(sh, 600)
+            self.root.geometry(f"{w}x{h}+0+0")
+        except Exception:
+            pass
+
+        # Ensure compact layouts fit on small screens (e.g. 1014x600)
+        try:
+            self.root.after(250, self._apply_compact_height_budget)
         except Exception:
             pass
 
@@ -1036,6 +1053,103 @@ class MainApp:
             y = max(0, (sh - h) // 2)
             self.root.geometry(f"{w}x{h}+{x}+{y}")
             self.is_fullscreen = False
+        except Exception:
+            pass
+
+        try:
+            self.root.after(250, self._apply_compact_height_budget)
+        except Exception:
+            pass
+
+    def _get_tab_selector_height(self) -> int:
+        """Returns the visible height of the CTkTabview selector row."""
+        try:
+            segmented = getattr(self.tabview, "_segmented_button", None)
+            if segmented is None:
+                return 0
+            h = int(segmented.winfo_height() or 0)
+            # During early init winfo_height can be 0/1; use a sane fallback.
+            return h if h >= 12 else 36
+        except Exception:
+            return 36
+
+    def _apply_compact_height_budget(self) -> None:
+        """Compute available height by subtracting header + tab selector + statusbar.
+
+        This prevents vertical clipping on 600px-tall screens.
+        """
+        try:
+            self.root.update_idletasks()
+
+            root_h = int(self.root.winfo_height() or 0)
+            if root_h < 200:
+                return
+
+            header_h = int(self.header.winfo_height() or self._base_header_h)
+            status_h = int(self.status.winfo_height() or self._base_status_h)
+            tab_sel_h = int(self._get_tab_selector_height())
+
+            # Height available for the active tab content area
+            tab_content_h = max(200, root_h - header_h - status_h - tab_sel_h)
+
+            # Reserve a compact sparkline row so row0 (energy+buffer) always fits.
+            sparkline_h = max(88, min(140, int(tab_content_h * 0.22)))
+
+            # Account for grid paddings in the dashboard body.
+            row0_h = max(160, tab_content_h - sparkline_h - 18)
+
+            # Apply sparkline sizing (also shrinks matplotlib figure inside)
+            try:
+                if hasattr(self, "sparkline_card"):
+                    self.sparkline_card.configure(height=sparkline_h)
+                    try:
+                        self.sparkline_card.grid_propagate(False)
+                    except Exception:
+                        pass
+                if hasattr(self, "sparkline_view") and hasattr(self.sparkline_view, "set_target_height"):
+                    self.sparkline_view.set_target_height(sparkline_h)
+            except Exception:
+                pass
+
+            # Title/header inside cards takes some vertical space; keep views conservative.
+            view_h = max(140, row0_h - 52)
+
+            if hasattr(self, "energy_view") and hasattr(self.energy_view, "canvas"):
+                try:
+                    self.energy_view.canvas.config(height=view_h)
+                    self.energy_view.height = view_h
+                except Exception:
+                    pass
+
+            if hasattr(self, "buffer_view"):
+                try:
+                    self.buffer_view.configure(height=view_h)
+                    self.buffer_view.height = view_h
+                except Exception:
+                    pass
+
+            # If we're still in the very early init phase, some widgets report height=1.
+            # Retry a few times so the budget is applied after the window is mapped.
+            try:
+                attempts = int(getattr(self, "_height_budget_attempts", 0))
+            except Exception:
+                attempts = 0
+            try:
+                self._height_budget_attempts = attempts + 1
+            except Exception:
+                pass
+
+            try:
+                energy_canvas_h = int(self.energy_view.canvas.winfo_height() or 0) if hasattr(self, "energy_view") else 0
+            except Exception:
+                energy_canvas_h = 0
+
+            if energy_canvas_h <= 5 and attempts < 5:
+                try:
+                    self.root.after(250, self._apply_compact_height_budget)
+                except Exception:
+                    pass
+
         except Exception:
             pass
 

@@ -2,6 +2,7 @@ import threading
 import os
 import time
 import logging
+import importlib
 import tkinter as tk
 from tkinter import ttk
 import webbrowser
@@ -30,8 +31,8 @@ if not TADO_ENABLED:
 Tado = None
 _TADO_IMPL = None  # "python_tado" | "pytado" | None
 try:
-    from python_tado import Tado as _PythonTado
-    Tado = _PythonTado
+    _python_tado_mod = importlib.import_module("python_tado")
+    Tado = getattr(_python_tado_mod, "Tado")
     _TADO_IMPL = "python_tado"
 except ImportError as exc:
     if TADO_ENABLED:
@@ -43,16 +44,14 @@ if Tado is None:
     # Aktuelles `python-tado` (0.19.x) installiert i.d.R. als Paket `PyTado`
     # und exportiert die Klasse über `PyTado.interface`.
     try:
-        from PyTado.interface import Tado as _PyTado
-
-        Tado = _PyTado
+        _pytado_interface_mod = importlib.import_module("PyTado.interface")
+        Tado = getattr(_pytado_interface_mod, "Tado")
         _TADO_IMPL = "pytado"
         logging.info("[TADO] Import via PyTado.interface erfolgreich.")
     except ImportError as exc_pytado:
         try:
-            from PyTado.interface.interface import Tado as _PyTado2
-
-            Tado = _PyTado2
+            _pytado_interface2_mod = importlib.import_module("PyTado.interface.interface")
+            Tado = getattr(_pytado_interface2_mod, "Tado")
             _TADO_IMPL = "pytado"
             logging.info("[TADO] Import via PyTado.interface.interface erfolgreich.")
         except ImportError as exc_pytado2:
@@ -205,7 +204,11 @@ class TadoTab:
 
     def _build_ui(self) -> None:
         # Layout: header + two cards
-        container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
+        # On 1024x600 the content can get clipped; use a scrollable container.
+        try:
+            container = ctk.CTkScrollableFrame(self.tab_frame, fg_color="transparent")
+        except Exception:
+            container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
         container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
         header = ctk.CTkFrame(container, fg_color="transparent")

@@ -43,6 +43,7 @@ class PVSparklineView(tk.Frame):
 
         header = tk.Frame(self, bg=COLOR_ROOT)
         header.pack(fill=tk.X, padx=6, pady=(4, 2))
+        self._header = header
         tk.Label(
             header,
             text="PV & Aussentemp. (24h)",
@@ -56,7 +57,8 @@ class PVSparklineView(tk.Frame):
         self.spark_ax = self.spark_fig.add_subplot(111)
         self.spark_ax.set_facecolor(COLOR_ROOT)
         self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self)
-        self.spark_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
+        self._canvas_widget = self.spark_canvas.get_tk_widget()
+        self._canvas_widget.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
         self.spark_ax.tick_params(axis='both', which='major', labelsize=9, colors=COLOR_SUBTEXT)
         self.spark_ax.set_axisbelow(True)
         self.spark_ax.grid(True, alpha=0.12)
@@ -90,6 +92,54 @@ class PVSparklineView(tk.Frame):
 
         self.after(150, _initial_draw)
         self.after(4000, _refresh_from_db)
+
+    def set_target_height(self, total_px: int) -> None:
+        """Set a compact total height for the sparkline row.
+
+        This is used on 600px-tall screens so the energy/buffer cards have enough
+        room and nothing gets clipped.
+        """
+        try:
+            total_px = int(total_px)
+        except Exception:
+            return
+        if total_px <= 0:
+            return
+
+        try:
+            # Prevent child widgets from forcing the parent to grow.
+            self.pack_propagate(False)
+        except Exception:
+            pass
+        try:
+            self.configure(height=total_px)
+        except Exception:
+            pass
+
+        try:
+            header_h = int(getattr(self, "_header", None).winfo_height() or 0)
+        except Exception:
+            header_h = 0
+
+        # Approximate remaining height for the matplotlib canvas.
+        canvas_px = max(60, total_px - max(18, header_h) - 14)
+
+        try:
+            self._canvas_widget.configure(height=canvas_px)
+        except Exception:
+            pass
+
+        try:
+            dpi = float(self.spark_fig.get_dpi() or 100)
+            cur_w_in, _cur_h_in = self.spark_fig.get_size_inches()
+            new_h_in = max(0.75, canvas_px / dpi)
+            self.spark_fig.set_size_inches(cur_w_in, new_h_in, forward=True)
+
+            # Tighter margins in compact mode.
+            self.spark_fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.26)
+            self.spark_canvas.draw_idle()
+        except Exception:
+            pass
 
     def update_data(self, data: dict) -> None:
         self._record_spark_sample(data)
