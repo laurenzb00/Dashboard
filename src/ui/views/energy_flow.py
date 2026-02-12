@@ -325,19 +325,76 @@ class EnergyFlowView(tk.Frame):
             self._draw_node_circle(draw, x, y, name)
         # Paste icons on top
         for name, (x, y) in self.nodes.items():
+            # Battery icon is drawn dynamically (shows SOC) in render_frame.
+            if name == "battery":
+                continue
             if name in self._icons_pil:
                 icon = self._icons_pil[name]
                 icon_w, icon_h = icon.size
                 paste_x = int(x - icon_w / 2)
                 paste_y = int(y - icon_h / 2)
-                # Battery offset to avoid SoC overlap
-                if name == "battery":
-                    paste_y -= 8
                 # Home offset to place the icon as high as possible
                 if name == "home":
                     paste_y -= 10
                 img.paste(icon, (paste_x, paste_y), icon)  # Use alpha channel
         return img
+
+    def _draw_battery_glyph(self, draw: ImageDraw.ImageDraw, center: tuple[int, int], soc: float) -> None:
+        """Draw a battery glyph with fill level based on SOC."""
+        x, y = center
+        # Place glyph slightly above the % text.
+        y = int(y - 18)
+
+        soc = max(0.0, min(100.0, float(soc)))
+        w = 34
+        h = 16
+        cap_w = 4
+        cap_h = 8
+        radius = 4
+        outline_w = 2
+
+        left = int(x - (w / 2))
+        top = int(y - (h / 2))
+        right = left + w
+        bottom = top + h
+
+        cap_left = right
+        cap_top = int(y - cap_h / 2)
+        cap_right = cap_left + cap_w
+        cap_bottom = cap_top + cap_h
+
+        # Choose fill color by SOC.
+        if soc < 20:
+            fill_hex = COLOR_DANGER
+        elif soc < 35:
+            fill_hex = COLOR_WARNING
+        else:
+            fill_hex = COLOR_SUCCESS
+
+        outline = self._with_alpha(COLOR_TEXT, 210)
+        body_bg = self._with_alpha(COLOR_ROOT, 90)
+        fill_col = self._with_alpha(fill_hex, 220)
+
+        # Body
+        draw.rounded_rectangle([left, top, right, bottom], radius=radius, fill=body_bg, outline=outline, width=outline_w)
+        # Cap
+        draw.rounded_rectangle([cap_left, cap_top, cap_right, cap_bottom], radius=2, fill=outline, outline=None)
+
+        # Inner fill
+        inner_pad = 3
+        inner_left = left + inner_pad
+        inner_top = top + inner_pad
+        inner_right = right - inner_pad
+        inner_bottom = bottom - inner_pad
+
+        fill_w = int((inner_right - inner_left) * (soc / 100.0))
+        if fill_w > 0:
+            draw.rounded_rectangle(
+                [inner_left, inner_top, inner_left + fill_w, inner_bottom],
+                radius=2,
+                fill=fill_col,
+                outline=None,
+            )
 
     def _draw_bg_gradient(self) -> Image.Image:
         """Elliptical gradient: matches widget shape, very transparent at edges."""
@@ -514,6 +571,7 @@ class EnergyFlowView(tk.Frame):
         along: int = 0,
         color: str = COLOR_TEXT,
         outside: str | None = None,
+        outside_pad: int = 0,
     ):
         start, end = self._edge_points(src, dst, self.node_radius + 6)
         mx = (start[0] + end[0]) / 2
@@ -524,15 +582,21 @@ class EnergyFlowView(tk.Frame):
         length = max((vx ** 2 + vy ** 2) ** 0.5, 1e-3)
         nx, ny = -vy / length, vx / length
         ux, uy = vx / length, vy / length
-        px = mx + nx * offset + ux * along
-        py = my + ny * offset + uy * along
 
-        # Ensure labels are clearly outside the arrow in screen space.
+        # Pick perpendicular side deterministically in screen space.
         # outside='above' => smaller y, outside='below' => larger y.
-        if outside == "above":
-            py -= abs(offset)
-        elif outside == "below":
-            py += abs(offset)
+        side = 1.0
+        if outside == "above" and ny > 0:
+            side = -1.0
+        elif outside == "below" and ny < 0:
+            side = -1.0
+
+        eff_offset = float(offset)
+        if outside in ("above", "below"):
+            eff_offset += float(max(0, outside_pad))
+
+        px = mx + nx * eff_offset * side + ux * along
+        py = my + ny * eff_offset * side + uy * along
 
         # Render rotated text along arrow direction
         angle = -1 * (180 / math.pi) * (0 if length == 0 else math.atan2(vy, vx))
@@ -688,7 +752,7 @@ class EnergyFlowView(tk.Frame):
             pulse = self._anim_phase * flow_strength(pv_w)
             self._draw_arrow(draw, pv, home, COLOR_SUCCESS, thickness(pv_w), pulse=pulse)
             self._draw_flow_dots(draw, pv, home, COLOR_SUCCESS, flow_strength(pv_w))
-            self._draw_flow_label(img, pv, home, pv_w, offset=28, along=0, color=COLOR_SUCCESS, outside="above")
+            self._draw_flow_label(img, pv, home, pv_w, offset=28, outside_pad=26, along=0, color=COLOR_SUCCESS, outside="above")
 
         # Grid Import/Export
         if grid_w > min_flow_w:
@@ -708,16 +772,19 @@ class EnergyFlowView(tk.Frame):
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_dots(draw, bat, home, COLOR_SUCCESS, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_SUCCESS, outside="below")
+            self._draw_flow_label(img, bat, home, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_SUCCESS, outside="below")
         elif batt_w < -min_flow_w:
             # Laden: Haus -> Batterie
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_dots(draw, home, bat, COLOR_WARNING, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_WARNING, outside="below")
+            self._draw_flow_label(img, home, bat, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_WARNING, outside="below")
 
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)
+
+        # Battery icon with SOC fill
+        self._draw_battery_glyph(draw, bat, soc)
 
         # Hausverbrauch: Zahl dominant, Einheit sekundär
         load_val, load_unit = self._format_power_parts(load_w)
