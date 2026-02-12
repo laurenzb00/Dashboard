@@ -543,7 +543,60 @@ class MainApp:
         self.status.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         self._apply_fullscreen()
         self.build_tabs()
+        # Keep the header Hue switch in sync with the bridge state.
+        self._start_hue_switch_sync()
         self.root.after(500, self.update_tick)
+
+    def _start_hue_switch_sync(self) -> None:
+        if getattr(self, "_hue_switch_sync_started", False):
+            return
+        self._hue_switch_sync_started = True
+        try:
+            self.root.after(2000, self._sync_hue_switch_state)
+        except Exception:
+            pass
+
+    def _sync_hue_switch_state(self) -> None:
+        """Poll Hue bridge group(0) and update the header switch accordingly."""
+
+        def _reschedule() -> None:
+            try:
+                self.root.after(7000, self._sync_hue_switch_state)
+            except Exception:
+                pass
+
+        tab = getattr(self, "hue_tab", None)
+        bridge = getattr(tab, "bridge", None) if tab else None
+        lock = getattr(tab, "_bridge_lock", None) if tab else None
+        if not tab or bridge is None or lock is None:
+            _reschedule()
+            return
+
+        def worker() -> None:
+            is_on: bool | None = None
+            try:
+                with lock:
+                    group = bridge.get_group(0)
+                state = (group or {}).get("state", {})
+                # Master switch: show ON if any light is currently ON.
+                is_on = bool(state.get("any_on", False))
+            except Exception:
+                is_on = None
+
+            def apply() -> None:
+                try:
+                    if is_on is not None and hasattr(self, "header") and self.header:
+                        self.header.set_light_switch_state(is_on)
+                except Exception:
+                    pass
+                _reschedule()
+
+            try:
+                self.root.after(0, apply)
+            except Exception:
+                _reschedule()
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _update_header_datetime(self):
         now = datetime.now()
@@ -761,12 +814,20 @@ class MainApp:
                 self.hue_tab._threaded_group_cmd(True)
         except Exception:
             pass
+        try:
+            self.root.after(800, self._sync_hue_switch_state)
+        except Exception:
+            pass
 
     def on_toggle_b(self):
         self.status.update_status("Hue: Alle aus")
         try:
             if hasattr(self, "hue_tab") and self.hue_tab:
                 self.hue_tab._threaded_group_cmd(False)
+        except Exception:
+            pass
+        try:
+            self.root.after(800, self._sync_hue_switch_state)
         except Exception:
             pass
 

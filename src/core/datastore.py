@@ -392,16 +392,25 @@ class DataStore:
     def get_recent_fronius(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
         cutoff = _hours_ago_iso(hours)
         cursor = self.conn.cursor()
-        sql = (
-            "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
-            "FROM fronius WHERE (? IS NULL OR timestamp >= ?) "
-            "ORDER BY timestamp ASC"
-        )
         params: list = [cutoff, cutoff]
         if limit:
-            sql += " LIMIT ?"
+            # If a LIMIT is requested we want the newest records, not the oldest.
+            # Fetch descending and reverse to keep chronological order for charts.
+            sql = (
+                "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
+                "FROM fronius WHERE (? IS NULL OR timestamp >= ?) "
+                "ORDER BY timestamp DESC LIMIT ?"
+            )
             params.append(limit)
-        rows = cursor.execute(sql, params).fetchall()
+            rows = cursor.execute(sql, params).fetchall()
+            rows.reverse()
+        else:
+            sql = (
+                "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
+                "FROM fronius WHERE (? IS NULL OR timestamp >= ?) "
+                "ORDER BY timestamp ASC"
+            )
+            rows = cursor.execute(sql, params).fetchall()
         return [
             {
                 'timestamp': row[0],
@@ -417,16 +426,25 @@ class DataStore:
     def get_recent_heating(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
         cutoff = _hours_ago_iso(hours)
         cursor = self.conn.cursor()
-        sql = (
-            "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
-            "FROM heating WHERE (? IS NULL OR timestamp >= ?) "
-            "ORDER BY timestamp ASC"
-        )
         params: list = [cutoff, cutoff]
         if limit:
-            sql += " LIMIT ?"
+            # If a LIMIT is requested we want the newest records, not the oldest.
+            # Fetch descending and reverse to keep chronological order for charts.
+            sql = (
+                "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                "FROM heating WHERE (? IS NULL OR timestamp >= ?) "
+                "ORDER BY timestamp DESC LIMIT ?"
+            )
             params.append(limit)
-        rows = cursor.execute(sql, params).fetchall()
+            rows = cursor.execute(sql, params).fetchall()
+            rows.reverse()
+        else:
+            sql = (
+                "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                "FROM heating WHERE (? IS NULL OR timestamp >= ?) "
+                "ORDER BY timestamp ASC"
+            )
+            rows = cursor.execute(sql, params).fetchall()
         return [
             {
                 'timestamp': row[0],

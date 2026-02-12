@@ -155,22 +155,29 @@ class PVSparklineView(tk.Frame):
                 temp_series_db = cached.get("temp", [])
 
         pv_series = list(pv_series_db)
-        pv_hours = 24 if pv_series else 0
         if not pv_series:
             pv_series = self._history_to_series(self._spark_history_pv, hours=6, bin_minutes=5)
-            if pv_series:
-                pv_hours = 6
 
         temp_series = list(temp_series_db)
-        temp_hours = 24 if temp_series else 0
         if not temp_series:
             temp_series = self._history_to_series(self._spark_history_temp, hours=6, bin_minutes=5)
-            if temp_series:
-                temp_hours = 6
 
         self.spark_ax.clear()
         now = datetime.now()
-        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Keep the x-axis aligned to midnight boundaries, but anchor it to the
+        # newest available datapoint's day (PV or temp). This avoids an empty
+        # plot when data ingestion is stale while preserving the day-aligned UX.
+        anchor_ts = None
+        if pv_series:
+            anchor_ts = pv_series[-1][0]
+        if temp_series:
+            t_last = temp_series[-1][0]
+            if anchor_ts is None or t_last > anchor_ts:
+                anchor_ts = t_last
+        if anchor_ts is None:
+            anchor_ts = now
+
+        start_of_today = anchor_ts.replace(hour=0, minute=0, second=0, microsecond=0)
         cutoff = start_of_today - timedelta(days=1)
         window_end = start_of_today + timedelta(days=1)
 

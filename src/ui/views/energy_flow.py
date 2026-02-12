@@ -504,7 +504,17 @@ class EnergyFlowView(tk.Frame):
             r = radius * (0.75 + 0.25 * (idx + 1) / dot_count)
             draw.ellipse([px - r, py - r, px + r, py + r], fill=dot_color, outline=None)
 
-    def _draw_flow_label(self, base_img: Image.Image, src, dst, watts: float, offset: int = 8, along: int = 0, color: str = COLOR_TEXT):
+    def _draw_flow_label(
+        self,
+        base_img: Image.Image,
+        src,
+        dst,
+        watts: float,
+        offset: int = 8,
+        along: int = 0,
+        color: str = COLOR_TEXT,
+        outside: str | None = None,
+    ):
         start, end = self._edge_points(src, dst, self.node_radius + 6)
         mx = (start[0] + end[0]) / 2
         my = (start[1] + end[1]) / 2
@@ -516,6 +526,13 @@ class EnergyFlowView(tk.Frame):
         ux, uy = vx / length, vy / length
         px = mx + nx * offset + ux * along
         py = my + ny * offset + uy * along
+
+        # Ensure labels are clearly outside the arrow in screen space.
+        # outside='above' => smaller y, outside='below' => larger y.
+        if outside == "above":
+            py -= abs(offset)
+        elif outside == "below":
+            py += abs(offset)
 
         # Render rotated text along arrow direction
         angle = -1 * (180 / math.pi) * (0 if length == 0 else math.atan2(vy, vx))
@@ -538,13 +555,7 @@ class EnergyFlowView(tk.Frame):
         pad = 8
         txt_img = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
         tdraw = ImageDraw.Draw(txt_img)
-        # Subtle background panel for readability
-        panel = self._with_alpha("#0b0f1a", 140)
-        tdraw.rounded_rectangle(
-            [0, 0, w + pad * 2, h + pad * 2],
-            radius=6,
-            fill=panel,
-        )
+        # No background panel (keep labels floating above arrows)
         unit_color = self._tint(color, 0.45)
         text_x = pad
         value_y = pad + (h - vh) / 2
@@ -677,7 +688,7 @@ class EnergyFlowView(tk.Frame):
             pulse = self._anim_phase * flow_strength(pv_w)
             self._draw_arrow(draw, pv, home, COLOR_SUCCESS, thickness(pv_w), pulse=pulse)
             self._draw_flow_dots(draw, pv, home, COLOR_SUCCESS, flow_strength(pv_w))
-            self._draw_flow_label(img, pv, home, pv_w, offset=28, along=0, color=COLOR_SUCCESS)
+            self._draw_flow_label(img, pv, home, pv_w, offset=28, along=0, color=COLOR_SUCCESS, outside="above")
 
         # Grid Import/Export
         if grid_w > min_flow_w:
@@ -697,13 +708,13 @@ class EnergyFlowView(tk.Frame):
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_dots(draw, bat, home, COLOR_SUCCESS, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_SUCCESS)
+            self._draw_flow_label(img, bat, home, batt_w, offset=15, along=0, color=COLOR_SUCCESS, outside="below")
         elif batt_w < -min_flow_w:
             # Laden: Haus -> Batterie
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_dots(draw, home, bat, COLOR_WARNING, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_WARNING)
+            self._draw_flow_label(img, home, bat, batt_w, offset=15, along=0, color=COLOR_WARNING, outside="below")
 
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)

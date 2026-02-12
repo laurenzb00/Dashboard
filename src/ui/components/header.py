@@ -93,6 +93,7 @@ class HeaderBar(ctk.CTkFrame):
             command=self._on_light_switch_toggle
         )
         self.light_switch.pack(side=tk.LEFT)
+        self._suppress_light_switch_event = False
         self.light_switch.select()
         
         # Callbacks speichern
@@ -125,6 +126,8 @@ class HeaderBar(ctk.CTkFrame):
 
     def _on_light_switch_toggle(self):
         """Handler für Light Switch - ruft entsprechenden Callback auf."""
+        if getattr(self, "_suppress_light_switch_event", False):
+            return
         if self.light_switch.get():
             # Switch ist An
             if self._on_toggle_a:
@@ -133,6 +136,19 @@ class HeaderBar(ctk.CTkFrame):
             # Switch ist Aus
             if self._on_toggle_b:
                 self._on_toggle_b()
+
+    def set_light_switch_state(self, is_on: bool) -> None:
+        """Set switch UI state without triggering callbacks."""
+        try:
+            self._suppress_light_switch_event = True
+            if is_on:
+                self.light_switch.select()
+            else:
+                self.light_switch.deselect()
+        except Exception:
+            pass
+        finally:
+            self._suppress_light_switch_event = False
 
     def update_header(self, date_text: str, weekday: str, time_text: str, out_temp: str):
         self.date_label.configure(text=date_text)
