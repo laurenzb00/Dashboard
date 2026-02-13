@@ -180,10 +180,38 @@ class TagesproduktionTab(tk.Frame):
         try:
             w = max(1, int(getattr(event, "width", 1)))
             h = max(1, int(getattr(event, "height", 1)))
-            dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            if not self._sync_size(w, h):
+                return
             self._apply_layout()
+            # Full draw avoids stale pixels that can look like an overlayed smaller chart.
             self.canvas.draw()
+        except Exception:
+            pass
+
+    def _sync_size(self, w: int, h: int) -> bool:
+        """Sync Matplotlib figure size to the current Tk widget size.
+
+        CTk/Tk layouts can briefly report 1x1 during relayouts. Resizing the
+        renderer to that can leave a tiny re-render on top of an older buffer.
+        """
+        try:
+            if w < 50 or h < 50:
+                return False
+            dpi = float(self.fig.get_dpi() or 100.0)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
+            return True
+        except Exception:
+            return False
+
+    def _clear_tk_canvas(self) -> None:
+        """Ensure the underlying Tk canvas is configured for clean redraws."""
+        try:
+            tk_canvas = getattr(self.canvas, "_tkcanvas", None)
+            if tk_canvas is not None:
+                try:
+                    tk_canvas.configure(bg=COLOR_ROOT, highlightthickness=0, bd=0)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -258,6 +286,15 @@ class TagesproduktionTab(tk.Frame):
         raw = self._load_daily_pv(window_days)
         xs, ys = self._with_gaps_daily(raw, window_days)
 
+        # Keep the render buffer aligned with the widget size before clearing/plotting.
+        try:
+            self._clear_tk_canvas()
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
+            self._sync_size(w, h)
+        except Exception:
+            pass
+
         self.ax.clear()
         self._style_axes()
 
@@ -309,7 +346,8 @@ class TagesproduktionTab(tk.Frame):
         self.ax.set_ylim(bottom=0)
 
         if window_days <= 30:
-            self.ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+            day_interval = 3 if window_days == 30 else 1
+            self.ax.xaxis.set_major_locator(mdates.DayLocator(interval=day_interval))
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
             for label in self.ax.get_xticklabels():
                 label.set_rotation(0)
@@ -333,5 +371,6 @@ class TagesproduktionTab(tk.Frame):
             self.statusbar.configure(text=f"Zeitraum: {self._period_var.get()}  •  Letzter Tag: {last_val:.1f} kWh")
 
         self._apply_layout()
+        # Full draw (not draw_idle) to avoid ghost pixels / overlays.
         self.canvas.draw()
         self._schedule_update()
