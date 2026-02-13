@@ -89,20 +89,29 @@ class EnergyChart:
         self._connect_events()
         self._init_interaction_artists()
 
+    def _sync_size(self, w: int, h: int) -> bool:
+        """Sync Matplotlib figure size to the Tk widget size.
+
+        Tk/CTk layouts can briefly report very small sizes (e.g. 1x1) during
+        relayout/tab switches. Resizing the figure to that can leave a tiny
+        re-render on top of an older buffer. Ignore those transient sizes.
+        """
+        try:
+            if w < 50 or h < 50:
+                return False
+            dpi = float(self.fig.get_dpi() or 100.0)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
+            return True
+        except Exception:
+            return False
+
     def _on_resize(self, event) -> None:
         try:
             w = max(1, int(getattr(event, "width", 1)))
             h = max(1, int(getattr(event, "height", 1)))
-            dpi = float(self.fig.get_dpi() or 100.0)
-            # Keep the Matplotlib render buffer exactly in sync with the Tk widget.
-            # Otherwise, an older larger render can remain visible and look like a
-            # second (mis-scaled) plot stacked underneath.
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
-            try:
-                self.canvas_widget.configure(width=w, height=h)
-            except Exception:
-                pass
-            self.canvas.draw()
+            if not self._sync_size(w, h):
+                return
+            self.canvas.draw_idle()
         except Exception:
             pass
 
@@ -177,6 +186,14 @@ class EnergyChart:
         self.canvas.draw_idle()
 
     def render(self, data: Iterable[dict]) -> None:
+        # Ensure the render buffer matches the current widget size.
+        try:
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
+            self._sync_size(w, h)
+        except Exception:
+            pass
+
         points = _normalize_data(data)
         key = _make_key(points)
         if key == self._last_key:
