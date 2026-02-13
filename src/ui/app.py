@@ -80,6 +80,11 @@ try:
 except ImportError:
     ErtragTab = None
 
+try:
+    from tabs.tagesproduktion import TagesproduktionTab
+except ImportError:
+    TagesproduktionTab = None
+
 
 # Spotify Tab mit integriertem OAuth
 try:
@@ -1022,6 +1027,26 @@ class MainApp:
             except Exception as e:
                 print(f"[ERROR] ErtragTab init failed: {e}")
                 self.ertrag_tab = None
+
+        if TagesproduktionTab:
+            try:
+                _dbg_print("[TABS] TagesproduktionTab wird erstellt...")
+                self.tabview.add(emoji("📊 Tagesproduktion", "Tagesproduktion"))
+                prod_frame = self.tabview.tab(emoji("📊 Tagesproduktion", "Tagesproduktion"))
+                try:
+                    prod_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
+                self.tagesproduktion_tab = TagesproduktionTab(
+                    self.root,
+                    self.notebook,
+                    datastore=self.datastore,
+                    tab_frame=prod_frame,
+                )
+                _dbg_print("[TABS] TagesproduktionTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] TagesproduktionTab init failed: {e}")
+                self.tagesproduktion_tab = None
 
         # SystemTab soll vorletzter Tab sein
         if SystemTab:
