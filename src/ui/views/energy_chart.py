@@ -105,13 +105,34 @@ class EnergyChart:
         except Exception:
             return False
 
+    def _clear_tk_canvas(self) -> None:
+        """Clear the underlying Tk canvas to avoid stale pixels.
+
+        On some Tk/Matplotlib backends, rapid resizes/layout changes can leave
+        an older render buffer visible underneath the new one.
+        """
+        try:
+            tk_canvas = getattr(self.canvas, "_tkcanvas", None)
+            if tk_canvas is not None:
+                try:
+                    tk_canvas.delete("all")
+                except Exception:
+                    pass
+                try:
+                    tk_canvas.configure(bg=COLOR_ROOT, highlightthickness=0, bd=0)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _on_resize(self, event) -> None:
         try:
             w = max(1, int(getattr(event, "width", 1)))
             h = max(1, int(getattr(event, "height", 1)))
             if not self._sync_size(w, h):
                 return
-            self.canvas.draw_idle()
+            self._clear_tk_canvas()
+            self.canvas.draw()
         except Exception:
             pass
 
@@ -216,7 +237,8 @@ class EnergyChart:
                 color=COLOR_SUBTEXT,
                 fontsize=10,
             )
-            self.canvas.draw_idle()
+            self._clear_tk_canvas()
+            self.canvas.draw()
             return
 
         xs = [p.timestamp for p in points]
@@ -256,7 +278,8 @@ class EnergyChart:
         except Exception:
             pass
 
-        self.canvas.draw_idle()
+        self._clear_tk_canvas()
+        self.canvas.draw()
 
 
 def build_energy_chart(parent, data: Iterable[dict]):
