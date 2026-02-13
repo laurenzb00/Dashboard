@@ -94,8 +94,15 @@ class EnergyChart:
             w = max(1, int(getattr(event, "width", 1)))
             h = max(1, int(getattr(event, "height", 1)))
             dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
-            self.canvas.draw_idle()
+            # Keep the Matplotlib render buffer exactly in sync with the Tk widget.
+            # Otherwise, an older larger render can remain visible and look like a
+            # second (mis-scaled) plot stacked underneath.
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
+            try:
+                self.canvas_widget.configure(width=w, height=h)
+            except Exception:
+                pass
+            self.canvas.draw()
         except Exception:
             pass
 
