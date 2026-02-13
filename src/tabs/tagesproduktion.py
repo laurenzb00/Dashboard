@@ -47,14 +47,6 @@ class TagesproduktionTab(tk.Frame):
         self.notebook = notebook
         self.datastore = datastore
 
-        # If the app reuses an existing tab frame, clear it to avoid leftover canvases.
-        if tab_frame is not None:
-            try:
-                for child in tab_frame.winfo_children():
-                    child.destroy()
-            except Exception:
-                pass
-
         self._period_var = tk.StringVar(value="30 Tage")
         self._period_map: dict[str, int] = {
             "7 Tage": 7,

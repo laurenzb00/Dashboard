@@ -1037,6 +1037,12 @@ class MainApp:
                     prod_frame.configure(fg_color=COLOR_ROOT)
                 except:
                     pass
+                # Clear old widgets (e.g. after rebuild) before creating a new tab instance.
+                try:
+                    for child in prod_frame.winfo_children():
+                        child.destroy()
+                except Exception:
+                    pass
                 self.tagesproduktion_tab = TagesproduktionTab(
                     self.root,
                     self.notebook,
