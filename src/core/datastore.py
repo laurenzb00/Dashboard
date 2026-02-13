@@ -398,8 +398,8 @@ class DataStore:
             # Fetch descending and reverse to keep chronological order for charts.
             sql = (
                 "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
-                "FROM fronius WHERE (? IS NULL OR timestamp >= ?) "
-                "ORDER BY timestamp DESC LIMIT ?"
+                "FROM fronius WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
+                "ORDER BY datetime(timestamp) DESC LIMIT ?"
             )
             params.append(limit)
             rows = cursor.execute(sql, params).fetchall()
@@ -407,8 +407,8 @@ class DataStore:
         else:
             sql = (
                 "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
-                "FROM fronius WHERE (? IS NULL OR timestamp >= ?) "
-                "ORDER BY timestamp ASC"
+                "FROM fronius WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
+                "ORDER BY datetime(timestamp) ASC"
             )
             rows = cursor.execute(sql, params).fetchall()
         return [
@@ -432,8 +432,8 @@ class DataStore:
             # Fetch descending and reverse to keep chronological order for charts.
             sql = (
                 "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
-                "FROM heating WHERE (? IS NULL OR timestamp >= ?) "
-                "ORDER BY timestamp DESC LIMIT ?"
+                "FROM heating WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
+                "ORDER BY datetime(timestamp) DESC LIMIT ?"
             )
             params.append(limit)
             rows = cursor.execute(sql, params).fetchall()
@@ -441,8 +441,8 @@ class DataStore:
         else:
             sql = (
                 "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
-                "FROM heating WHERE (? IS NULL OR timestamp >= ?) "
-                "ORDER BY timestamp ASC"
+                "FROM heating WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
+                "ORDER BY datetime(timestamp) ASC"
             )
             rows = cursor.execute(sql, params).fetchall()
         return [

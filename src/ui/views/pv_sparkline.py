@@ -26,6 +26,21 @@ from ui.styles import (
 DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _sparkline_db_limit() -> int:
+    """Safety cap for DB reads.
+
+    We primarily rely on the SQL time cutoff (hours=...) to select the correct
+    window. This limit is just a guardrail against unexpectedly huge result sets.
+    """
+    raw = os.environ.get("DASHBOARD_SPARKLINE_DB_LIMIT", "200000").strip()
+    try:
+        limit = int(raw)
+    except Exception:
+        limit = 200000
+    # Keep it within reasonable bounds.
+    return max(5000, min(500000, limit))
+
+
 class PVSparklineView(tk.Frame):
     """PV + Outdoor temperature sparkline for the energy tab."""
 
@@ -364,9 +379,12 @@ class PVSparklineView(tk.Frame):
     def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
             return []
-        cutoff = datetime.now() - timedelta(hours=hours)
         now = datetime.now()
-        rows = self.datastore.get_recent_fronius(hours=None, limit=4000)
+        cutoff = now - timedelta(hours=hours)
+        # IMPORTANT: Use the hours cutoff in SQL.
+        # A fixed LIMIT can result in only "recent" rows if ingest frequency is high,
+        # which makes the sparkline lose older data.
+        rows = self.datastore.get_recent_fronius(hours=hours, limit=_sparkline_db_limit())
         parsed_rows: list[tuple[datetime, dict]] = []
         for entry in rows:
             ts = self._parse_ts(entry.get('timestamp'))
@@ -377,8 +395,27 @@ class PVSparklineView(tk.Frame):
             parsed_rows.append((ts, entry))
         parsed_rows.sort(key=lambda t: t[0])
 
+        # If the data stream is stale (or paused) the "last N hours" window based on
+        # wall-clock time can be almost empty. In that case, anchor the window at the
+        # newest available DB sample so the sparkline still shows the last N hours of data.
+        if not parsed_rows or (now - parsed_rows[-1][0]) > timedelta(hours=1):
+            fallback_rows = self.datastore.get_recent_fronius(hours=None, limit=_sparkline_db_limit())
+            fallback_parsed: list[tuple[datetime, dict]] = []
+            for entry in fallback_rows:
+                ts = self._parse_ts(entry.get('timestamp'))
+                if ts is None:
+                    continue
+                if ts > now:
+                    ts = now
+                fallback_parsed.append((ts, entry))
+            fallback_parsed.sort(key=lambda t: t[0])
+            if fallback_parsed:
+                anchor = fallback_parsed[-1][0]
+                cutoff = anchor - timedelta(hours=hours)
+                parsed_rows = fallback_parsed
+
         samples: list[tuple[datetime, float]] = []
-        for ts, entry in parsed_rows[-2500:]:
+        for ts, entry in parsed_rows:
             pv_kw = self._safe_float(entry.get('pv'))
             if pv_kw is None or ts < cutoff:
                 continue
@@ -396,10 +433,11 @@ class PVSparklineView(tk.Frame):
     def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
             return []
-        cutoff = datetime.now() - timedelta(hours=hours)
         now = datetime.now()
+        cutoff = now - timedelta(hours=hours)
 
-        rows = self.datastore.get_recent_heating(hours=None, limit=4000)
+        # Use the hours cutoff in SQL for the same reason as PV.
+        rows = self.datastore.get_recent_heating(hours=hours, limit=_sparkline_db_limit())
         parsed_rows: list[tuple[datetime, dict]] = []
         for entry in rows:
             ts = self._parse_ts(entry.get('timestamp'))
@@ -410,8 +448,24 @@ class PVSparklineView(tk.Frame):
             parsed_rows.append((ts, entry))
         parsed_rows.sort(key=lambda t: t[0])
 
+        if not parsed_rows or (now - parsed_rows[-1][0]) > timedelta(hours=1):
+            fallback_rows = self.datastore.get_recent_heating(hours=None, limit=_sparkline_db_limit())
+            fallback_parsed: list[tuple[datetime, dict]] = []
+            for entry in fallback_rows:
+                ts = self._parse_ts(entry.get('timestamp'))
+                if ts is None:
+                    continue
+                if ts > now:
+                    ts = now
+                fallback_parsed.append((ts, entry))
+            fallback_parsed.sort(key=lambda t: t[0])
+            if fallback_parsed:
+                anchor = fallback_parsed[-1][0]
+                cutoff = anchor - timedelta(hours=hours)
+                parsed_rows = fallback_parsed
+
         samples: list[tuple[datetime, float]] = []
-        for ts, entry in parsed_rows[-2500:]:
+        for ts, entry in parsed_rows:
             val = self._safe_float(entry.get('outdoor'))
             if val is None or ts < cutoff:
                 continue
