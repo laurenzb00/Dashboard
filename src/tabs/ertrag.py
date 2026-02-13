@@ -2,10 +2,7 @@ from datetime import datetime, timedelta
 from datetime import date
 import tkinter as tk
 from tkinter import ttk
-import matplotlib.dates as mdates
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 from core.datastore import get_shared_datastore
 from ui.styles import (
     COLOR_ROOT,
@@ -20,7 +17,6 @@ from ui.styles import (
     COLOR_TITLE,
     emoji,
 )
-from ui.components.card import Card
 from ui.views.energy_chart import build_energy_chart
 
 
@@ -35,13 +31,20 @@ class ErtragTab:
 
         # Tab Frame - Use provided frame or create legacy one
         if tab_frame is not None:
+            # IMPORTANT: If the app reuses an existing tab frame, it may still
+            # contain the old matplotlib canvas. Clear it to avoid showing two charts.
+            try:
+                for child in tab_frame.winfo_children():
+                    child.destroy()
+            except Exception:
+                pass
             self.tab_frame = tab_frame
         else:
             self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
             self.notebook.add(self.tab_frame, text=emoji("🔆 Ertrag", "Ertrag"))
 
-        self._period_var = tk.StringVar(value="48h")
-        self._period_map: dict[str, int] = {"6h": 6, "24h": 24, "48h": 48}
+        self._period_var = tk.StringVar(value="7 Tage")
+        self._period_map: dict[str, int] = {"7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
 
         # Layout like HistoricalTab: topbar + plot card + status line
         self.tab_frame.grid_rowconfigure(0, minsize=44)
@@ -67,12 +70,12 @@ class ErtragTab:
         
         # Touch-freundliche Button-Gruppe
         self._period_buttons = {}
-        for period in ["6h", "24h", "48h"]:
+        for period in ["7 Tage", "30 Tage", "180 Tage", "1 Jahr"]:
             btn = tk.Button(
                 period_frame,
                 text=period,
                 font=("Segoe UI", 11, "bold"),
-                width=5,
+            width=8,
                 height=1,
                 relief=tk.FLAT,
                 bg=COLOR_BORDER,
@@ -392,8 +395,8 @@ class ErtragTab:
             else:
                 btn.configure(bg=COLOR_BORDER, fg=COLOR_TEXT, activebackground=COLOR_PRIMARY)
 
-    def _load_energy_flow(self, hours: int, bin_minutes: int = 5) -> list[dict]:
-        """Load PV power + house consumption power for the last N hours.
+    def _load_energy_flow(self, days: int, bin_minutes: int = 10) -> list[dict]:
+        """Load PV power + house consumption power for the last N days.
 
         Output schema matches build_energy_chart():
           - timestamp: datetime
@@ -403,64 +406,59 @@ class ErtragTab:
         if not self.store:
             return []
 
-        rows = self.store.get_recent_fronius(hours=hours, limit=None)
-        if not rows:
+        try:
+            conn = getattr(self.store, "conn", None)
+            if conn is None:
+                return []
+
+            cutoff = (datetime.now() - timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
+            bucket_seconds = max(60, int(bin_minutes) * 60)
+
+            # Bucket by unixepoch seconds to avoid loading huge raw row counts for long windows.
+            bucket_expr = (
+                f"datetime((CAST(strftime('%s', datetime(timestamp)) AS INTEGER) / {bucket_seconds}) * {bucket_seconds}, 'unixepoch')"
+            )
+            sql = (
+                "SELECT "
+                + bucket_expr
+                + " AS bucket_ts, "
+                + "AVG(pv_power) AS pv_avg, "
+                + "AVG(ABS(load_power)) AS load_avg "
+                + "FROM fronius "
+                + "WHERE datetime(timestamp) >= datetime(?) "
+                + "GROUP BY bucket_ts "
+                + "ORDER BY bucket_ts ASC"
+            )
+
+            rows = conn.execute(sql, (cutoff,)).fetchall()
+        except Exception:
             return []
 
-        cutoff = datetime.now() - timedelta(hours=hours)
-        pv_bins: dict[datetime, list[float]] = {}
-        load_bins: dict[datetime, list[float]] = {}
-
-        for row in rows:
-            ts_raw = row.get("timestamp")
-            try:
-                ts = datetime.fromisoformat(str(ts_raw))
-            except Exception:
-                continue
-            if ts < cutoff:
-                continue
-
-            pv_val = row.get("pv")
-            load_val = row.get("load")
-
-            if pv_val is None and load_val is None:
-                continue
-
-            try:
-                ts_bin = ts.replace(second=0, microsecond=0) - timedelta(minutes=ts.minute % bin_minutes)
-            except Exception:
-                continue
-
-            if pv_val is not None:
-                try:
-                    pv_kw = float(pv_val)
-                    if pv_kw > 200.0:
-                        pv_kw = pv_kw / 1000.0
-                    pv_kw = max(0.0, pv_kw)
-                    pv_bins.setdefault(ts_bin, []).append(pv_kw)
-                except Exception:
-                    pass
-
-            if load_val is not None:
-                try:
-                    load_kw = abs(float(load_val))
-                    if load_kw > 200.0:
-                        load_kw = load_kw / 1000.0
-                    load_kw = max(0.0, load_kw)
-                    load_bins.setdefault(ts_bin, []).append(load_kw)
-                except Exception:
-                    pass
-
-        xs = sorted(set(pv_bins.keys()) | set(load_bins.keys()))
         out: list[dict] = []
-        for ts in xs:
-            pv_vals = pv_bins.get(ts) or []
-            load_vals = load_bins.get(ts) or []
-            if not pv_vals and not load_vals:
+        for bucket_ts, pv_avg, load_avg in rows:
+            try:
+                ts = datetime.fromisoformat(str(bucket_ts))
+            except Exception:
                 continue
-            pv_avg = float(np.mean(pv_vals)) if pv_vals else 0.0
-            load_avg = float(np.mean(load_vals)) if load_vals else 0.0
-            out.append({"timestamp": ts, "pv_power": pv_avg, "house_consumption": load_avg})
+
+            try:
+                pv_kw = float(pv_avg) if pv_avg is not None else 0.0
+            except Exception:
+                pv_kw = 0.0
+            try:
+                load_kw = float(load_avg) if load_avg is not None else 0.0
+            except Exception:
+                load_kw = 0.0
+
+            # Backward compatibility: some sources may still store W.
+            if pv_kw > 200.0:
+                pv_kw = pv_kw / 1000.0
+            if load_kw > 200.0:
+                load_kw = load_kw / 1000.0
+
+            pv_kw = max(0.0, pv_kw)
+            load_kw = max(0.0, load_kw)
+            out.append({"timestamp": ts, "pv_power": pv_kw, "house_consumption": load_kw})
         return out
 
     def _update_plot(self):
@@ -476,8 +474,19 @@ class ErtragTab:
                 pass
             self._update_task_id = None
 
-        window_hours = int(self._period_map.get(self._period_var.get(), 48) or 48)
-        data = self._load_energy_flow(window_hours, bin_minutes=5)
+        window_days = int(self._period_map.get(self._period_var.get(), 7) or 7)
+
+        # Choose a coarse bin for long windows to keep UI fast.
+        if window_days <= 7:
+            bin_minutes = 10
+        elif window_days <= 30:
+            bin_minutes = 30
+        elif window_days <= 180:
+            bin_minutes = 180
+        else:
+            bin_minutes = 360
+
+        data = self._load_energy_flow(window_days, bin_minutes=bin_minutes)
 
         last = data[-1] if data else None
         key = (
@@ -499,13 +508,14 @@ class ErtragTab:
         load_kwh = 0.0
         try:
             if len(data) >= 2:
+                max_gap_h = max(6.0, (float(bin_minutes) / 60.0) * 4.0)
                 for a, b in zip(data, data[1:]):
                     ta = a.get("timestamp")
                     tb = b.get("timestamp")
                     if not isinstance(ta, datetime) or not isinstance(tb, datetime):
                         continue
                     dt_h = (tb - ta).total_seconds() / 3600.0
-                    if dt_h <= 0 or dt_h > 6:
+                    if dt_h <= 0 or dt_h > max_gap_h:
                         continue
                     pv_kwh += (float(a.get("pv_power", 0.0)) + float(b.get("pv_power", 0.0))) / 2.0 * dt_h
                     load_kwh += (float(a.get("house_consumption", 0.0)) + float(b.get("house_consumption", 0.0))) / 2.0 * dt_h
@@ -514,8 +524,9 @@ class ErtragTab:
             load_kwh = 0.0
 
         diff_kwh = pv_kwh - load_kwh
-        self.topbar_status.config(text=f"{window_hours}h")
-        self.var_sum.set(f"PV ({window_hours}h): {pv_kwh:.1f} kWh")
+        label = self._period_var.get()
+        self.topbar_status.config(text=label)
+        self.var_sum.set(f"PV ({label}): {pv_kwh:.1f} kWh")
         self.var_avg.set(f"Verbrauch: {load_kwh:.1f} kWh")
         self.var_last.set(f"Δ: {diff_kwh:+.1f} kWh")
 
