@@ -16,10 +16,12 @@ from ui.styles import (
     COLOR_PRIMARY,
     COLOR_SUCCESS,
     COLOR_WARNING,
+    COLOR_DANGER,
     COLOR_TITLE,
     emoji,
 )
 from ui.components.card import Card
+from ui.views.energy_chart import build_energy_chart
 
 
 class ErtragTab:
@@ -38,8 +40,8 @@ class ErtragTab:
             self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
             self.notebook.add(self.tab_frame, text=emoji("🔆 Ertrag", "Ertrag"))
 
-        self._period_var = tk.StringVar(value="90d")
-        self._period_map: dict[str, int] = {"30d": 30, "90d": 90, "180d": 180, "365d": 365}
+        self._period_var = tk.StringVar(value="48h")
+        self._period_map: dict[str, int] = {"6h": 6, "24h": 24, "48h": 48}
 
         # Layout like HistoricalTab: topbar + plot card + status line
         self.tab_frame.grid_rowconfigure(0, minsize=44)
@@ -52,7 +54,7 @@ class ErtragTab:
 
         tk.Label(
             topbar,
-            text="PV-Ertrag",
+            text="Energiefluss",
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
             font=("Segoe UI", 13, "bold"),
@@ -65,7 +67,7 @@ class ErtragTab:
         
         # Touch-freundliche Button-Gruppe
         self._period_buttons = {}
-        for period in ["30d", "90d", "180d", "365d"]:
+        for period in ["6h", "24h", "48h"]:
             btn = tk.Button(
                 period_frame,
                 text=period,
@@ -101,27 +103,14 @@ class ErtragTab:
         self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
-        # Feste Größe und Layout für das Diagramm, da Bildschirm bekannt
-        self.fig = Figure(figsize=(9.0, 4.5), dpi=100)
-        # Solid background prevents redraw artifacts that can look like "two diagrams".
-        self.fig.patch.set_facecolor(COLOR_ROOT)
-        self.fig.patch.set_alpha(1.0)
-        self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor(COLOR_ROOT)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
-        self.canvas_widget = self.canvas.get_tk_widget()
-        try:
-            self.canvas_widget.configure(bg=COLOR_ROOT, highlightthickness=0)
-        except Exception:
-            pass
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
-        self.canvas_widget.bind("<Configure>", self._on_canvas_resize)
+        # Modernes Energiefluss-Diagramm (PV area + Verbrauch line + Überschuss/Defizit).
+        self.energy_chart = build_energy_chart(self.chart_frame, [])
 
         stats_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         stats_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
-        self.var_sum = tk.StringVar(value="Summe: -- kWh")
-        self.var_avg = tk.StringVar(value="Schnitt/Tag: -- kWh")
-        self.var_last = tk.StringVar(value="Letzter Tag: -- kWh")
+        self.var_sum = tk.StringVar(value="PV: -- kWh")
+        self.var_avg = tk.StringVar(value="Verbrauch: -- kWh")
+        self.var_last = tk.StringVar(value="Δ: -- kWh")
         tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_ROOT, fg=COLOR_TEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
         tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
         tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
@@ -140,9 +129,9 @@ class ErtragTab:
         # Explicitly close matplotlib figure to prevent memory leaks
         try:
             import matplotlib.pyplot as plt
-            if hasattr(self, 'fig') and self.fig:
-                plt.close(self.fig)
-                self.fig = None
+            fig = getattr(getattr(self, "energy_chart", None), "fig", None)
+            if fig is not None:
+                plt.close(fig)
         except Exception:
             pass
 
@@ -403,12 +392,81 @@ class ErtragTab:
             else:
                 btn.configure(bg=COLOR_BORDER, fg=COLOR_TEXT, activebackground=COLOR_PRIMARY)
 
+    def _load_energy_flow(self, hours: int, bin_minutes: int = 5) -> list[dict]:
+        """Load PV power + house consumption power for the last N hours.
+
+        Output schema matches build_energy_chart():
+          - timestamp: datetime
+          - pv_power: float (kW)
+          - house_consumption: float (kW)
+        """
+        if not self.store:
+            return []
+
+        rows = self.store.get_recent_fronius(hours=hours, limit=None)
+        if not rows:
+            return []
+
+        cutoff = datetime.now() - timedelta(hours=hours)
+        pv_bins: dict[datetime, list[float]] = {}
+        load_bins: dict[datetime, list[float]] = {}
+
+        for row in rows:
+            ts_raw = row.get("timestamp")
+            try:
+                ts = datetime.fromisoformat(str(ts_raw))
+            except Exception:
+                continue
+            if ts < cutoff:
+                continue
+
+            pv_val = row.get("pv")
+            load_val = row.get("load")
+
+            if pv_val is None and load_val is None:
+                continue
+
+            try:
+                ts_bin = ts.replace(second=0, microsecond=0) - timedelta(minutes=ts.minute % bin_minutes)
+            except Exception:
+                continue
+
+            if pv_val is not None:
+                try:
+                    pv_kw = float(pv_val)
+                    if pv_kw > 200.0:
+                        pv_kw = pv_kw / 1000.0
+                    pv_kw = max(0.0, pv_kw)
+                    pv_bins.setdefault(ts_bin, []).append(pv_kw)
+                except Exception:
+                    pass
+
+            if load_val is not None:
+                try:
+                    load_kw = abs(float(load_val))
+                    if load_kw > 200.0:
+                        load_kw = load_kw / 1000.0
+                    load_kw = max(0.0, load_kw)
+                    load_bins.setdefault(ts_bin, []).append(load_kw)
+                except Exception:
+                    pass
+
+        xs = sorted(set(pv_bins.keys()) | set(load_bins.keys()))
+        out: list[dict] = []
+        for ts in xs:
+            pv_vals = pv_bins.get(ts) or []
+            load_vals = load_bins.get(ts) or []
+            if not pv_vals and not load_vals:
+                continue
+            pv_avg = float(np.mean(pv_vals)) if pv_vals else 0.0
+            load_avg = float(np.mean(load_vals)) if load_vals else 0.0
+            out.append({"timestamp": ts, "pv_power": pv_avg, "house_consumption": load_avg})
+        return out
+
     def _update_plot(self):
         if not self.alive:
             return
-        if not hasattr(self, "canvas") or self.canvas is None:
-            return
-        if not self.canvas.get_tk_widget().winfo_exists():
+        if getattr(self, "energy_chart", None) is None:
             return
 
         if self._update_task_id:
@@ -418,155 +476,50 @@ class ErtragTab:
                 pass
             self._update_task_id = None
 
-        window_days = self._period_map.get(self._period_var.get(), 90)
-        raw = self._load_pv_daily(window_days)
-        raw_load = self._load_load_daily(window_days)
-        xs, ys = self._with_gaps_daily(raw, window_days)
-        xs_load, ys_load = self._with_gaps_daily(raw_load, window_days)
-        # Stable key: length + last non-nan sample
-        last_non_nan = None
-        if len(ys) > 0:
-            try:
-                idx = np.where(~np.isnan(ys))[0]
-                if len(idx) > 0:
-                    last_non_nan = (xs[int(idx[-1])], float(ys[int(idx[-1])]))
-            except Exception:
-                last_non_nan = None
-        key = (len(xs), last_non_nan) if xs else ("empty",)
-        
-        # Nur redraw wenn sich Daten wirklich geändert haben
+        window_hours = int(self._period_map.get(self._period_var.get(), 48) or 48)
+        data = self._load_energy_flow(window_hours, bin_minutes=5)
+
+        last = data[-1] if data else None
+        key = (
+            len(data),
+            (last.get("timestamp") if last else None),
+            (float(last.get("pv_power")) if last else None),
+            (float(last.get("house_consumption")) if last else None),
+        )
+
         if key == self._last_key:
-            # Keine Änderung - nur neu einplanen, nicht redraw
-            self._update_task_id = self.root.after(5 * 60 * 1000, self._update_plot)
+            self._update_task_id = self.root.after(60 * 1000, self._update_plot)
             return
-        
         self._last_key = key
 
-        self.fig.clear()
-        self.ax = self.fig.add_subplot(111)
-        self.fig.patch.set_facecolor(COLOR_ROOT)
-        self.fig.patch.set_alpha(1.0)
-        self.ax.set_facecolor(COLOR_ROOT)
-        self._style_axes()
+        self.energy_chart.render(data)
 
-        # Ensure renderer matches widget size before drawing.
-        self._sync_figure_to_canvas()
-
-        has_data = bool(len(ys) and np.any(~np.isnan(ys)))
-        if has_data:
-            if (
-                not getattr(self, "_log_once", False)
-                and __import__("os").environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
-            ):
-                print(f"[ERTRAG] Matplotlib-Liniendiagramm aktiv (Tage={window_days})")
-                self._log_once = True
-
-            self.ax.plot(xs, ys, color=COLOR_PRIMARY, linewidth=1.8, alpha=0.95, label="PV-Ertrag")
-
-            if len(ys_load) and np.any(~np.isnan(ys_load)):
-                self.ax.fill_between(xs_load, 0, ys_load, color=COLOR_SUBTEXT, alpha=0.25, label="Verbrauch")
-                self.ax.plot(xs_load, ys_load, color=COLOR_SUBTEXT, linewidth=1.2, alpha=0.6)
-
-                if len(xs) == len(xs_load):
-                    surplus = np.where((~np.isnan(ys)) & (~np.isnan(ys_load)) & (ys > ys_load), ys - ys_load, 0.0)
-                    deficit = np.where((~np.isnan(ys)) & (~np.isnan(ys_load)) & (ys_load > ys), ys_load - ys, 0.0)
-                    self.ax.fill_between(xs, ys_load, ys, where=surplus > 0, color=COLOR_SUCCESS, alpha=0.22, label="Ueberschuss")
-                    self.ax.fill_between(xs, ys, ys_load, where=deficit > 0, color=COLOR_WARNING, alpha=0.18, label="Defizit")
-
-            self.ax.set_ylabel("kWh/Tag", color=COLOR_SUBTEXT, fontsize=11, rotation=0, labelpad=18, va="center")
-            # X axis: for 30d show explicit day labels to better match days.
-            # For longer windows, keep Matplotlib's concise auto formatting.
-            if int(window_days) <= 31:
-                major_locator = mdates.DayLocator(interval=2)
-                minor_locator = mdates.DayLocator(interval=1)
-                self.ax.xaxis.set_major_locator(major_locator)
-                self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
-                self.ax.xaxis.set_minor_locator(minor_locator)
-                try:
-                    self.ax.grid(True, which="minor", axis="x", color=COLOR_BORDER, alpha=0.12, linewidth=0.5)
-                    self.ax.tick_params(axis="x", which="minor", length=2, width=0.4, colors=COLOR_BORDER)
-                except Exception:
-                    pass
-                try:
-                    for lbl in self.ax.get_xticklabels():
-                        lbl.set_rotation(45)
-                        lbl.set_ha("right")
-                except Exception:
-                    pass
-            else:
-                locator = mdates.AutoDateLocator(minticks=6, maxticks=12)
-                self.ax.xaxis.set_major_locator(locator)
-                self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
-                try:
-                    self.ax.xaxis.set_minor_locator(mdates.NullLocator())
-                except Exception:
-                    pass
-            try:
-                self.ax.xaxis.get_offset_text().set_visible(False)
-            except Exception:
-                pass
-
-            # Keep a bit of future padding so the last x tick label fits.
-            try:
-                if xs:
-                    pad = max(
-                        timedelta(hours=12),
-                        timedelta(days=max(1, int(window_days)) * 0.111),
-                    )
-                    self.ax.set_xlim(xs[0], xs[-1] + pad)
-            except Exception:
-                pass
-
-            # Prevent the last x tick label from being clipped at the right edge:
-            # make labels extend to the left of their tick position.
-            try:
-                for lbl in self.ax.get_xticklabels():
-                    lbl.set_ha("right")
-            except Exception:
-                pass
-
-            self.ax.set_ylim(bottom=0)
-
-            try:
-                # A bit more horizontal padding so the last tick label fits.
-                self.ax.margins(x=0.02)
-            except Exception:
-                pass
-
-            total = float(np.nansum(ys))
-            count = int(np.sum(~np.isnan(ys)))
-            avg = total / max(1, count)
-            # last non-nan
-            last_idx = int(np.where(~np.isnan(ys))[0][-1])
-            last_ts = xs[last_idx].strftime("%d.%m.%Y")
-            last_val = float(ys[last_idx])
-            self.topbar_status.config(text=f"{window_days}d")
-            self.var_sum.set(f"Summe ({window_days}T): {total:.0f} kWh")
-            self.var_avg.set(f"Ø Tag: {avg:.1f} kWh")
-            self.var_last.set(f"{last_ts}: {last_val:.1f} kWh")
-            if len(ys_load) and np.any(~np.isnan(ys_load)):
-                self.ax.legend(loc="upper left", frameon=False, fontsize=9)
-        else:
-            self.ax.text(0.5, 0.5, "Keine Daten", color=COLOR_SUBTEXT, ha="center", va="center", 
-                        fontsize=12, transform=self.ax.transAxes)
-            self.ax.set_xticks([])
-            self.ax.set_yticks([])
-            self.var_sum.set("Summe: -- kWh")
-            self.var_avg.set("Ø Tag: -- kWh")
-            self.var_last.set("Letzter Tag: -- kWh")
-            self.topbar_status.config(text=f"{window_days}d")
-
-        # Feste Ränder für optimalen Sitz
-        self._apply_layout()
-        
+        # Integrate kW to kWh over the visible window (trapezoid), for the footer stats.
+        pv_kwh = 0.0
+        load_kwh = 0.0
         try:
-            if self.canvas.get_tk_widget().winfo_exists():
-                self.canvas.draw()
+            if len(data) >= 2:
+                for a, b in zip(data, data[1:]):
+                    ta = a.get("timestamp")
+                    tb = b.get("timestamp")
+                    if not isinstance(ta, datetime) or not isinstance(tb, datetime):
+                        continue
+                    dt_h = (tb - ta).total_seconds() / 3600.0
+                    if dt_h <= 0 or dt_h > 6:
+                        continue
+                    pv_kwh += (float(a.get("pv_power", 0.0)) + float(b.get("pv_power", 0.0))) / 2.0 * dt_h
+                    load_kwh += (float(a.get("house_consumption", 0.0)) + float(b.get("house_consumption", 0.0))) / 2.0 * dt_h
         except Exception:
-            pass
-        
-        # Nächster Update in 5 Minuten
-        self._update_task_id = self.root.after(5 * 60 * 1000, self._update_plot)
+            pv_kwh = 0.0
+            load_kwh = 0.0
+
+        diff_kwh = pv_kwh - load_kwh
+        self.topbar_status.config(text=f"{window_hours}h")
+        self.var_sum.set(f"PV ({window_hours}h): {pv_kwh:.1f} kWh")
+        self.var_avg.set(f"Verbrauch: {load_kwh:.1f} kWh")
+        self.var_last.set(f"Δ: {diff_kwh:+.1f} kWh")
+
+        self._update_task_id = self.root.after(60 * 1000, self._update_plot)
 
     # Keine dynamische Größenanpassung nötig
 

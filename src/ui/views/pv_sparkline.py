@@ -283,8 +283,8 @@ class PVSparklineView(tk.Frame):
             self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
             self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
             self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
-            max_pv = max(float(v) for v in ys_pv)
-            self.spark_ax.set_ylim(0.0, max(0.5, max_pv * 1.15))
+            # Fixed PV scale for readability.
+            self.spark_ax.set_ylim(0.0, 10.0)
         if temp_series:
             xs_temp, ys_temp = zip(*temp_series)
             ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
