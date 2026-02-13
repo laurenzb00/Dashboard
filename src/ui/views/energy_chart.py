@@ -114,10 +114,9 @@ class EnergyChart:
         try:
             tk_canvas = getattr(self.canvas, "_tkcanvas", None)
             if tk_canvas is not None:
-                try:
-                    tk_canvas.delete("all")
-                except Exception:
-                    pass
+                # IMPORTANT: Do NOT delete("all"). FigureCanvasTkAgg draws via
+                # items on this canvas (PhotoImage). Deleting everything can
+                # remove the render target and result in a blank chart.
                 try:
                     tk_canvas.configure(bg=COLOR_ROOT, highlightthickness=0, bd=0)
                 except Exception:
@@ -131,7 +130,6 @@ class EnergyChart:
             h = max(1, int(getattr(event, "height", 1)))
             if not self._sync_size(w, h):
                 return
-            self._clear_tk_canvas()
             self.canvas.draw()
         except Exception:
             pass
@@ -237,7 +235,6 @@ class EnergyChart:
                 color=COLOR_SUBTEXT,
                 fontsize=10,
             )
-            self._clear_tk_canvas()
             self.canvas.draw()
             return
 
@@ -278,7 +275,6 @@ class EnergyChart:
         except Exception:
             pass
 
-        self._clear_tk_canvas()
         self.canvas.draw()
 
 
