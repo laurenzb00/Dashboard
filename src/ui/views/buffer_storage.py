@@ -1,7 +1,7 @@
 import os
 import time
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import matplotlib.dates as mdates
@@ -330,10 +330,27 @@ class BufferStorageView(tk.Frame):
                 self.mode_canvas.destroy()
             except Exception:
                 pass
+        if hasattr(self, "mode_label") and self.mode_label.winfo_exists():
+            try:
+                self.mode_label.destroy()
+            except Exception:
+                pass
         self.fig = Figure(figsize=(fig_width, fig_height), dpi=100)
         self.fig.patch.set_facecolor(COLOR_ROOT)  # Explizit auf COLOR_ROOT setzen
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
+
+        # Betriebsmodus headline (above heatmap)
+        self.mode_label = tk.Label(
+            self.plot_frame,
+            text="Betriebsmodus: --",
+            bg=COLOR_ROOT,
+            fg=COLOR_TEXT,
+            font=("Segoe UI", 12, "bold"),
+            anchor="w",
+        )
+        self.mode_label.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(2, 0))
+
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
         # Flexible Skalierung ohne min_width Constraint für 50/50 Layout
@@ -342,7 +359,7 @@ class BufferStorageView(tk.Frame):
         # Small mode timeline bar under the heatmap
         self.mode_canvas = tk.Canvas(
             self.plot_frame,
-            height=22,
+            height=38,
             bg=COLOR_ROOT,
             highlightthickness=0,
         )
@@ -532,14 +549,16 @@ class BufferStorageView(tk.Frame):
     def update_data(self, data: dict):
         """Update für BufferStorageView: erwartet dict mit final keys."""
         import time
-        now = time.monotonic()
-        last = getattr(self, "_last_redraw_ts", 0.0)
-        if now - last < 3.0:
-            return
-        self._last_redraw_ts = now
+        # Always capture mode changes, even if we throttle heavy redraw.
+        mode_changed = self._update_mode_state(data)
 
-        # Update Betriebsmodus (if present)
-        self._update_mode_state(data)
+        now_mono = time.monotonic()
+        last = getattr(self, "_last_redraw_ts", 0.0)
+        if now_mono - last < 3.0:
+            if mode_changed:
+                self._draw_mode_timeline()
+            return
+        self._last_redraw_ts = now_mono
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
@@ -563,10 +582,13 @@ class BufferStorageView(tk.Frame):
         if ts:
             try:
                 raw = str(ts).strip().replace("Z", "+00:00")
-                return datetime.fromisoformat(raw)
+                dt = datetime.fromisoformat(raw)
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
             except Exception:
                 pass
-        return datetime.now()
+        return datetime.now(timezone.utc)
 
     def _mode_color(self, mode: str) -> str:
         mode = (mode or "").strip()
@@ -578,21 +600,30 @@ class BufferStorageView(tk.Frame):
         self._mode_color_map[mode] = color
         return color
 
-    def _update_mode_state(self, payload: dict) -> None:
+    def _update_mode_state(self, payload: dict) -> bool:
         mode_raw = payload.get(BMK_BETRIEBSMODUS)
         if mode_raw in (None, ""):
-            return
+            return False
         try:
             mode = str(mode_raw).strip()
         except Exception:
-            return
+            return False
         if not mode:
-            return
+            return False
 
-        # Update text over boiler
+        color = self._mode_color(mode)
+
+        # Update headline over heatmap (prominent + color matches timeline)
+        try:
+            if hasattr(self, "mode_label"):
+                self.mode_label.configure(text=f"Betriebsmodus: {mode}", fg=color)
+        except Exception:
+            pass
+
+        # (Optional) keep text over boiler empty to avoid duplication.
         try:
             if hasattr(self, "boiler_mode_text"):
-                self.boiler_mode_text.set_text(mode)
+                self.boiler_mode_text.set_text("")
         except Exception:
             pass
 
@@ -600,11 +631,12 @@ class BufferStorageView(tk.Frame):
 
         # Update segments (close previous on change)
         if self._mode_segments and self._mode_segments[0][2] == mode:
-            return
+            return False
         if self._mode_segments:
             start_dt, _end_dt, prev_mode = self._mode_segments[0]
             self._mode_segments[0] = (start_dt, dt, prev_mode)
         self._mode_segments.appendleft((dt, None, mode))
+        return True
 
     def _draw_mode_timeline(self, hours: float = 24.0) -> None:
         if not hasattr(self, "mode_canvas"):
@@ -616,14 +648,18 @@ class BufferStorageView(tk.Frame):
             width = 0
         if width <= 10:
             return
-        height = 22
+        try:
+            height = int(c.winfo_height())
+        except Exception:
+            height = 38
+        height = max(30, height)
 
         try:
             c.delete("all")
         except Exception:
             return
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         window_end = now
         window_start = now - timedelta(hours=float(hours))
         span_s = max(1.0, (window_end - window_start).total_seconds())
@@ -635,13 +671,53 @@ class BufferStorageView(tk.Frame):
             pass
 
         def x(dt: datetime) -> int:
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
             t = (dt - window_start).total_seconds()
             t = max(0.0, min(span_s, t))
             return int(2 + (width - 4) * (t / span_s))
 
-        # Draw segments from oldest->newest for correct overlap
+        # Legend (mode -> color)
+        legend_y = 2
+        legend_x = 6
+        legend_max_x = width - 6
+        unique_modes: list[str] = []
+        try:
+            for start_dt, end_dt, mode in list(self._mode_segments):
+                seg_start = start_dt
+                seg_end = end_dt or now
+                if seg_end < window_start or seg_start > window_end:
+                    continue
+                m = (mode or "").strip()
+                if m and m not in unique_modes:
+                    unique_modes.append(m)
+        except Exception:
+            unique_modes = []
+
+        for mode in unique_modes[:6]:
+            color = self._mode_color(mode)
+            try:
+                c.create_rectangle(legend_x, legend_y + 2, legend_x + 10, legend_y + 12, fill=color, outline="")
+                c.create_text(legend_x + 14, legend_y + 12, text=mode, fill=color, anchor="sw")
+            except Exception:
+                pass
+            legend_x += 14 + int(max(40, len(mode) * 7))
+            if legend_x >= legend_max_x:
+                break
+        if len(unique_modes) > 6 and legend_x < legend_max_x:
+            try:
+                c.create_text(legend_max_x, legend_y + 12, text=f"+{len(unique_modes) - 6}", fill=COLOR_SUBTEXT, anchor="se")
+            except Exception:
+                pass
+
+        # Timeline segments from oldest->newest for correct overlap
         segments = list(self._mode_segments)
         segments.reverse()
+
+        bar_top = 16
+        bar_bottom = height - 8
         for start_dt, end_dt, mode in segments:
             seg_start = start_dt
             seg_end = end_dt or now
@@ -655,14 +731,14 @@ class BufferStorageView(tk.Frame):
                 continue
             color = self._mode_color(mode)
             try:
-                c.create_rectangle(x0, 3, x1, height - 3, fill=color, outline="")
+                c.create_rectangle(x0, bar_top, x1, bar_bottom, fill=color, outline="")
             except Exception:
                 pass
 
         # Time labels (minimal)
         try:
-            c.create_text(6, height - 2, text=window_start.strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="sw")
-            c.create_text(width - 6, height - 2, text=window_end.strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="se")
+            c.create_text(6, height - 2, text=window_start.astimezone().strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="sw")
+            c.create_text(width - 6, height - 2, text=window_end.astimezone().strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="se")
         except Exception:
             pass
 
