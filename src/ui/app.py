@@ -508,6 +508,16 @@ class MainApp:
             except Exception:
                 pass
 
+            mode_part = ""
+            try:
+                if hasattr(self, "app_state") and self.app_state:
+                    from core.schema import BMK_BETRIEBSMODUS
+                    mode = self.app_state.get(BMK_BETRIEBSMODUS)
+                    if mode not in (None, ""):
+                            mode_part = f"Modus: {mode}"
+            except Exception:
+                mode_part = ""
+
             cal_text = ""
             try:
                 tab = getattr(self, "calendar_tab", None)
@@ -519,7 +529,7 @@ class MainApp:
             def _compose_status(max_len: int = 140) -> str:
                 sep = " • "
                 parts: list[str] = []
-                for item in (heat_part, pv_part, cal_text):
+                for item in (mode_part, heat_part, pv_part, cal_text):
                     t = (item or "").strip()
                     if t:
                         parts.append(t)
@@ -615,14 +625,44 @@ class MainApp:
         mid = _safe_float(data.get("Pufferspeicher Mitte") or data.get("Pufferspeicher_Mitte") or data.get("puffer_mid"))
         bot = _safe_float(data.get("Pufferspeicher Unten") or data.get("Puffer_Unten") or data.get("puffer_bot"))
 
+        def _format_bmk_mode(value) -> str | None:
+            if value is None:
+                return None
+            try:
+                if isinstance(value, bool):
+                    return "1" if value else "0"
+                if isinstance(value, (int, float)):
+                    # avoid "1.0" noise for enum-like values
+                    iv = int(value)
+                    return str(iv)
+                s = str(value).strip()
+                return s if s else None
+            except Exception:
+                return None
+
+        betriebsmodus = _format_bmk_mode(
+            data.get("Betriebsmodus")
+            or data.get("betriebsmodus")
+            or data.get("Modus_Status")
+            or data.get("Betriebsstatus")
+        )
+
         if hasattr(self, "app_state") and self.app_state:
-            from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
+            from core.schema import (
+                BMK_KESSEL_C,
+                BMK_WARMWASSER_C,
+                BMK_BETRIEBSMODUS,
+                BUF_TOP_C,
+                BUF_MID_C,
+                BUF_BOTTOM_C,
+            )
 
             payload = {
                 "timestamp": data.get("Zeitstempel") or data.get("timestamp"),
                 "outdoor": outdoor,
                 BMK_KESSEL_C: kessel,
                 BMK_WARMWASSER_C: warmwasser,
+                BMK_BETRIEBSMODUS: betriebsmodus,
                 BUF_TOP_C: top,
                 BUF_MID_C: mid,
                 BUF_BOTTOM_C: bot,

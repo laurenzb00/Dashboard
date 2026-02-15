@@ -62,6 +62,7 @@ class StatusTab(ctk.CTkFrame):
 
 
 
+
     def _build_layout(self):
         """Minimalistisches Status-Dashboard mit großen Kacheln."""
         self.configure(fg_color=COLOR_ROOT)

@@ -2,6 +2,7 @@ import os
 import time
 from collections import deque
 from datetime import datetime, timedelta
+from typing import Optional
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -53,6 +54,7 @@ from core.schema import (
     BUF_MID_C,
     BUF_BOTTOM_C,
     BMK_WARMWASSER_C,
+    BMK_BETRIEBSMODUS,
     PV_POWER_KW,
 )
 
@@ -291,6 +293,11 @@ class BufferStorageView(tk.Frame):
         self._last_temps = None  # type: ignore
         self._last_spark_update = 0
 
+        # Betriebsmodus timeline (in-memory only)
+        self._mode_segments: deque[tuple[datetime, Optional[datetime], str]] = deque(maxlen=120)
+        self._mode_color_map: dict[str, str] = {}
+        self._mode_palette = [COLOR_PRIMARY, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER, COLOR_INFO]
+
         self.layout = tk.Frame(self, bg=COLOR_ROOT)
         self.layout.pack(fill=tk.BOTH, expand=True)
         self.layout.grid_columnconfigure(0, weight=1)
@@ -318,6 +325,11 @@ class BufferStorageView(tk.Frame):
     def _create_figure(self, fig_width: float, fig_height: float) -> None:
         if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
             self.canvas_widget.destroy()
+        if hasattr(self, "mode_canvas") and self.mode_canvas.winfo_exists():
+            try:
+                self.mode_canvas.destroy()
+            except Exception:
+                pass
         self.fig = Figure(figsize=(fig_width, fig_height), dpi=100)
         self.fig.patch.set_facecolor(COLOR_ROOT)  # Explizit auf COLOR_ROOT setzen
         self.ax = self.fig.add_subplot(111)
@@ -325,7 +337,20 @@ class BufferStorageView(tk.Frame):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
         # Flexible Skalierung ohne min_width Constraint für 50/50 Layout
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Small mode timeline bar under the heatmap
+        self.mode_canvas = tk.Canvas(
+            self.plot_frame,
+            height=22,
+            bg=COLOR_ROOT,
+            highlightthickness=0,
+        )
+        self.mode_canvas.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 2))
+        try:
+            self.mode_canvas.bind("<Configure>", lambda _evt: self._draw_mode_timeline())
+        except Exception:
+            pass
 
     def _setup_plot(self) -> None:
         self.fig.clear()
@@ -395,6 +420,18 @@ class BufferStorageView(tk.Frame):
                  color=COLOR_TITLE, fontsize=11, va="top", ha="center", weight="bold")
         # Boiler-Temperaturtext
         self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color="#FFFFFF", fontsize=18, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
+        # Boiler-Modus-Text (Betriebsmodus)
+        self.boiler_mode_text = self.ax.text(
+            0.74,
+            0.22,
+            "",
+            color=COLOR_TEXT,
+            fontsize=10,
+            va="center",
+            ha="center",
+            transform=self.ax.transAxes,
+            weight="bold",
+        )
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)
@@ -500,6 +537,9 @@ class BufferStorageView(tk.Frame):
         if now - last < 3.0:
             return
         self._last_redraw_ts = now
+
+        # Update Betriebsmodus (if present)
+        self._update_mode_state(data)
         top = float(data.get(BUF_TOP_C) or 0.0)
         mid = float(data.get(BUF_MID_C) or 0.0)
         bot = float(data.get(BUF_BOTTOM_C) or 0.0)
@@ -513,6 +553,118 @@ class BufferStorageView(tk.Frame):
                 print(f"[BUFFER_PARSED] top={top} mid={mid} bot={bot} boiler={boiler}", flush=True)
             self._last_heat_dbg = now
         self.update_temperatures(top, mid, bot, boiler)
+
+        # Timeline redraw (cheap)
+        self._draw_mode_timeline()
+
+    @staticmethod
+    def _parse_payload_dt(payload: dict) -> datetime:
+        ts = payload.get("timestamp") or payload.get("Zeitstempel")
+        if ts:
+            try:
+                raw = str(ts).strip().replace("Z", "+00:00")
+                return datetime.fromisoformat(raw)
+            except Exception:
+                pass
+        return datetime.now()
+
+    def _mode_color(self, mode: str) -> str:
+        mode = (mode or "").strip()
+        if not mode:
+            return COLOR_SUBTEXT
+        if mode in self._mode_color_map:
+            return self._mode_color_map[mode]
+        color = self._mode_palette[len(self._mode_color_map) % len(self._mode_palette)]
+        self._mode_color_map[mode] = color
+        return color
+
+    def _update_mode_state(self, payload: dict) -> None:
+        mode_raw = payload.get(BMK_BETRIEBSMODUS)
+        if mode_raw in (None, ""):
+            return
+        try:
+            mode = str(mode_raw).strip()
+        except Exception:
+            return
+        if not mode:
+            return
+
+        # Update text over boiler
+        try:
+            if hasattr(self, "boiler_mode_text"):
+                self.boiler_mode_text.set_text(mode)
+        except Exception:
+            pass
+
+        dt = self._parse_payload_dt(payload)
+
+        # Update segments (close previous on change)
+        if self._mode_segments and self._mode_segments[0][2] == mode:
+            return
+        if self._mode_segments:
+            start_dt, _end_dt, prev_mode = self._mode_segments[0]
+            self._mode_segments[0] = (start_dt, dt, prev_mode)
+        self._mode_segments.appendleft((dt, None, mode))
+
+    def _draw_mode_timeline(self, hours: float = 24.0) -> None:
+        if not hasattr(self, "mode_canvas"):
+            return
+        c = self.mode_canvas
+        try:
+            width = int(c.winfo_width())
+        except Exception:
+            width = 0
+        if width <= 10:
+            return
+        height = 22
+
+        try:
+            c.delete("all")
+        except Exception:
+            return
+
+        now = datetime.now()
+        window_end = now
+        window_start = now - timedelta(hours=float(hours))
+        span_s = max(1.0, (window_end - window_start).total_seconds())
+
+        # Border line
+        try:
+            c.create_rectangle(1, 1, width - 1, height - 1, outline=COLOR_BORDER)
+        except Exception:
+            pass
+
+        def x(dt: datetime) -> int:
+            t = (dt - window_start).total_seconds()
+            t = max(0.0, min(span_s, t))
+            return int(2 + (width - 4) * (t / span_s))
+
+        # Draw segments from oldest->newest for correct overlap
+        segments = list(self._mode_segments)
+        segments.reverse()
+        for start_dt, end_dt, mode in segments:
+            seg_start = start_dt
+            seg_end = end_dt or now
+            if seg_end < window_start or seg_start > window_end:
+                continue
+            seg_start = max(seg_start, window_start)
+            seg_end = min(seg_end, window_end)
+            x0 = x(seg_start)
+            x1 = x(seg_end)
+            if x1 <= x0:
+                continue
+            color = self._mode_color(mode)
+            try:
+                c.create_rectangle(x0, 3, x1, height - 3, fill=color, outline="")
+            except Exception:
+                pass
+
+        # Time labels (minimal)
+        try:
+            c.create_text(6, height - 2, text=window_start.strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="sw")
+            c.create_text(width - 6, height - 2, text=window_end.strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="se")
+        except Exception:
+            pass
 
 
     def update_temperatures(self, top, mid, bot, boiler):
