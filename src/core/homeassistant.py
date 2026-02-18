@@ -18,6 +18,7 @@ class HomeAssistantConfig:
     scene_all_on: Optional[str] = None
     scene_all_off: Optional[str] = None
     scene_entity_ids: Optional[List[str]] = None
+    dim_entity_ids: Optional[List[str]] = None
 
 
 def _read_json_file(path: str) -> Optional[dict]:
@@ -78,6 +79,12 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
     else:
         scene_entity_ids = None
 
+    dim_ids = file_cfg.get("dim_entity_ids")
+    if isinstance(dim_ids, list):
+        dim_entity_ids = [str(x).strip() for x in dim_ids if str(x).strip()]
+    else:
+        dim_entity_ids = None
+
     return HomeAssistantConfig(
         url=url.rstrip("/"),
         token=token,
@@ -87,6 +94,7 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         scene_all_on=_opt_str("scene_all_on"),
         scene_all_off=_opt_str("scene_all_off"),
         scene_entity_ids=scene_entity_ids,
+        dim_entity_ids=dim_entity_ids,
     )
 
 
@@ -174,6 +182,39 @@ class HomeAssistantClient:
 
         scenes.sort(key=lambda s: (s.get("name") or s.get("entity_id") or "").lower())
         return scenes
+
+    def list_lights(self) -> List[str]:
+        lights: List[str] = []
+        for st in self.get_states():
+            try:
+                entity_id = str(st.get("entity_id") or "")
+                if not entity_id.startswith("light."):
+                    continue
+                state = str(st.get("state") or "").lower()
+                if state in ("unavailable", "unknown"):
+                    continue
+                lights.append(entity_id)
+            except Exception:
+                continue
+        lights.sort(key=lambda x: x.lower())
+        return lights
+
+    def set_light_brightness_pct(self, entity_ids: List[str], brightness_pct: int) -> bool:
+        try:
+            pct = int(brightness_pct)
+        except Exception:
+            return False
+        pct = max(1, min(100, pct))
+        ids = [str(x).strip() for x in (entity_ids or []) if str(x).strip()]
+        if not ids:
+            return False
+        return self.call_service("light", "turn_on", {"entity_id": ids, "brightness_pct": pct})
+
+    def turn_off_lights(self, entity_ids: List[str]) -> bool:
+        ids = [str(x).strip() for x in (entity_ids or []) if str(x).strip()]
+        if not ids:
+            return False
+        return self.call_service("light", "turn_off", {"entity_id": ids})
 
     def activate_scene(self, entity_id: str) -> bool:
         entity_id = str(entity_id).strip()

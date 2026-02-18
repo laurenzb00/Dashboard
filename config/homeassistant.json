@@ -9,5 +9,7 @@
   "scene_all_on": "scene.hell",
   "scene_all_off": "scene.aus",
 
-  "scene_entity_ids": []
+  "scene_entity_ids": [],
+
+  "dim_entity_ids": []
 }

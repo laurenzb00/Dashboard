@@ -60,6 +60,9 @@ class HueTab:
         self.status_var = tk.StringVar(value="⚠️ Home Assistant: nicht konfiguriert")
         self.last_refresh_var = tk.StringVar(value="")
 
+        self._dimmer_value = tk.DoubleVar(value=100.0)
+        self._dimmer_label_var = tk.StringVar(value="Dimmen: 100%")
+
         self._scene_buttons: Dict[str, tk.Button] = {}
         self._scenes: List[Dict[str, str]] = []
 
@@ -119,6 +122,16 @@ class HueTab:
         if not wanted:
             return False
 
+        # Backward-compatible mapping: app.py calls "Hell" for come-home.
+        # User intent: map this to the configured "all on" scene (e.g. "Alles hell").
+        try:
+            cfg = self._ha_cfg
+            if wanted == "hell" and cfg and getattr(cfg, "scene_all_on", None):
+                self._activate_scene_async(str(cfg.scene_all_on))
+                return True
+        except Exception:
+            pass
+
         for sc in self._scenes:
             if (sc.get("name") or "").strip().lower() == wanted:
                 self._activate_scene_async(sc.get("entity_id") or "")
@@ -132,6 +145,65 @@ class HueTab:
                 return True
 
         return False
+
+    # --- dimmer ---
+    def _dimmer_targets(self) -> List[str]:
+        cfg = self._ha_cfg
+        client = self._ha_client
+        if cfg and getattr(cfg, "dim_entity_ids", None):
+            try:
+                ids = [str(x).strip() for x in (cfg.dim_entity_ids or []) if str(x).strip()]
+                if ids:
+                    return ids
+            except Exception:
+                pass
+        # Fallback: dim all available light.* entities.
+        if client:
+            try:
+                return client.list_lights()
+            except Exception:
+                return []
+        return []
+
+    def _apply_dimmer_label(self) -> None:
+        try:
+            pct = int(round(float(self._dimmer_value.get())))
+        except Exception:
+            pct = 0
+        pct = max(0, min(100, pct))
+        try:
+            self._dimmer_label_var.set(f"Dimmen: {pct}%")
+        except Exception:
+            pass
+
+    def _set_brightness_async(self, brightness_pct: int) -> None:
+        def worker() -> None:
+            ok = False
+            try:
+                client = self._ha_client
+                targets = self._dimmer_targets()
+                if not client or not targets:
+                    ok = False
+                else:
+                    pct = int(brightness_pct)
+                    if pct <= 0:
+                        ok = bool(client.turn_off_lights(targets))
+                    else:
+                        ok = bool(client.set_light_brightness_pct(targets, pct))
+            except Exception:
+                ok = False
+
+            def apply() -> None:
+                if not self.alive:
+                    return
+                self.status_var.set("✅ Dimmer gesetzt" if ok else "⚠️ Dimmer fehlgeschlagen")
+
+            try:
+                self.root.after(0, apply)
+            except Exception:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # --- UI ---
     def _build_ui(self) -> None:
@@ -156,6 +228,37 @@ class HueTab:
         )
         refresh_lbl.grid(row=0, column=1, sticky="e")
 
+        dimmer_frame = tk.Frame(header, bg=COLOR_ROOT)
+        dimmer_frame.grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        dim_lbl = tk.Label(
+            dimmer_frame,
+            textvariable=self._dimmer_label_var,
+            font=("Segoe UI", 9),
+            fg=COLOR_SUBTEXT,
+            bg=COLOR_ROOT,
+        )
+        dim_lbl.pack(side="left")
+
+        dim_scale = ttk.Scale(
+            dimmer_frame,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            variable=self._dimmer_value,
+            command=lambda _v: self._apply_dimmer_label(),
+        )
+        dim_scale.pack(side="left", padx=(10, 0), ipadx=40)
+
+        def _on_release(_event) -> None:
+            try:
+                pct = int(round(float(self._dimmer_value.get())))
+            except Exception:
+                pct = 0
+            self._set_brightness_async(pct)
+
+        dim_scale.bind("<ButtonRelease-1>", _on_release)
+
         btn = tk.Button(
             header,
             text="↻ Neu laden",
@@ -170,6 +273,8 @@ class HueTab:
 
         header.grid_columnconfigure(0, weight=1)
         header.grid_columnconfigure(1, weight=0)
+
+        self._apply_dimmer_label()
 
         canvas_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         canvas_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
