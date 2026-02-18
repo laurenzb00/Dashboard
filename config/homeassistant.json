@@ -1,6 +1,6 @@
 {
   "url": "http://homeassistant.local:8123",
-  "token": "PASTE_LONG_LIVED_ACCESS_TOKEN_HERE",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyODFkZWI0YTQ4ZTI0YTJmYTJjMmFjZjM1MDcwYzhjZiIsImlhdCI6MTc3MTQ1MjQ3OSwiZXhwIjoyMDg2ODEyNDc5fQ._wsfAKWKxifq0LcgM53GQe4bQ_yIIWCBt9cjwhnkNWQ",
   "verify_ssl": true,
   "timeout_s": 5,
 
