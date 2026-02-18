@@ -16,8 +16,10 @@ from tkinter import ttk
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import customtkinter as ctk
+
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
-from ui.styles import COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, emoji
+from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, COLOR_WARNING, get_safe_font, emoji
 
 
 class _HomeAssistantBridgeAdapter:
@@ -228,27 +230,32 @@ class HueTab:
         )
         refresh_lbl.grid(row=0, column=1, sticky="e")
 
-        dimmer_frame = tk.Frame(header, bg=COLOR_ROOT)
-        dimmer_frame.grid(row=1, column=0, sticky="w", pady=(8, 0))
+        dimmer_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=14)
+        dimmer_card.grid(row=1, column=0, sticky="w", pady=(10, 0))
 
-        dim_lbl = tk.Label(
-            dimmer_frame,
+        dim_lbl = ctk.CTkLabel(
+            dimmer_card,
             textvariable=self._dimmer_label_var,
-            font=("Segoe UI", 9),
-            fg=COLOR_SUBTEXT,
-            bg=COLOR_ROOT,
+            font=get_safe_font("Bahnschrift", 12, "bold"),
+            text_color=COLOR_TEXT,
         )
-        dim_lbl.pack(side="left")
+        dim_lbl.pack(side="left", padx=(12, 10), pady=10)
 
-        dim_scale = ttk.Scale(
-            dimmer_frame,
+        dim_slider = ctk.CTkSlider(
+            dimmer_card,
             from_=0,
             to=100,
-            orient="horizontal",
+            number_of_steps=100,
+            width=320,
+            height=20,
             variable=self._dimmer_value,
             command=lambda _v: self._apply_dimmer_label(),
+            fg_color=COLOR_BORDER,
+            progress_color=COLOR_WARNING,
+            button_color=COLOR_TEXT,
+            button_hover_color=COLOR_TEXT,
         )
-        dim_scale.pack(side="left", padx=(10, 0), ipadx=40)
+        dim_slider.pack(side="left", padx=(0, 12), pady=10)
 
         def _on_release(_event) -> None:
             try:
@@ -257,7 +264,7 @@ class HueTab:
                 pct = 0
             self._set_brightness_async(pct)
 
-        dim_scale.bind("<ButtonRelease-1>", _on_release)
+        dim_slider.bind("<ButtonRelease-1>", _on_release)
 
         btn = tk.Button(
             header,
