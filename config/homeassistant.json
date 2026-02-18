@@ -1,0 +1,13 @@
+{
+  "url": "http://homeassistant.local:8123",
+  "token": "PASTE_LONG_LIVED_ACCESS_TOKEN_HERE",
+  "verify_ssl": true,
+  "timeout_s": 5,
+
+  "master_entity_id": "light.wohnzimmer",
+
+  "scene_all_on": "scene.hell",
+  "scene_all_off": "scene.aus",
+
+  "scene_entity_ids": []
+}
