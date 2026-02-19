@@ -17,6 +17,8 @@ class HomeAssistantConfig:
     master_entity_id: Optional[str] = None
     scene_all_on: Optional[str] = None
     scene_all_off: Optional[str] = None
+    scene_come_home: Optional[str] = None
+    scene_leave_home: Optional[str] = None
     scene_entity_ids: Optional[List[str]] = None
     dim_entity_ids: Optional[List[str]] = None
 
@@ -93,6 +95,8 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         master_entity_id=_opt_str("master_entity_id"),
         scene_all_on=_opt_str("scene_all_on"),
         scene_all_off=_opt_str("scene_all_off"),
+        scene_come_home=_opt_str("scene_come_home"),
+        scene_leave_home=_opt_str("scene_leave_home"),
         scene_entity_ids=scene_entity_ids,
         dim_entity_ids=dim_entity_ids,
     )
@@ -198,6 +202,37 @@ class HomeAssistantClient:
                 continue
         lights.sort(key=lambda x: x.lower())
         return lights
+
+    def any_lights_on(self, entity_ids: Optional[List[str]] = None) -> bool:
+        """Return True if any selected light entity is currently ON.
+
+        If entity_ids is None/empty, checks all light.* entities.
+        """
+        wanted: Optional[set[str]] = None
+        if entity_ids:
+            wanted = {str(x).strip().lower() for x in entity_ids if str(x).strip()}
+            if not wanted:
+                wanted = None
+
+        for st in self.get_states():
+            try:
+                entity_id = str(st.get("entity_id") or "")
+                ent_l = entity_id.lower()
+                if wanted is not None:
+                    if ent_l not in wanted:
+                        continue
+                else:
+                    if not ent_l.startswith("light."):
+                        continue
+
+                state = str(st.get("state") or "").lower()
+                if state in ("unavailable", "unknown"):
+                    continue
+                if state == "on":
+                    return True
+            except Exception:
+                continue
+        return False
 
     def set_light_brightness_pct(self, entity_ids: List[str], brightness_pct: int) -> bool:
         try:

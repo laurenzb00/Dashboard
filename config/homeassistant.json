@@ -9,6 +9,9 @@
   "scene_all_on": "scene.hell",
   "scene_all_off": "scene.aus",
 
+  "scene_come_home": "scene.hell",
+  "scene_leave_home": "scene.aus",
+
   "scene_entity_ids": [],
 
   "dim_entity_ids": []

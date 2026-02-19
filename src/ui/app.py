@@ -1229,11 +1229,16 @@ class MainApp:
         except Exception:
             pass
 
-        # Hue: switch all lights off (best-effort)
+        # Hue/HA: leave-home scene (best-effort)
         try:
             if hasattr(self, "hue_tab") and self.hue_tab:
                 try:
-                    self.hue_tab._threaded_group_cmd(False)
+                    if hasattr(self.hue_tab, "leave_home_safe"):
+                        ok = bool(self.hue_tab.leave_home_safe())
+                        if not ok:
+                            self.hue_tab._threaded_group_cmd(False)
+                    else:
+                        self.hue_tab._threaded_group_cmd(False)
                 except Exception:
                     pass
         except Exception:
@@ -1302,14 +1307,22 @@ class MainApp:
         except Exception:
             pass
 
-        # Hue: prefer activating scene "Hell" (best-effort); fallback to all on
+        # Hue/HA: come-home scene (best-effort); fallback to old behavior
         try:
             if hasattr(self, "hue_tab") and self.hue_tab:
                 try:
-                    if hasattr(self.hue_tab, "activate_scene_by_name_safe"):
-                        self.hue_tab.activate_scene_by_name_safe("Hell")
+                    if hasattr(self.hue_tab, "come_home_safe"):
+                        ok = bool(self.hue_tab.come_home_safe())
+                        if not ok:
+                            if hasattr(self.hue_tab, "activate_scene_by_name_safe"):
+                                self.hue_tab.activate_scene_by_name_safe("Hell")
+                            else:
+                                self.hue_tab._threaded_group_cmd(True)
                     else:
-                        self.hue_tab._threaded_group_cmd(True)
+                        if hasattr(self.hue_tab, "activate_scene_by_name_safe"):
+                            self.hue_tab.activate_scene_by_name_safe("Hell")
+                        else:
+                            self.hue_tab._threaded_group_cmd(True)
                 except Exception:
                     pass
         except Exception:

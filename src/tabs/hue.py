@@ -117,6 +117,34 @@ class HueTab:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def come_home_safe(self) -> bool:
+        """Trigger the configured 'come home' scene (best-effort, async)."""
+        try:
+            cfg = self._ha_cfg
+            if not cfg:
+                return False
+            scene_id = getattr(cfg, "scene_come_home", None) or getattr(cfg, "scene_all_on", None)
+            if not scene_id:
+                return False
+            self._activate_scene_async(str(scene_id))
+            return True
+        except Exception:
+            return False
+
+    def leave_home_safe(self) -> bool:
+        """Trigger the configured 'leave home' scene (best-effort, async)."""
+        try:
+            cfg = self._ha_cfg
+            if not cfg:
+                return False
+            scene_id = getattr(cfg, "scene_leave_home", None) or getattr(cfg, "scene_all_off", None)
+            if not scene_id:
+                return False
+            self._activate_scene_async(str(scene_id))
+            return True
+        except Exception:
+            return False
+
     def activate_scene_by_name_safe(self, name: str) -> bool:
         """Activate a scene by friendly name (best-effort)."""
 
@@ -128,9 +156,11 @@ class HueTab:
         # User intent: map this to the configured "all on" scene (e.g. "Alles hell").
         try:
             cfg = self._ha_cfg
-            if wanted == "hell" and cfg and getattr(cfg, "scene_all_on", None):
-                self._activate_scene_async(str(cfg.scene_all_on))
-                return True
+            if wanted == "hell" and cfg:
+                scene_id = getattr(cfg, "scene_come_home", None) or getattr(cfg, "scene_all_on", None)
+                if scene_id:
+                    self._activate_scene_async(str(scene_id))
+                    return True
         except Exception:
             pass
 
@@ -357,19 +387,21 @@ class HueTab:
             ent = sc.get("entity_id") or ""
             r = idx // cols
             c = idx % cols
-            b = tk.Button(
+            b = ctk.CTkButton(
                 self._scroll_window,
                 text=name,
-                font=("Segoe UI", 10),
-                bg=COLOR_CARD,
-                fg=COLOR_TEXT,
-                activebackground=COLOR_CARD,
-                relief="flat",
                 command=lambda e=ent: self._activate_scene_async(e),
+                fg_color=COLOR_CARD,
+                hover_color=COLOR_BORDER,
+                border_color=COLOR_BORDER,
+                border_width=1,
+                text_color=COLOR_TEXT,
+                corner_radius=14,
+                height=56,
+                font=get_safe_font("Bahnschrift", 14, "bold"),
                 wraplength=220,
-                justify="center",
             )
-            b.grid(row=r, column=c, sticky="ew", padx=6, pady=6, ipadx=6, ipady=10)
+            b.grid(row=r, column=c, sticky="ew", padx=6, pady=6)
             self._scene_buttons[ent] = b
 
     def _refresh_scenes_async(self) -> None:
