@@ -7,10 +7,10 @@
   "master_entity_id": "light.wohnzimmer",
 
   "scene_all_on": "scene.hell",
-  "scene_all_off": "scene.aus",
+  "scene_all_off": "scene.alles_aus",
 
   "scene_come_home": "scene.hell",
-  "scene_leave_home": "scene.aus",
+  "scene_leave_home": "scene.alles_aus",
 
   "scene_entity_ids": [],
 

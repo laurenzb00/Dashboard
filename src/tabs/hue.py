@@ -53,26 +53,9 @@ class _HomeAssistantBridgeAdapter:
             if (now - self._cache_ts) < 3.0:
                 return {"state": {"any_on": bool(self._cache_any_on)}}
 
-            if self._master_entity_id:
-                st = self._client.get_state(self._master_entity_id)
-                is_on = bool(st and str(st.get("state")).lower() == "on")
-                self._cache_any_on = is_on
-                self._cache_ts = now
-                return {"state": {"any_on": is_on}}
-
-            # Fallback: compute any_on from all light.* states.
-            any_on = False
-            for st in self._client.get_states():
-                try:
-                    ent = str(st.get("entity_id") or "")
-                    if not ent.startswith("light."):
-                        continue
-                    state = str(st.get("state") or "").lower()
-                    if state == "on":
-                        any_on = True
-                        break
-                except Exception:
-                    continue
+            # Switch semantics (user spec): ON if *any* light is on; OFF only if *all* lights are off.
+            # Therefore we compute 'any_on' across all light.* states (master_entity_id is not sufficient).
+            any_on = bool(self._client.any_lights_on(None))
             self._cache_any_on = any_on
             self._cache_ts = now
             return {"state": {"any_on": any_on}}

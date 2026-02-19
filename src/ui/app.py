@@ -20,6 +20,7 @@ from datetime import timezone
 import logging
 import time
 import threading
+import queue
 import sys
 from tkinter import ttk
 
@@ -163,6 +164,37 @@ class TabviewWrapper:
 
 
 class MainApp:
+    def _start_ui_pump(self) -> None:
+        if getattr(self, "_ui_pump_started", False):
+            return
+        self._ui_pump_started = True
+
+        def pump() -> None:
+            try:
+                while True:
+                    cb = self._ui_queue.get_nowait()
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+            except queue.Empty:
+                pass
+            try:
+                self.root.after(50, pump)
+            except Exception:
+                pass
+
+        try:
+            self.root.after(0, pump)
+        except Exception:
+            pass
+
+    def _post_ui(self, callback) -> None:
+        try:
+            self._ui_queue.put(callback)
+        except Exception:
+            pass
+
     @staticmethod
     def _safe_parse_iso_dt(value: str | None) -> datetime | None:
         if not value:
@@ -699,6 +731,10 @@ class MainApp:
         self._tick_count = 0
         self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
 
+        # Tkinter is not thread-safe; route background-thread UI updates via this queue.
+        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._start_ui_pump()
+
         # Shared DataStore wird beim Start bereitgestellt
         _dbg_print("[INIT] MainApp: DataStore wird geladen...")
         self.datastore = datastore or safe_get_datastore()
@@ -915,10 +951,7 @@ class MainApp:
                     pass
                 _reschedule()
 
-            try:
-                self.root.after(0, apply)
-            except Exception:
-                _reschedule()
+            self._post_ui(apply)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1279,10 +1312,7 @@ class MainApp:
                 except Exception:
                     pass
 
-            try:
-                self.root.after(0, apply)
-            except Exception:
-                pass
+            self._post_ui(apply)
 
         try:
             threading.Thread(target=worker, daemon=True).start()
@@ -1362,10 +1392,7 @@ class MainApp:
                 except Exception:
                     pass
 
-            try:
-                self.root.after(0, apply)
-            except Exception:
-                pass
+            self._post_ui(apply)
 
         try:
             threading.Thread(target=worker, daemon=True).start()
