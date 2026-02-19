@@ -17,5 +17,9 @@
 
   "scene_entity_ids": [],
 
-  "dim_entity_ids": []
+  "dim_entity_ids": [],
+
+  "vorraum_scene_on": "scene.vorraum_ein",
+  "vorraum_scene_off": "scene.vorraum_aus",
+  "vorraum_status_entity_id": "switch.deckenlampe_vorraum"
 }

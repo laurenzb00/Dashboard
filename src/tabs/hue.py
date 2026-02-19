@@ -82,6 +82,11 @@ class HueTab:
         self._dimmer_value = tk.DoubleVar(value=100.0)
         self._dimmer_label_var = tk.StringVar(value="Dimmen: 100%")
 
+        self._vorraum_var = tk.BooleanVar(value=False)
+        self._vorraum_status_var = tk.StringVar(value="")
+        self._vorraum_ignore_callback = False
+        self._vorraum_status_entity_resolved: Optional[str] = None
+
         self._scene_buttons: Dict[str, tk.Button] = {}
         self._scenes: List[Dict[str, str]] = []
 
@@ -99,6 +104,8 @@ class HueTab:
         self._start_ui_pump()
         self._init_homeassistant()
         self._refresh_scenes_async()
+        self._refresh_vorraum_status_async()
+        self._schedule_vorraum_poll()
 
     def _start_ui_pump(self) -> None:
         def pump() -> None:
@@ -373,6 +380,37 @@ class HueTab:
 
         dim_slider.bind("<ButtonRelease-1>", _on_release)
 
+        vorraum_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=14)
+        vorraum_card.grid(row=2, column=0, sticky="w", pady=(10, 0))
+
+        vorraum_title = ctk.CTkLabel(
+            vorraum_card,
+            text="Vorraum",
+            font=get_safe_font("Bahnschrift", 12, "bold"),
+            text_color=COLOR_TEXT,
+        )
+        vorraum_title.pack(side="left", padx=(12, 10), pady=10)
+
+        vorraum_switch = ctk.CTkSwitch(
+            vorraum_card,
+            text="",
+            variable=self._vorraum_var,
+            command=self._on_vorraum_toggle,
+            fg_color=COLOR_BORDER,
+            progress_color=COLOR_WARNING,
+            button_color=COLOR_TEXT,
+            button_hover_color=COLOR_TEXT,
+        )
+        vorraum_switch.pack(side="left", padx=(0, 10), pady=10)
+
+        vorraum_status_lbl = ctk.CTkLabel(
+            vorraum_card,
+            textvariable=self._vorraum_status_var,
+            font=get_safe_font("Bahnschrift", 11, "normal"),
+            text_color=COLOR_SUBTEXT,
+        )
+        vorraum_status_lbl.pack(side="left", padx=(0, 12), pady=10)
+
         btn = tk.Button(
             header,
             text="↻ Neu laden",
@@ -381,7 +419,7 @@ class HueTab:
             fg=COLOR_TEXT,
             activebackground=COLOR_CARD,
             relief="flat",
-            command=self._refresh_scenes_async,
+            command=self._refresh_all_async,
         )
         btn.grid(row=1, column=1, sticky="e", pady=(8, 0))
 
@@ -506,6 +544,196 @@ class HueTab:
                     self.status_var.set(f"✅ Home Assistant: {len(scenes)} Szenen")
                 else:
                     self.status_var.set("⚠️ Home Assistant: Fehler beim Laden")
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _refresh_all_async(self) -> None:
+        self._refresh_scenes_async()
+        self._refresh_vorraum_status_async()
+
+    def _normalize_scene_name(self, name: str) -> str:
+        return " ".join(str(name or "").strip().lower().split())
+
+    def _resolve_scene_entity_id(self, scene_name_or_entity_id: Optional[str]) -> Optional[str]:
+        raw = str(scene_name_or_entity_id or "").strip()
+        if not raw:
+            return None
+        if raw.lower().startswith("scene."):
+            return raw
+
+        wanted = self._normalize_scene_name(raw)
+        for sc in (self._scenes or []):
+            if self._normalize_scene_name(sc.get("name") or "") == wanted:
+                ent = str(sc.get("entity_id") or "").strip()
+                return ent or None
+        return None
+
+    def _on_vorraum_toggle(self) -> None:
+        if self._vorraum_ignore_callback:
+            return
+        try:
+            desired_on = bool(self._vorraum_var.get())
+        except Exception:
+            desired_on = False
+
+        self._vorraum_status_var.set("⏳ schalte …")
+        self._set_vorraum_scene_async(desired_on)
+
+    def _set_vorraum_scene_async(self, turn_on: bool) -> None:
+        def worker() -> None:
+            ok = False
+            scene_ent: Optional[str] = None
+            try:
+                client = self._ha_client
+                cfg = self._ha_cfg
+                if not client or not cfg:
+                    ok = False
+                else:
+                    scene_key = "vorraum_scene_on" if turn_on else "vorraum_scene_off"
+                    configured = getattr(cfg, scene_key, None)
+                    scene_ent = self._resolve_scene_entity_id(configured)
+                    if not scene_ent:
+                        # Fallback: look up by friendly name in loaded scenes.
+                        scene_ent = self._resolve_scene_entity_id("vorraum ein" if turn_on else "vorraum aus")
+
+                    if not scene_ent:
+                        try:
+                            scenes = client.list_scenes()
+                            wanted = self._normalize_scene_name("vorraum ein" if turn_on else "vorraum aus")
+                            for sc in scenes:
+                                if self._normalize_scene_name(sc.get("name") or "") == wanted:
+                                    scene_ent = str(sc.get("entity_id") or "").strip() or None
+                                    break
+                        except Exception:
+                            pass
+
+                    ok = bool(scene_ent and client.activate_scene(scene_ent))
+            except Exception:
+                ok = False
+
+            def apply() -> None:
+                if not self.alive:
+                    return
+                if ok:
+                    self.status_var.set(f"✅ Vorraum Szene aktiviert: {scene_ent}")
+                else:
+                    self.status_var.set("⚠️ Vorraum Szene fehlgeschlagen")
+
+            self._post_ui(apply)
+
+            # Best-effort: refresh status after HA applied changes.
+            try:
+                time.sleep(0.4)
+            except Exception:
+                pass
+            self._refresh_vorraum_status_async()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _schedule_vorraum_poll(self) -> None:
+        if not self.alive:
+            return
+
+        def tick() -> None:
+            if not self.alive:
+                return
+            self._refresh_vorraum_status_async()
+            try:
+                self.root.after(5000, tick)
+            except Exception:
+                pass
+
+        try:
+            self.root.after(5000, tick)
+        except Exception:
+            pass
+
+    def _refresh_vorraum_status_async(self) -> None:
+        if not self.alive:
+            return
+
+        def worker() -> None:
+            client = self._ha_client
+            cfg = self._ha_cfg
+
+            resolved_entity = (self._vorraum_status_entity_resolved or "").strip()
+            if not resolved_entity and cfg:
+                resolved_entity = str(getattr(cfg, "vorraum_status_entity_id", "") or "").strip()
+
+            state_data = None
+            try:
+                if client and resolved_entity:
+                    state_data = client.get_state(resolved_entity)
+            except Exception:
+                state_data = None
+
+            # Fallbacks: try common entity IDs, then heuristic search.
+            if client and state_data is None and not resolved_entity:
+                for candidate in ("light.vorraum", "switch.vorraum", "input_boolean.vorraum"):
+                    try:
+                        st = client.get_state(candidate)
+                        if st is not None:
+                            resolved_entity = candidate
+                            state_data = st
+                            break
+                    except Exception:
+                        continue
+
+            if client and state_data is None and not resolved_entity:
+                try:
+                    for st in client.get_states():
+                        ent = str(st.get("entity_id") or "")
+                        if not ent.startswith(("light.", "switch.", "input_boolean.")):
+                            continue
+                        attrs = st.get("attributes") or {}
+                        friendly = str(attrs.get("friendly_name") or "").strip().lower()
+                        if "vorraum" in friendly:
+                            resolved_entity = ent
+                            state_data = st
+                            break
+                except Exception:
+                    pass
+
+            enabled: Optional[bool]
+            status_text: str
+            if not client or state_data is None:
+                enabled = None
+                status_text = "Status: unbekannt"
+            else:
+                try:
+                    state_raw = str(state_data.get("state") or "").strip().lower()
+                    if state_raw in ("on", "true", "open"):
+                        enabled = True
+                    elif state_raw in ("off", "false", "closed"):
+                        enabled = False
+                    else:
+                        enabled = None
+                except Exception:
+                    enabled = None
+
+                if enabled is True:
+                    status_text = "Status: Ein"
+                elif enabled is False:
+                    status_text = "Status: Aus"
+                else:
+                    status_text = "Status: unbekannt"
+
+            def apply() -> None:
+                if not self.alive:
+                    return
+                if resolved_entity:
+                    self._vorraum_status_entity_resolved = resolved_entity
+                self._vorraum_status_var.set(status_text)
+
+                if enabled is None:
+                    return
+                try:
+                    self._vorraum_ignore_callback = True
+                    self._vorraum_var.set(bool(enabled))
+                finally:
+                    self._vorraum_ignore_callback = False
 
             self._post_ui(apply)
 

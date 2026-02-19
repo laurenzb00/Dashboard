@@ -23,6 +23,9 @@ class HomeAssistantConfig:
     scene_leave_home: Optional[str] = None
     scene_entity_ids: Optional[List[str]] = None
     dim_entity_ids: Optional[List[str]] = None
+    vorraum_scene_on: Optional[str] = None
+    vorraum_scene_off: Optional[str] = None
+    vorraum_status_entity_id: Optional[str] = None
 
 
 def _read_json_file(path: str) -> Optional[dict]:
@@ -112,6 +115,9 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         scene_leave_home=_opt_str("scene_leave_home"),
         scene_entity_ids=scene_entity_ids,
         dim_entity_ids=dim_entity_ids,
+        vorraum_scene_on=_opt_str("vorraum_scene_on"),
+        vorraum_scene_off=_opt_str("vorraum_scene_off"),
+        vorraum_status_entity_id=_opt_str("vorraum_status_entity_id"),
     )
 
 
