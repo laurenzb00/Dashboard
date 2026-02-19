@@ -272,6 +272,7 @@ class HueTab:
             ok = False
             try:
                 client = self._ha_client
+                cfg = self._ha_cfg
                 targets = self._dimmer_targets()
                 if not client or not targets:
                     ok = False
@@ -281,6 +282,26 @@ class HueTab:
                         ok = bool(client.turn_off_lights(targets))
                     else:
                         ok = bool(client.set_light_brightness_pct(targets, pct))
+
+                    # User rule: when dimming above threshold -> ceiling lamp ON; below threshold -> OFF.
+                    # Exact threshold value does not change the ceiling lamp state.
+                    try:
+                        ceiling_ent = str(getattr(cfg, "ceiling_entity_id", "") or "").strip()
+                        threshold = int(getattr(cfg, "ceiling_threshold_pct", 80) or 80)
+                        threshold = max(0, min(100, threshold))
+                        if ceiling_ent:
+                            if pct > threshold:
+                                ok_ceiling = bool(
+                                    client.call_service("homeassistant", "turn_on", {"entity_id": ceiling_ent})
+                                )
+                                ok = bool(ok and ok_ceiling)
+                            elif pct < threshold:
+                                ok_ceiling = bool(
+                                    client.call_service("homeassistant", "turn_off", {"entity_id": ceiling_ent})
+                                )
+                                ok = bool(ok and ok_ceiling)
+                    except Exception:
+                        pass
             except Exception:
                 ok = False
 

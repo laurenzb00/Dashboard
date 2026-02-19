@@ -15,6 +15,8 @@ class HomeAssistantConfig:
     verify_ssl: bool = True
     timeout_s: float = 5.0
     master_entity_id: Optional[str] = None
+    ceiling_entity_id: Optional[str] = None
+    ceiling_threshold_pct: int = 80
     scene_all_on: Optional[str] = None
     scene_all_off: Optional[str] = None
     scene_come_home: Optional[str] = None
@@ -75,6 +77,15 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         val = str(val).strip()
         return val or None
 
+    def _opt_int(key: str, default: int) -> int:
+        val = file_cfg.get(key)
+        if val is None:
+            return int(default)
+        try:
+            return int(val)
+        except Exception:
+            return int(default)
+
     scene_ids = file_cfg.get("scene_entity_ids")
     if isinstance(scene_ids, list):
         scene_entity_ids = [str(x).strip() for x in scene_ids if str(x).strip()]
@@ -93,6 +104,8 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         verify_ssl=verify_ssl,
         timeout_s=timeout_s,
         master_entity_id=_opt_str("master_entity_id"),
+        ceiling_entity_id=_opt_str("ceiling_entity_id"),
+        ceiling_threshold_pct=max(0, min(100, _opt_int("ceiling_threshold_pct", 80))),
         scene_all_on=_opt_str("scene_all_on"),
         scene_all_off=_opt_str("scene_all_off"),
         scene_come_home=_opt_str("scene_come_home"),

@@ -6,6 +6,9 @@
 
   "master_entity_id": "light.wohnzimmer",
 
+  "ceiling_entity_id": "switch.deckenlampe_schlafzimmer",
+  "ceiling_threshold_pct": 80,
+
   "scene_all_on": "scene.hell",
   "scene_all_off": "scene.alles_aus",
 
