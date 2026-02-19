@@ -1185,7 +1185,7 @@ class MainApp:
         except Exception:
             pass
         try:
-            self.root.after(800, self._sync_hue_switch_state)
+            self.root.after(1800, self._sync_hue_switch_state)
         except Exception:
             pass
 
@@ -1197,7 +1197,7 @@ class MainApp:
         except Exception:
             pass
         try:
-            self.root.after(800, self._sync_hue_switch_state)
+            self.root.after(1800, self._sync_hue_switch_state)
         except Exception:
             pass
 

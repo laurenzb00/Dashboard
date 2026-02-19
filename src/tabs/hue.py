@@ -36,6 +36,13 @@ class _HomeAssistantBridgeAdapter:
         self._cache_any_on: bool = False
         self._cache_ts: float = 0.0
 
+    def set_cached_any_on(self, value: bool) -> None:
+        try:
+            self._cache_any_on = bool(value)
+            self._cache_ts = time.monotonic()
+        except Exception:
+            pass
+
     def get_group(self, group_id: int) -> Dict[str, Any]:
         if int(group_id) != 0:
             return {"state": {"any_on": False}}
@@ -110,6 +117,14 @@ class HueTab:
 
     def _threaded_group_cmd(self, turn_on: bool) -> None:
         """Best-effort master on/off for header switch callbacks."""
+
+        # Prevent the header switch from snapping back before HA updates its state.
+        try:
+            with self._bridge_lock:
+                if isinstance(self.bridge, _HomeAssistantBridgeAdapter):
+                    self.bridge.set_cached_any_on(bool(turn_on))
+        except Exception:
+            pass
 
         def worker() -> None:
             ok = False
@@ -348,7 +363,7 @@ class HueTab:
         scrollbar.pack(side="right", fill="y")
         self._scroll_canvas.configure(yscrollcommand=scrollbar.set)
 
-        self._scroll_window = tk.Frame(self._scroll_canvas, bg=COLOR_ROOT)
+        self._scroll_window = ctk.CTkFrame(self._scroll_canvas, fg_color=COLOR_ROOT, corner_radius=0)
         self._scroll_window_id = self._scroll_canvas.create_window((0, 0), window=self._scroll_window, anchor="nw")
 
         def _on_frame_configure(_event):
@@ -394,14 +409,13 @@ class HueTab:
         self._scene_buttons.clear()
 
         if not self._scenes:
-            lbl = tk.Label(
+            lbl = ctk.CTkLabel(
                 self._scroll_window,
                 text="Keine Szenen gefunden.",
-                font=("Segoe UI", 10),
-                fg=COLOR_SUBTEXT,
-                bg=COLOR_ROOT,
+                font=get_safe_font("Bahnschrift", 12, "bold"),
+                text_color=COLOR_SUBTEXT,
             )
-            lbl.pack(anchor="w", padx=6, pady=6)
+            lbl.pack(anchor="w", padx=10, pady=10)
             return
 
         cols = 3
