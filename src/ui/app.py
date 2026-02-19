@@ -1178,7 +1178,7 @@ class MainApp:
 
     # --- Callbacks ---
     def on_toggle_a(self):
-        self.status.update_status("Hue: Alle an")
+        self.status.update_status("Licht: Alle an")
         try:
             if hasattr(self, "hue_tab") and self.hue_tab:
                 self.hue_tab._threaded_group_cmd(True)
@@ -1190,7 +1190,7 @@ class MainApp:
             pass
 
     def on_toggle_b(self):
-        self.status.update_status("Hue: Alle aus")
+        self.status.update_status("Licht: Alle aus")
         try:
             if hasattr(self, "hue_tab") and self.hue_tab:
                 self.hue_tab._threaded_group_cmd(False)

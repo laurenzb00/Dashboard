@@ -3,6 +3,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 import threading
+import requests
 import subprocess
 import shutil
 import shlex
@@ -196,7 +197,7 @@ class HealthTab:
         self._update_btn.grid(row=0, column=2, sticky="w", padx=(10, 0))
 
         # Integration labels
-        self.var_hue = tk.StringVar(value="Hue: –")
+        self.var_hue = tk.StringVar(value="Home Assistant: –")
         self.var_tado = tk.StringVar(value="Tado: –")
         self.var_spotify = tk.StringVar(value="Spotify: –")
 
@@ -204,6 +205,66 @@ class HealthTab:
         body2.pack(fill=tk.BOTH, expand=True)
         for v in (self.var_hue, self.var_tado, self.var_spotify):
             ctk.CTkLabel(body2, textvariable=v, font=("Segoe UI", 12), text_color=COLOR_TEXT).pack(anchor="w", pady=2)
+
+    def _refresh_homeassistant_async(self) -> None:
+        if getattr(self, "_ha_check_running", False):
+            return
+        self._ha_check_running = True
+
+        try:
+            self.var_hue.set("Home Assistant: prüfe…")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            msg = "Home Assistant: –"
+            try:
+                tab = getattr(self.app, "hue_tab", None) if self.app else None
+                client = getattr(tab, "_ha_client", None) if tab else None
+                cfg = getattr(tab, "_ha_cfg", None) if tab else None
+                if client is None or cfg is None:
+                    msg = "Home Assistant: –"
+                else:
+                    t0 = time.perf_counter()
+                    states = client.get_states()
+                    ms = int((time.perf_counter() - t0) * 1000)
+
+                    lights_total = 0
+                    lights_on = 0
+                    scenes = 0
+                    for st in states:
+                        try:
+                            ent = str(st.get("entity_id") or "")
+                            state = str(st.get("state") or "").lower()
+                            if ent.startswith("light."):
+                                if state not in ("unknown", "unavailable"):
+                                    lights_total += 1
+                                    if state == "on":
+                                        lights_on += 1
+                            elif ent.startswith("scene."):
+                                scenes += 1
+                        except Exception:
+                            continue
+
+                    msg = f"Home Assistant: OK ({ms}ms), lights_on={lights_on}/{lights_total}, scenes={scenes}"
+            except requests.exceptions.RequestException as exc:
+                msg = f"Home Assistant: Fehler ({type(exc).__name__})"
+            except Exception as exc:
+                msg = f"Home Assistant: Fehler ({type(exc).__name__})"
+
+            def apply() -> None:
+                try:
+                    self.var_hue.set(msg)
+                except Exception:
+                    pass
+                self._ha_check_running = False
+
+            try:
+                self.root.after(0, apply)
+            except Exception:
+                self._ha_check_running = False
+
+        threading.Thread(target=worker, daemon=True).start()
 
         hint = ctk.CTkLabel(
             container,
@@ -531,21 +592,7 @@ class HealthTab:
             self.var_cache.set("Sparkline cache: –")
 
         # Integrations
-        try:
-            tab = getattr(self.app, "hue_tab", None) if self.app else None
-            bridge = getattr(tab, "bridge", None) if tab else None
-            lock = getattr(tab, "_bridge_lock", None) if tab else None
-            if bridge and lock:
-                t0 = time.perf_counter()
-                with lock:
-                    group = bridge.get_group(0)
-                any_on = bool((group or {}).get("state", {}).get("any_on", False))
-                ms = int((time.perf_counter() - t0) * 1000)
-                self.var_hue.set(f"Hue: OK ({ms}ms), any_on={any_on}")
-            else:
-                self.var_hue.set("Hue: –")
-        except Exception as exc:
-            self.var_hue.set(f"Hue: Fehler ({type(exc).__name__})")
+        self._refresh_homeassistant_async()
 
         try:
             tab = getattr(self.app, "tado_tab", None) if self.app else None

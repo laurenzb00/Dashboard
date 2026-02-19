@@ -14,6 +14,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
+import time
 from typing import Any, Dict, List, Optional
 
 import customtkinter as ctk
@@ -32,16 +33,41 @@ class _HomeAssistantBridgeAdapter:
     def __init__(self, client: HomeAssistantClient, master_entity_id: Optional[str]):
         self._client = client
         self._master_entity_id = master_entity_id
+        self._cache_any_on: bool = False
+        self._cache_ts: float = 0.0
 
     def get_group(self, group_id: int) -> Dict[str, Any]:
         if int(group_id) != 0:
             return {"state": {"any_on": False}}
-        if not self._master_entity_id:
-            return {"state": {"any_on": False}}
         try:
-            st = self._client.get_state(self._master_entity_id)
-            is_on = bool(st and str(st.get("state")).lower() == "on")
-            return {"state": {"any_on": is_on}}
+            # Small cache to keep UI snappy (app polls every ~7s).
+            now = time.monotonic()
+            if (now - self._cache_ts) < 3.0:
+                return {"state": {"any_on": bool(self._cache_any_on)}}
+
+            if self._master_entity_id:
+                st = self._client.get_state(self._master_entity_id)
+                is_on = bool(st and str(st.get("state")).lower() == "on")
+                self._cache_any_on = is_on
+                self._cache_ts = now
+                return {"state": {"any_on": is_on}}
+
+            # Fallback: compute any_on from all light.* states.
+            any_on = False
+            for st in self._client.get_states():
+                try:
+                    ent = str(st.get("entity_id") or "")
+                    if not ent.startswith("light."):
+                        continue
+                    state = str(st.get("state") or "").lower()
+                    if state == "on":
+                        any_on = True
+                        break
+                except Exception:
+                    continue
+            self._cache_any_on = any_on
+            self._cache_ts = now
+            return {"state": {"any_on": any_on}}
         except Exception:
             return {"state": {"any_on": False}}
 
