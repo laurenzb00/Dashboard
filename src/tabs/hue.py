@@ -10,6 +10,7 @@ The UI lists Home Assistant scenes (scene.*) and triggers `scene.turn_on`.
 
 from __future__ import annotations
 
+import queue
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -101,6 +102,10 @@ class HueTab:
         self._scene_buttons: Dict[str, tk.Button] = {}
         self._scenes: List[Dict[str, str]] = []
 
+        # Tkinter is not thread-safe. Background workers must not call Tk APIs.
+        # We route UI updates through this queue and execute them on the main thread.
+        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+
         if tab_frame is not None:
             self.tab_frame = tab_frame
         else:
@@ -108,8 +113,41 @@ class HueTab:
             notebook.add(self.tab_frame, text=emoji("💡 Licht", "Licht"))
 
         self._build_ui()
+        self._start_ui_pump()
         self._init_homeassistant()
         self._refresh_scenes_async()
+
+    def _start_ui_pump(self) -> None:
+        def pump() -> None:
+            if not self.alive:
+                return
+            try:
+                while True:
+                    cb = self._ui_queue.get_nowait()
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+            except queue.Empty:
+                pass
+
+            try:
+                self.root.after(50, pump)
+            except Exception:
+                pass
+
+        try:
+            self.root.after(0, pump)
+        except Exception:
+            pass
+
+    def _post_ui(self, callback) -> None:
+        try:
+            if not self.alive:
+                return
+            self._ui_queue.put(callback)
+        except Exception:
+            pass
 
     # --- public API used by app.py ---
     def cleanup(self) -> None:
@@ -151,10 +189,7 @@ class HueTab:
                     return
                 self.status_var.set("✅ Home Assistant: OK" if ok else "⚠️ Home Assistant: keine Aktion möglich")
 
-            try:
-                self.root.after(0, apply)
-            except Exception:
-                pass
+            self._post_ui(apply)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -271,10 +306,7 @@ class HueTab:
                     return
                 self.status_var.set("✅ Dimmer gesetzt" if ok else "⚠️ Dimmer fehlgeschlagen")
 
-            try:
-                self.root.after(0, apply)
-            except Exception:
-                pass
+            self._post_ui(apply)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -472,10 +504,7 @@ class HueTab:
                 else:
                     self.status_var.set("⚠️ Home Assistant: Fehler beim Laden")
 
-            try:
-                self.root.after(0, apply)
-            except Exception:
-                pass
+            self._post_ui(apply)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -499,9 +528,6 @@ class HueTab:
                     f"✅ Szene aktiviert: {entity_id}" if ok else f"⚠️ Szene fehlgeschlagen: {entity_id}"
                 )
 
-            try:
-                self.root.after(0, apply)
-            except Exception:
-                pass
+            self._post_ui(apply)
 
         threading.Thread(target=worker, daemon=True).start()

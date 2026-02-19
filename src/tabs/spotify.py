@@ -77,7 +77,7 @@ class SpotifyTab:
         body.pack(fill=BOTH, expand=True, pady=(12, 0))
         self.device_container = tk.Frame(body, bg=COLOR_ROOT)
         self.device_container.pack(fill=BOTH, expand=True)
-        tk.Label(self.device_container, text="Keine Geräte geladen", bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=12)
+        tk.Label(self.device_container, text="Keine Geräte geladen", bg=COLOR_ROOT, fg=COLOR_TEXT).grid(row=0, column=0, pady=12)
 
     def _update_login_url(self, url: str) -> None:
         """Speichert die aktuelle Login-URL und aktualisiert die UI-Variable."""
@@ -816,14 +816,33 @@ class SpotifyTab:
         for child in self.device_container.winfo_children():
             child.destroy()
         if not devices:
-            tk.Label(self.device_container, text="Keine Ger\u00e4te", bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=8)
+            tk.Label(self.device_container, text="Keine Ger\u00e4te", bg=COLOR_ROOT, fg=COLOR_TEXT).grid(row=0, column=0, pady=8)
             return
+
+        # Raster-Layout (statt Liste)
+        container_width = self.device_container.winfo_width()
+        if container_width <= 1:
+            container_width = self.root.winfo_width() or 900
+
+        # Ziel: kompakte Kacheln, responsiv 2-4 Spalten
+        approx_cell_px = 260
+        col_count = max(2, min(4, int(container_width // approx_cell_px) or 2))
+        for col in range(col_count):
+            self.device_container.grid_columnconfigure(col, weight=1, uniform="device")
+
         active_id = next((dev.get("id") for dev in devices if dev.get("is_active")), None)
-        for dev in devices:
+        for idx, dev in enumerate(devices):
             bootstyle = "primary" if dev.get("id") == active_id else "secondary"
             text = f"{dev.get('name', 'Gerät')}\n{dev.get('type', '')}"
-            ttk.Button(self.device_container, text=text, width=22,
-                       command=lambda d=dev: self._activate_device(d), bootstyle=bootstyle).pack(fill=tk.X, pady=4)
+            row = idx // col_count
+            col = idx % col_count
+            ttk.Button(
+                self.device_container,
+                text=text,
+                width=22,
+                command=lambda d=dev: self._activate_device(d),
+                bootstyle=bootstyle,
+            ).grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
 
     def _activate_device(self, device: dict):
         if not self.client or not device.get("id"):
