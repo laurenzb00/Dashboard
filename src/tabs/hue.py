@@ -471,7 +471,6 @@ class HueTab:
                 corner_radius=14,
                 height=56,
                 font=get_safe_font("Bahnschrift", 14, "bold"),
-                wraplength=220,
             )
             b.grid(row=r, column=c, sticky="ew", padx=6, pady=6)
             self._scene_buttons[ent] = b
