@@ -947,6 +947,11 @@ class MainApp:
                 try:
                     if is_on is not None and hasattr(self, "header") and self.header:
                         self.header.set_light_switch_state(is_on)
+                        try:
+                            if hasattr(self.header, "set_leave_home_active"):
+                                self.header.set_leave_home_active(not is_on)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 _reschedule()

@@ -89,6 +89,9 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.leave_btn.pack(side=tk.LEFT, padx=(0, 8))
 
+        self._leave_btn_text_inactive = "🏃"
+        self._leave_btn_text_active = "🏃✓"
+
         self.home_btn = ctk.CTkButton(
             actions,
             text="🏠",
@@ -222,6 +225,24 @@ class HeaderBar(ctk.CTkFrame):
             pass
         finally:
             self._suppress_light_switch_event = False
+
+    def set_leave_home_active(self, is_active: bool | None) -> None:
+        """Mark the leave-home button as active when 'all lights are off'."""
+        try:
+            if is_active is True:
+                self.leave_btn.configure(
+                    text=self._leave_btn_text_active,
+                    border_color=COLOR_WARNING,
+                    text_color=COLOR_WARNING,
+                )
+            else:
+                self.leave_btn.configure(
+                    text=self._leave_btn_text_inactive,
+                    border_color=COLOR_BORDER,
+                    text_color=COLOR_TEXT,
+                )
+        except Exception:
+            pass
 
     def update_header(self, date_text: str, weekday: str, time_text: str, out_temp: str):
         self.date_label.configure(text=date_text)
