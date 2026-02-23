@@ -44,6 +44,7 @@ data/                   # Daten-Dateien
 
 config/                # Konfiguration
 ├── bkmdaten.json      # BMK-Anmeldedaten
+├── homeassistant.json  # Home Assistant (URL/Token + optionale Actions)
 ├── Pufferspeicher.json # Pufferspeicher-Config
 └── logintado          # Tado-Login
 
@@ -105,6 +106,21 @@ Die App verwendet SQLite für schnelle Abfragen:
 - `ertrag`: Ertragsdaten
 
 ## Entwicklung
+
+### Home Assistant: Automationen & Skripte starten
+
+In `config/homeassistant.json` kannst du optional `actions` definieren, die im Tab "🤖 Automationen" als Buttons erscheinen.
+
+Beispiel:
+
+```json
+{
+    "actions": [
+        {"label": "Guten Morgen", "service": "automation.trigger", "data": {"entity_id": "automation.guten_morgen"}},
+        {"label": "Staubsauger", "service": "script.turn_on", "data": {"entity_id": "script.start_vacuum"}}
+    ]
+}
+```
 
 ### Code-Style
 - Python 3.11+

@@ -124,6 +124,11 @@ try:
 except ImportError:
     HealthTab = None
 
+try:
+    from tabs.homeassistant_actions import HomeAssistantActionsTab
+except ImportError:
+    HomeAssistantActionsTab = None
+
 # StatusTab importieren
 try:
     from tabs.status import StatusTab
@@ -1131,6 +1136,22 @@ class MainApp:
             except Exception as e:
                 print(f"[ERROR] TagesproduktionTab init failed: {e}")
                 self.tagesproduktion_tab = None
+
+        # Home Assistant Actions Tab
+        if HomeAssistantActionsTab:
+            try:
+                _dbg_print("[TABS] HomeAssistantActionsTab wird erstellt...")
+                self.tabview.add(emoji("🤖 Automationen", "Automationen"))
+                ha_frame = self.tabview.tab(emoji("🤖 Automationen", "Automationen"))
+                try:
+                    ha_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
+                self.homeassistant_actions_tab = HomeAssistantActionsTab(self.root, self.notebook, tab_frame=ha_frame)
+                _dbg_print("[TABS] HomeAssistantActionsTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] HomeAssistantActionsTab init failed: {e}")
+                self.homeassistant_actions_tab = None
 
         # SystemTab soll vorletzter Tab sein
         if SystemTab:

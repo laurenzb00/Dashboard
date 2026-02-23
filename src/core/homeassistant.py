@@ -26,6 +26,7 @@ class HomeAssistantConfig:
     vorraum_scene_on: Optional[str] = None
     vorraum_scene_off: Optional[str] = None
     vorraum_status_entity_id: Optional[str] = None
+    actions: Optional[List[Dict[str, Any]]] = None
 
 
 def _read_json_file(path: str) -> Optional[dict]:
@@ -101,6 +102,52 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
     else:
         dim_entity_ids = None
 
+    raw_actions = file_cfg.get("actions")
+    actions: Optional[List[Dict[str, Any]]] = None
+    if isinstance(raw_actions, list):
+        parsed: List[Dict[str, Any]] = []
+        for item in raw_actions:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or item.get("name") or "").strip()
+            svc_full = str(item.get("service") or "").strip()
+            domain = str(item.get("domain") or "").strip()
+            service = str(item.get("service_name") or "").strip()
+            data = item.get("data")
+            if not isinstance(data, dict):
+                data = {}
+
+            # Support either: {service: "automation.trigger"} OR {domain:"automation", service_name:"trigger"}
+            if svc_full and (not domain or not service):
+                if "." in svc_full:
+                    d, s = svc_full.split(".", 1)
+                    domain = domain or d.strip()
+                    service = service or s.strip()
+
+            if not label:
+                # Fallback label: show entity_id if present, else service string
+                ent = data.get("entity_id")
+                if isinstance(ent, str) and ent.strip():
+                    label = ent.strip()
+                elif isinstance(ent, list) and ent:
+                    label = str(ent[0])
+                else:
+                    label = svc_full or f"{domain}.{service}".strip(".")
+
+            if not domain or not service:
+                continue
+
+            parsed.append(
+                {
+                    "label": label,
+                    "domain": domain,
+                    "service": service,
+                    "data": data,
+                }
+            )
+
+        actions = parsed or None
+
     return HomeAssistantConfig(
         url=url.rstrip("/"),
         token=token,
@@ -118,6 +165,7 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         vorraum_scene_on=_opt_str("vorraum_scene_on"),
         vorraum_scene_off=_opt_str("vorraum_scene_off"),
         vorraum_status_entity_id=_opt_str("vorraum_status_entity_id"),
+        actions=actions,
     )
 
 
