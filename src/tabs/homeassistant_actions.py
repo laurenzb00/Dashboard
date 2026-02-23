@@ -9,19 +9,15 @@ import customtkinter as ctk
 
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.card import Card
-from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, get_safe_font, emoji
+from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, get_safe_font
 
 
 class HomeAssistantActionsTab:
-    """Trigger Home Assistant automations/scripts configured in config/homeassistant.json.
+    """Home Assistant actions tab.
 
-    Configuration format (in config/homeassistant.json):
-    {
-      "actions": [
-        {"label": "Guten Morgen", "service": "automation.trigger", "data": {"entity_id": "automation.guten_morgen"}},
-        {"label": "Staubsauger", "service": "script.turn_on", "data": {"entity_id": "script.start_vacuum"}}
-      ]
-    }
+    - If `actions` are configured in config/homeassistant.json, those are shown.
+    - Otherwise, all `automation.*` and `script.*` entities are discovered via
+      the Home Assistant states API and shown as buttons.
     """
 
     def __init__(self, root: tk.Tk, notebook, tab_frame=None):
@@ -31,7 +27,12 @@ class HomeAssistantActionsTab:
 
         self._ha_client: Optional[HomeAssistantClient] = None
         self._ha_cfg = None
+
+        self._configured_actions: List[Dict[str, Any]] = []
+        self._discovered_actions: List[Dict[str, Any]] = []
         self._actions: List[Dict[str, Any]] = []
+
+        self._entity_load_running = False
 
         self.status_var = tk.StringVar(value="Home Assistant: –")
 
@@ -42,12 +43,13 @@ class HomeAssistantActionsTab:
             self.tab_frame = tab_frame
         else:
             self.tab_frame = ctk.CTkFrame(self.notebook, fg_color=COLOR_ROOT)
-            self.notebook.add(self.tab_frame, text=emoji("🏠 Home Assistant", "Home Assistant"))
+            self.notebook.add(self.tab_frame, text="HomeA")
 
         self._build_ui()
         self._start_ui_pump()
         self._init_homeassistant()
         self._render_actions()
+        self._refresh_entities_async()
 
     def cleanup(self) -> None:
         self.alive = False
@@ -94,32 +96,40 @@ class HomeAssistantActionsTab:
 
         header = Card(main, padding=12)
         header.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
-        header.add_title("Home Assistant", icon="🏠")
+        header.add_title("HomeA", icon="🏠")
 
         header_body = ctk.CTkFrame(header.content(), fg_color="transparent")
         header_body.pack(fill=tk.X)
 
-        self._status_label = ctk.CTkLabel(
+        ctk.CTkLabel(
             header_body,
             textvariable=self.status_var,
             font=get_safe_font("Bahnschrift", 12),
             text_color=COLOR_TEXT,
-        )
-        self._status_label.pack(anchor="w")
+        ).pack(anchor="w")
 
-        hint = ctk.CTkLabel(
+        ctk.CTkLabel(
             header_body,
-            text="Aktionen werden aus config/homeassistant.json geladen.",
+            text=(
+                "Automationen/Skripte werden aus Home Assistant geladen "
+                "(optional: actions in config/homeassistant.json)."
+            ),
             font=("Segoe UI", 10),
             text_color=COLOR_SUBTEXT,
-        )
-        hint.pack(anchor="w", pady=(6, 0))
+            wraplength=820,
+            justify="left",
+        ).pack(anchor="w", pady=(6, 0))
 
         self._actions_card = Card(main, padding=12)
         self._actions_card.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
         self._actions_card.add_title("Automationen & Skripte", icon="🤖")
 
-        self._actions_body = ctk.CTkFrame(self._actions_card.content(), fg_color="transparent")
+        self._actions_body = ctk.CTkScrollableFrame(
+            self._actions_card.content(),
+            fg_color="transparent",
+            scrollbar_button_color=COLOR_BORDER,
+            scrollbar_button_hover_color=COLOR_BORDER,
+        )
         self._actions_body.pack(fill=tk.BOTH, expand=True)
 
     def _init_homeassistant(self) -> None:
@@ -127,6 +137,8 @@ class HomeAssistantActionsTab:
         if not cfg:
             self._ha_client = None
             self._ha_cfg = None
+            self._configured_actions = []
+            self._discovered_actions = []
             self._actions = []
             try:
                 self.status_var.set("⚠️ Home Assistant: config/homeassistant.json oder ENV fehlt")
@@ -138,15 +150,106 @@ class HomeAssistantActionsTab:
         self._ha_client = HomeAssistantClient(cfg)
 
         actions = getattr(cfg, "actions", None)
-        if isinstance(actions, list):
-            self._actions = actions
-        else:
-            self._actions = []
+        self._configured_actions = list(actions) if isinstance(actions, list) else []
+        self._actions = list(self._configured_actions)
 
         try:
-            self.status_var.set("✅ Home Assistant: bereit")
+            self.status_var.set("⏳ Home Assistant: lade Automationen/Skripte …")
         except Exception:
             pass
+
+    def _refresh_entities_async(self) -> None:
+        client = self._ha_client
+        if not client:
+            return
+        if self._entity_load_running:
+            return
+        self._entity_load_running = True
+
+        def worker() -> None:
+            discovered: List[Dict[str, Any]] = []
+            err: str = ""
+            try:
+                states = client.get_states()
+                for st in states:
+                    try:
+                        entity_id = str(st.get("entity_id") or "").strip()
+                        if not (entity_id.startswith("automation.") or entity_id.startswith("script.")):
+                            continue
+
+                        attrs = st.get("attributes") or {}
+                        friendly = str(attrs.get("friendly_name") or "").strip()
+                        label = friendly or entity_id
+
+                        if entity_id.startswith("automation."):
+                            domain, service = "automation", "trigger"
+                        else:
+                            domain, service = "script", "turn_on"
+
+                        discovered.append(
+                            {
+                                "label": label,
+                                "domain": domain,
+                                "service": service,
+                                "data": {"entity_id": entity_id},
+                            }
+                        )
+                    except Exception:
+                        continue
+
+                discovered.sort(key=lambda a: str(a.get("label") or "").lower())
+            except Exception as exc:
+                err = str(exc)
+
+            def apply() -> None:
+                if not self.alive:
+                    return
+                self._entity_load_running = False
+
+                if err:
+                    self._discovered_actions = []
+                    if not self._configured_actions:
+                        self._actions = []
+                    try:
+                        self.status_var.set(f"⚠️ Home Assistant: Fehler beim Laden ({err})")
+                    except Exception:
+                        pass
+                else:
+                    self._discovered_actions = discovered
+                    # Combine configured + discovered actions (configured first) and dedupe.
+                    combined: List[Dict[str, Any]] = []
+                    seen: set[tuple[str, str, str]] = set()
+
+                    def _key(a: Dict[str, Any]) -> tuple[str, str, str]:
+                        d = str(a.get("domain") or "").strip().lower()
+                        s = str(a.get("service") or "").strip().lower()
+                        ent = ""
+                        try:
+                            data = a.get("data") or {}
+                            ent = str(data.get("entity_id") or "").strip().lower()
+                        except Exception:
+                            ent = ""
+                        return (d, s, ent)
+
+                    for a in (list(self._configured_actions) + list(self._discovered_actions)):
+                        k = _key(a)
+                        if k in seen:
+                            continue
+                        seen.add(k)
+                        combined.append(a)
+
+                    self._actions = combined
+                    try:
+                        extra = f" (+{len(self._configured_actions)} config)" if self._configured_actions else ""
+                        self.status_var.set(f"✅ Home Assistant: {len(self._discovered_actions)} gefunden{extra}")
+                    except Exception:
+                        pass
+
+                self._render_actions()
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _render_actions(self) -> None:
         try:
@@ -165,9 +268,10 @@ class HomeAssistantActionsTab:
             return
 
         if not self._actions:
+            msg = "⏳ Lade Automationen/Skripte …" if self._entity_load_running else "Keine Automationen/Skripte gefunden."
             ctk.CTkLabel(
                 self._actions_body,
-                text="Keine Aktionen konfiguriert. Füge in config/homeassistant.json eine Liste 'actions' hinzu.",
+                text=msg,
                 font=("Segoe UI", 12),
                 text_color=COLOR_SUBTEXT,
                 wraplength=760,
@@ -180,7 +284,6 @@ class HomeAssistantActionsTab:
         grid.grid_columnconfigure(0, weight=1)
         grid.grid_columnconfigure(1, weight=1)
 
-        self._action_buttons: List[ctk.CTkButton] = []
         for idx, action in enumerate(self._actions):
             label = str(action.get("label") or "").strip() or "Aktion"
             domain = str(action.get("domain") or "").strip()
@@ -195,7 +298,13 @@ class HomeAssistantActionsTab:
 
             sub = ent or f"{domain}.{service}".strip(".")
 
-            card = ctk.CTkFrame(grid, fg_color=COLOR_CARD, corner_radius=10, border_width=1, border_color=COLOR_BORDER)
+            card = ctk.CTkFrame(
+                grid,
+                fg_color=COLOR_CARD,
+                corner_radius=10,
+                border_width=1,
+                border_color=COLOR_BORDER,
+            )
             r, c = divmod(idx, 2)
             card.grid(row=r, column=c, sticky="nsew", padx=6, pady=6)
             card.grid_columnconfigure(0, weight=1)
@@ -214,7 +323,7 @@ class HomeAssistantActionsTab:
                 text_color=COLOR_SUBTEXT,
             ).grid(row=1, column=0, sticky="w", padx=10, pady=(2, 8))
 
-            btn = ctk.CTkButton(
+            ctk.CTkButton(
                 card,
                 text="Start",
                 fg_color=COLOR_CARD,
@@ -222,9 +331,7 @@ class HomeAssistantActionsTab:
                 hover_color=COLOR_BORDER,
                 command=lambda a=action: self._trigger_action_async(a),
                 width=120,
-            )
-            btn.grid(row=2, column=0, sticky="w", padx=10, pady=(0, 10))
-            self._action_buttons.append(btn)
+            ).grid(row=2, column=0, sticky="w", padx=10, pady=(0, 10))
 
     def _trigger_action_async(self, action: Dict[str, Any]) -> None:
         client = self._ha_client

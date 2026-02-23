@@ -104,10 +104,7 @@ try:
 except ImportError:
     HueTab = None
 
-try:
-    from tabs.system import SystemTab
-except ImportError:
-    SystemTab = None
+SystemTab = None
 
 try:
     from tabs.calendar import CalendarTab
@@ -1032,6 +1029,22 @@ class MainApp:
                 import traceback
                 traceback.print_exc()
                 self.hue_tab = None
+
+        # HomeA (Home Assistant Automationen/Skripte) soll als 3. Tab erscheinen
+        if HomeAssistantActionsTab:
+            try:
+                _dbg_print("[TABS] HomeAssistantActionsTab wird erstellt...")
+                self.tabview.add("HomeA")
+                ha_frame = self.tabview.tab("HomeA")
+                try:
+                    ha_frame.configure(fg_color=COLOR_ROOT)
+                except:
+                    pass
+                self.homeassistant_actions_tab = HomeAssistantActionsTab(self.root, self.notebook, tab_frame=ha_frame)
+                _dbg_print("[TABS] HomeAssistantActionsTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                print(f"[ERROR] HomeAssistantActionsTab init failed: {e}")
+                self.homeassistant_actions_tab = None
         
         # Andere Tabs (Portierung zu CustomTkinter fortlaufend)
         if SpotifyTab:
@@ -1136,38 +1149,6 @@ class MainApp:
             except Exception as e:
                 print(f"[ERROR] TagesproduktionTab init failed: {e}")
                 self.tagesproduktion_tab = None
-
-        # Home Assistant Actions Tab
-        if HomeAssistantActionsTab:
-            try:
-                _dbg_print("[TABS] HomeAssistantActionsTab wird erstellt...")
-                self.tabview.add(emoji("🤖 Automationen", "Automationen"))
-                ha_frame = self.tabview.tab(emoji("🤖 Automationen", "Automationen"))
-                try:
-                    ha_frame.configure(fg_color=COLOR_ROOT)
-                except:
-                    pass
-                self.homeassistant_actions_tab = HomeAssistantActionsTab(self.root, self.notebook, tab_frame=ha_frame)
-                _dbg_print("[TABS] HomeAssistantActionsTab erfolgreich hinzugefügt.")
-            except Exception as e:
-                print(f"[ERROR] HomeAssistantActionsTab init failed: {e}")
-                self.homeassistant_actions_tab = None
-
-        # SystemTab soll vorletzter Tab sein
-        if SystemTab:
-            try:
-                _dbg_print("[TABS] SystemTab wird erstellt...")
-                self.tabview.add(emoji("⚙️ System", "System"))
-                system_frame = self.tabview.tab(emoji("⚙️ System", "System"))
-                try:
-                    system_frame.configure(fg_color=COLOR_ROOT)
-                except:
-                    pass
-                self.system_tab = SystemTab(self.root, self.notebook, tab_frame=system_frame)
-                _dbg_print("[TABS] SystemTab erfolgreich hinzugefügt.")
-            except Exception as e:
-                print(f"[ERROR] SystemTab init failed: {e}")
-                self.system_tab = None
 
         # StatusTab immer als letzter Tab (rechts)
         if StatusTab and SHOW_STATUS_TAB:

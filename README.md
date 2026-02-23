@@ -109,7 +109,7 @@ Die App verwendet SQLite für schnelle Abfragen:
 
 ### Home Assistant: Automationen & Skripte starten
 
-In `config/homeassistant.json` kannst du optional `actions` definieren, die im Tab "🤖 Automationen" als Buttons erscheinen.
+In `config/homeassistant.json` kannst du optional `actions` definieren, die im Tab "HomeA" als Buttons erscheinen.
 
 Beispiel:
 
