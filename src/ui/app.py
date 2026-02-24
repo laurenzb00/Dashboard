@@ -1262,18 +1262,61 @@ class MainApp:
             pass
 
     def on_leave_home(self):
-        """Header-Button 🏃 (Away): überschreibt `person.laurenz` für 10 Minuten."""
+        """Header-Button 🏃 (Away): startet die Leaving-Home Automation."""
+
+        self._trigger_ha_automation(
+            "automation.leaving_home_alles_licht_aus_heizung_aus_spotify_iphone",
+            status_label="Leaving Home",
+        )
+
+    def on_come_home(self):
+        """Header-Button 🏠 (Home): startet die Coming-Home Automation."""
+
+        self._trigger_ha_automation(
+            "automation.schlafzimmer_coming_home_resume",
+            status_label="Coming Home",
+        )
+
+    def _trigger_ha_automation(self, entity_id: str, status_label: str) -> None:
+        entity_id = str(entity_id or "").strip()
+        if not entity_id:
+            return
 
         try:
-            self._presence_override_start(location_name="not_home")
+            self.status.update_status(f"Automation: {status_label}…")
         except Exception:
             pass
 
-    def on_come_home(self):
-        """Header-Button 🏠 (Home): überschreibt `person.laurenz` für 10 Minuten."""
+        def worker() -> None:
+            ok = False
+            err = ""
+            try:
+                client = self._get_presence_ha_client()
+                if not client:
+                    err = "Home Assistant nicht konfiguriert"
+                else:
+                    ok = bool(client.call_service("automation", "trigger", {"entity_id": entity_id}))
+            except Exception as exc:
+                ok = False
+                err = str(exc)
+
+            def apply() -> None:
+                try:
+                    if ok:
+                        self.status.update_status(f"Automation: {status_label} gestartet")
+                    else:
+                        msg = err or "fehlgeschlagen"
+                        self.status.update_status(f"Automation: Fehler ({msg})")
+                except Exception:
+                    pass
+
+            try:
+                self._post_ui(apply)
+            except Exception:
+                pass
 
         try:
-            self._presence_override_start(location_name="home")
+            threading.Thread(target=worker, daemon=True).start()
         except Exception:
             pass
 
@@ -1324,15 +1367,27 @@ class MainApp:
             duration_s = max(60, int(minutes) * 60)
         except Exception:
             duration_s = 600
-        refresh_s = 30  # keep-alive cadence
+        refresh_s = 30  # keep-alive cadence (tracker mode)
 
         self._presence_override_person_entity_id = "person.laurenz"
-        # Mobile-app trackers can't be overridden reliably via device_tracker.see.
-        # Use a dedicated manual tracker entity that you add to the person in HA.
-        self._presence_override_tracker_entity_id = os.environ.get(
-            "PRESENCE_OVERRIDE_TRACKER_ENTITY_ID",
-            "device_tracker.laurenz_override",
-        ).strip() or "device_tracker.laurenz_override"
+        # Optional script-based override (recommended): create two HA scripts that
+        # implement the 10-minute override logic via helpers/templates.
+        script_home = (os.environ.get("PRESENCE_OVERRIDE_SCRIPT_HOME") or "").strip()
+        script_away = (os.environ.get("PRESENCE_OVERRIDE_SCRIPT_AWAY") or "").strip()
+        if script_home and script_away:
+            self._presence_override_mode = "script"
+            self._presence_override_script_entity_id = script_home if str(location_name).strip() == "home" else script_away
+            # No keep-alive needed; HA owns the timer. We just keep the UI timer.
+            refresh_s = 30
+        else:
+            self._presence_override_mode = "tracker"
+            self._presence_override_script_entity_id = None
+            # Mobile-app trackers can't be overridden reliably via device_tracker.see.
+            # Use a dedicated manual tracker entity that you add to the person in HA.
+            self._presence_override_tracker_entity_id = os.environ.get(
+                "PRESENCE_OVERRIDE_TRACKER_ENTITY_ID",
+                "device_tracker.laurenz_override",
+            ).strip() or "device_tracker.laurenz_override"
         self._presence_override_location_name = str(location_name or "").strip() or "home"
         self._presence_override_refresh_s = int(refresh_s)
         self._presence_override_deadline_mono = time.monotonic() + float(duration_s)
@@ -1378,6 +1433,8 @@ class MainApp:
             return
 
         person_ent = getattr(self, "_presence_override_person_entity_id", "person.laurenz")
+        mode = str(getattr(self, "_presence_override_mode", "tracker") or "tracker")
+        script_ent = getattr(self, "_presence_override_script_entity_id", None)
         tracker_ent = getattr(self, "_presence_override_tracker_entity_id", "device_tracker.laurenz_override")
         location_name = getattr(self, "_presence_override_location_name", "home")
         refresh_s = int(getattr(self, "_presence_override_refresh_s", 30) or 30)
@@ -1392,18 +1449,26 @@ class MainApp:
                 if not client:
                     err = "Home Assistant nicht konfiguriert"
                 else:
-                    # If the override tracker isn't attached to the person in HA, the person won't follow.
-                    try:
-                        pst = client.get_state(person_ent) or {}
-                        trackers = (pst.get("attributes") or {}).get("device_trackers") or []
-                        if isinstance(trackers, list) and tracker_ent not in [str(x) for x in trackers]:
-                            err = f"Bitte {tracker_ent} bei {person_ent} hinzufügen"
-                    except Exception:
-                        pass
+                    if mode == "script":
+                        if not script_ent:
+                            err = "Override-Script nicht konfiguriert"
+                        else:
+                            ok = bool(client.call_service("script", "turn_on", {"entity_id": str(script_ent)}))
+                            if not ok:
+                                err = "script.turn_on fehlgeschlagen"
+                    else:
+                        # If the override tracker isn't attached to the person in HA, the person won't follow.
+                        try:
+                            pst = client.get_state(person_ent) or {}
+                            trackers = (pst.get("attributes") or {}).get("device_trackers") or []
+                            if isinstance(trackers, list) and tracker_ent not in [str(x) for x in trackers]:
+                                err = f"Bitte {tracker_ent} bei {person_ent} hinzufügen"
+                        except Exception:
+                            pass
 
-                    ok = bool(client.force_person_presence(person_ent, location_name, device_tracker_entity_id=tracker_ent))
-                    if not ok:
-                        err = "device_tracker.see fehlgeschlagen"
+                        ok = bool(client.force_person_presence(person_ent, location_name, device_tracker_entity_id=tracker_ent))
+                        if not ok:
+                            err = "device_tracker.see fehlgeschlagen"
             except Exception as exc:
                 ok = False
                 err = str(exc)
@@ -1444,7 +1509,12 @@ class MainApp:
                 pass
 
         try:
-            threading.Thread(target=worker, daemon=True).start()
+            # In script mode we only need to fire once (first tick).
+            if mode == "script":
+                if getattr(self, "_presence_override_last_ok", None) is None:
+                    threading.Thread(target=worker, daemon=True).start()
+            else:
+                threading.Thread(target=worker, daemon=True).start()
         except Exception:
             pass
 
