@@ -51,6 +51,7 @@ from ui.app_state import AppState
 from ui.state_schema import validate_payload
 
 from core.datastore import DataStore, get_shared_datastore
+from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 
 _UI_DIR = os.path.dirname(os.path.abspath(__file__))
 _SRC_DIR = os.path.dirname(_UI_DIR)
@@ -1244,6 +1245,10 @@ class MainApp:
     def on_exit(self):
         self.status.update_status("Beende...")
         try:
+            self._presence_override_stop(silent=True)
+        except Exception:
+            pass
+        try:
             if hasattr(self, "hue_tab") and self.hue_tab:
                 try:
                     self.hue_tab.cleanup()
@@ -1331,6 +1336,12 @@ class MainApp:
         except Exception:
             pass
 
+        # Presence override: force `person.laurenz` to Away for 10 minutes.
+        try:
+            self._presence_override_start(location_name="not_home")
+        except Exception:
+            pass
+
     def on_come_home(self):
         """"Komme heim"-Aktion.
 
@@ -1410,6 +1421,130 @@ class MainApp:
             self.root.after(800, self._sync_hue_switch_state)
         except Exception:
             pass
+
+        # Presence override: force `person.laurenz` to Home for 10 minutes.
+        try:
+            self._presence_override_start(location_name="home")
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Presence override (Home/Away buttons)
+    # ------------------------------------------------------------------
+    def _get_presence_ha_client(self) -> HomeAssistantClient | None:
+        """Return a Home Assistant client instance (best-effort)."""
+
+        # Prefer existing HA client from Hue tab (single source of config).
+        try:
+            tab = getattr(self, "hue_tab", None)
+            client = getattr(tab, "_ha_client", None) if tab else None
+            if isinstance(client, HomeAssistantClient):
+                return client
+        except Exception:
+            pass
+
+        # Fallback: create a dedicated client for presence overrides.
+        try:
+            client = getattr(self, "_presence_ha_client", None)
+            if isinstance(client, HomeAssistantClient):
+                return client
+        except Exception:
+            client = None
+
+        try:
+            cfg = load_homeassistant_config()
+            if not cfg:
+                return None
+            client = HomeAssistantClient(cfg)
+            self._presence_ha_client = client
+            return client
+        except Exception:
+            return None
+
+    def _presence_override_start(self, location_name: str, minutes: int = 10) -> None:
+        """Start (or restart) a temporary presence override."""
+
+        # Cancel existing timer.
+        try:
+            self._presence_override_stop(silent=True)
+        except Exception:
+            pass
+
+        # Configuration (fixed by user request: 10 minutes override).
+        try:
+            duration_s = max(60, int(minutes) * 60)
+        except Exception:
+            duration_s = 600
+        refresh_s = 30  # keep-alive cadence
+
+        self._presence_override_person_entity_id = "person.laurenz"
+        self._presence_override_location_name = str(location_name or "").strip() or "home"
+        self._presence_override_refresh_s = int(refresh_s)
+        self._presence_override_deadline_mono = time.monotonic() + float(duration_s)
+        self._presence_override_after_id = None
+
+        try:
+            pretty = "HOME" if self._presence_override_location_name == "home" else "AWAY"
+            self.status.update_status(f"Presence Override: {pretty} (10m)")
+        except Exception:
+            pass
+
+        # Trigger immediately and schedule keep-alives.
+        self._presence_override_tick()
+
+    def _presence_override_stop(self, silent: bool = False) -> None:
+        after_id = getattr(self, "_presence_override_after_id", None)
+        if after_id is not None:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+
+        self._presence_override_after_id = None
+        self._presence_override_deadline_mono = None
+        self._presence_override_location_name = None
+
+        if not silent:
+            try:
+                self.status.update_status("Presence Override: beendet")
+            except Exception:
+                pass
+
+    def _presence_override_tick(self) -> None:
+        deadline = getattr(self, "_presence_override_deadline_mono", None)
+        if not deadline:
+            return
+
+        now = time.monotonic()
+        if now >= float(deadline):
+            self._presence_override_stop(silent=False)
+            return
+
+        person_ent = getattr(self, "_presence_override_person_entity_id", "person.laurenz")
+        location_name = getattr(self, "_presence_override_location_name", "home")
+        refresh_s = int(getattr(self, "_presence_override_refresh_s", 30) or 30)
+        refresh_s = max(10, min(120, refresh_s))
+
+        # Run the actual HA call in a background thread.
+        def worker() -> None:
+            try:
+                client = self._get_presence_ha_client()
+                if not client:
+                    return
+                client.force_person_presence(person_ent, location_name)
+            except Exception:
+                return
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
+
+        # Reschedule keep-alive.
+        try:
+            self._presence_override_after_id = self.root.after(refresh_s * 1000, self._presence_override_tick)
+        except Exception:
+            self._presence_override_after_id = None
 
     def _apply_fullscreen(self):
         """Setzt echtes Vollbild (ohne overrideredirect) und zentriert das Fenster."""

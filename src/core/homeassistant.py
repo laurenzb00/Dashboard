@@ -323,3 +323,57 @@ class HomeAssistantClient:
         if not entity_id.startswith("scene."):
             return False
         return self.call_service("scene", "turn_on", {"entity_id": entity_id})
+
+    def force_person_presence(
+        self,
+        person_entity_id: str,
+        location_name: str,
+        device_tracker_entity_id: str | None = None,
+    ) -> bool:
+        """Force a person's presence for a moment via `device_tracker.see`.
+
+        Home Assistant's `person.*` entities are usually derived from one or more
+        trackers and cannot be set directly via the public REST API.
+
+        This helper uses `device_tracker.see` and tries to auto-detect the
+        underlying tracker from the person's `source` attribute.
+
+        Notes:
+        - `location_name` should be "home" or "not_home".
+        - This is best-effort: real tracker updates (GPS) may overwrite it.
+        """
+
+        person_entity_id = str(person_entity_id or "").strip()
+        location_name = str(location_name or "").strip()
+        device_tracker_entity_id = str(device_tracker_entity_id or "").strip() or None
+
+        if not person_entity_id or not location_name:
+            return False
+
+        if device_tracker_entity_id is None:
+            st = self.get_state(person_entity_id)
+            if not st:
+                return False
+            attrs = st.get("attributes") or {}
+            src = str(attrs.get("source") or "").strip()
+            if src.startswith("device_tracker."):
+                device_tracker_entity_id = src
+
+        if not device_tracker_entity_id:
+            return False
+
+        dev_id = device_tracker_entity_id
+        if dev_id.startswith("device_tracker."):
+            dev_id = dev_id.split(".", 1)[1]
+        dev_id = dev_id.strip()
+        if not dev_id:
+            return False
+
+        return self.call_service(
+            "device_tracker",
+            "see",
+            {
+                "dev_id": dev_id,
+                "location_name": location_name,
+            },
+        )
