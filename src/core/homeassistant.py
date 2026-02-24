@@ -391,25 +391,36 @@ class HomeAssistantClient:
             "location_name": location_name,
         }
 
-        # For a reliable "home" override, also set GPS to zone.home
-        # so zone tracking can resolve the state as home immediately.
+        # For reliable overrides, also set GPS so zone tracking resolves
+        # the desired state immediately.
+        try:
+            z = self.get_state("zone.home") or {}
+            z_attrs = z.get("attributes") or {}
+            home_lat = z_attrs.get("latitude")
+            home_lon = z_attrs.get("longitude")
+        except Exception:
+            home_lat = None
+            home_lon = None
+
         if location_name == "home":
             try:
-                z = self.get_state("zone.home") or {}
-                z_attrs = z.get("attributes") or {}
-                lat = z_attrs.get("latitude")
-                lon = z_attrs.get("longitude")
-                if lat is not None and lon is not None:
-                    payload["gps"] = [float(lat), float(lon)]
+                if home_lat is not None and home_lon is not None:
+                    payload["gps"] = [float(home_lat), float(home_lon)]
                     payload["gps_accuracy"] = 5
             except Exception:
                 pass
 
-        ok = self.call_service(
-            "device_tracker",
-            "see",
-            payload,
-        )
+        if location_name == "not_home":
+            try:
+                if home_lat is not None and home_lon is not None:
+                    payload["gps"] = [float(home_lat) + 1.0, float(home_lon) + 1.0]
+                else:
+                    payload["gps"] = [0.0, 0.0]
+                payload["gps_accuracy"] = 50
+            except Exception:
+                pass
+
+        ok = self.call_service("device_tracker", "see", payload)
 
         # Nudge HA to recompute `person.*` right away.
         try:

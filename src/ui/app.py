@@ -1327,6 +1327,12 @@ class MainApp:
         refresh_s = 30  # keep-alive cadence
 
         self._presence_override_person_entity_id = "person.laurenz"
+        # Mobile-app trackers can't be overridden reliably via device_tracker.see.
+        # Use a dedicated manual tracker entity that you add to the person in HA.
+        self._presence_override_tracker_entity_id = os.environ.get(
+            "PRESENCE_OVERRIDE_TRACKER_ENTITY_ID",
+            "device_tracker.laurenz_override",
+        ).strip() or "device_tracker.laurenz_override"
         self._presence_override_location_name = str(location_name or "").strip() or "home"
         self._presence_override_refresh_s = int(refresh_s)
         self._presence_override_deadline_mono = time.monotonic() + float(duration_s)
@@ -1372,6 +1378,7 @@ class MainApp:
             return
 
         person_ent = getattr(self, "_presence_override_person_entity_id", "person.laurenz")
+        tracker_ent = getattr(self, "_presence_override_tracker_entity_id", "device_tracker.laurenz_override")
         location_name = getattr(self, "_presence_override_location_name", "home")
         refresh_s = int(getattr(self, "_presence_override_refresh_s", 30) or 30)
         refresh_s = max(10, min(120, refresh_s))
@@ -1385,7 +1392,16 @@ class MainApp:
                 if not client:
                     err = "Home Assistant nicht konfiguriert"
                 else:
-                    ok = bool(client.force_person_presence(person_ent, location_name))
+                    # If the override tracker isn't attached to the person in HA, the person won't follow.
+                    try:
+                        pst = client.get_state(person_ent) or {}
+                        trackers = (pst.get("attributes") or {}).get("device_trackers") or []
+                        if isinstance(trackers, list) and tracker_ent not in [str(x) for x in trackers]:
+                            err = f"Bitte {tracker_ent} bei {person_ent} hinzufügen"
+                    except Exception:
+                        pass
+
+                    ok = bool(client.force_person_presence(person_ent, location_name, device_tracker_entity_id=tracker_ent))
                     if not ok:
                         err = "device_tracker.see fehlgeschlagen"
             except Exception as exc:
