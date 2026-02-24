@@ -1331,6 +1331,8 @@ class MainApp:
         self._presence_override_refresh_s = int(refresh_s)
         self._presence_override_deadline_mono = time.monotonic() + float(duration_s)
         self._presence_override_after_id = None
+        self._presence_override_last_ok = None
+        self._presence_override_last_error = ""
 
         try:
             pretty = "HOME" if self._presence_override_location_name == "home" else "AWAY"
@@ -1376,13 +1378,54 @@ class MainApp:
 
         # Run the actual HA call in a background thread.
         def worker() -> None:
+            ok = False
+            err = ""
             try:
                 client = self._get_presence_ha_client()
                 if not client:
+                    err = "Home Assistant nicht konfiguriert"
+                else:
+                    ok = bool(client.force_person_presence(person_ent, location_name))
+                    if not ok:
+                        err = "device_tracker.see fehlgeschlagen"
+            except Exception as exc:
+                ok = False
+                err = str(exc)
+
+            def apply() -> None:
+                prev_ok = getattr(self, "_presence_override_last_ok", None)
+                prev_err = str(getattr(self, "_presence_override_last_error", "") or "")
+                self._presence_override_last_ok = bool(ok)
+                self._presence_override_last_error = str(err or "")
+
+                # Only update status when state changes (avoid spam every 30s).
+                if prev_ok is None:
+                    if not ok and err:
+                        try:
+                            self.status.update_status(f"Presence Override: Fehler ({err})")
+                        except Exception:
+                            pass
                     return
-                client.force_person_presence(person_ent, location_name)
+
+                if bool(prev_ok) != bool(ok):
+                    if ok:
+                        try:
+                            pretty = "HOME" if location_name == "home" else "AWAY"
+                            self.status.update_status(f"Presence Override: {pretty} (10m)")
+                        except Exception:
+                            pass
+                    else:
+                        msg = err or prev_err
+                        if msg:
+                            try:
+                                self.status.update_status(f"Presence Override: Fehler ({msg})")
+                            except Exception:
+                                pass
+
+            try:
+                self._post_ui(apply)
             except Exception:
-                return
+                pass
 
         try:
             threading.Thread(target=worker, daemon=True).start()

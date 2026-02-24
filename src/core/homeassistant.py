@@ -324,6 +324,19 @@ class HomeAssistantClient:
             return False
         return self.call_service("scene", "turn_on", {"entity_id": entity_id})
 
+    def update_entity(self, entity_ids: str | List[str]) -> bool:
+        """Ask Home Assistant to refresh one or multiple entities."""
+
+        ids: List[str] = []
+        if isinstance(entity_ids, str):
+            ids = [entity_ids]
+        elif isinstance(entity_ids, list):
+            ids = [str(x) for x in entity_ids]
+        ids = [str(x).strip() for x in ids if str(x).strip()]
+        if not ids:
+            return False
+        return self.call_service("homeassistant", "update_entity", {"entity_id": ids})
+
     def force_person_presence(
         self,
         person_entity_id: str,
@@ -350,6 +363,7 @@ class HomeAssistantClient:
         if not person_entity_id or not location_name:
             return False
 
+        resolved_tracker_ent: str | None = None
         if device_tracker_entity_id is None:
             st = self.get_state(person_entity_id)
             if not st:
@@ -358,6 +372,9 @@ class HomeAssistantClient:
             src = str(attrs.get("source") or "").strip()
             if src.startswith("device_tracker."):
                 device_tracker_entity_id = src
+
+        if device_tracker_entity_id and device_tracker_entity_id.startswith("device_tracker."):
+            resolved_tracker_ent = device_tracker_entity_id
 
         if not device_tracker_entity_id:
             return False
@@ -369,11 +386,38 @@ class HomeAssistantClient:
         if not dev_id:
             return False
 
-        return self.call_service(
+        payload: Dict[str, Any] = {
+            "dev_id": dev_id,
+            "location_name": location_name,
+        }
+
+        # For a reliable "home" override, also set GPS to zone.home
+        # so zone tracking can resolve the state as home immediately.
+        if location_name == "home":
+            try:
+                z = self.get_state("zone.home") or {}
+                z_attrs = z.get("attributes") or {}
+                lat = z_attrs.get("latitude")
+                lon = z_attrs.get("longitude")
+                if lat is not None and lon is not None:
+                    payload["gps"] = [float(lat), float(lon)]
+                    payload["gps_accuracy"] = 5
+            except Exception:
+                pass
+
+        ok = self.call_service(
             "device_tracker",
             "see",
-            {
-                "dev_id": dev_id,
-                "location_name": location_name,
-            },
+            payload,
         )
+
+        # Nudge HA to recompute `person.*` right away.
+        try:
+            ids: List[str] = [person_entity_id]
+            if resolved_tracker_ent:
+                ids.append(resolved_tracker_ent)
+            self.update_entity(ids)
+        except Exception:
+            pass
+
+        return bool(ok)
