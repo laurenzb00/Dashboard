@@ -23,5 +23,7 @@
   "vorraum_scene_off": "scene.vorraum_aus",
   "vorraum_status_entity_id": "switch.deckenlampe_vorraum",
 
+  "shower_script_entity_id": "script.duschen_gehen",
+
   "actions": []
 }

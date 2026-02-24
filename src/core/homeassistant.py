@@ -26,6 +26,7 @@ class HomeAssistantConfig:
     vorraum_scene_on: Optional[str] = None
     vorraum_scene_off: Optional[str] = None
     vorraum_status_entity_id: Optional[str] = None
+    shower_script_entity_id: Optional[str] = None
     actions: Optional[List[Dict[str, Any]]] = None
 
 
@@ -165,6 +166,7 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         vorraum_scene_on=_opt_str("vorraum_scene_on"),
         vorraum_scene_off=_opt_str("vorraum_scene_off"),
         vorraum_status_entity_id=_opt_str("vorraum_status_entity_id"),
+        shower_script_entity_id=_opt_str("shower_script_entity_id"),
         actions=actions,
     )
 

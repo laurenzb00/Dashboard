@@ -26,6 +26,7 @@ class HeaderBar(ctk.CTkFrame):
         on_toggle_b=None,
         on_leave=None,
         on_come_home=None,
+        on_shower=None,
         on_exit=None,
     ):
         super().__init__(parent, height=74, fg_color=COLOR_HEADER, corner_radius=16)
@@ -68,6 +69,7 @@ class HeaderBar(ctk.CTkFrame):
         center.grid_columnconfigure(0, weight=0)
         center.grid_columnconfigure(1, weight=1)
         center.grid_columnconfigure(2, weight=0)
+        center.grid_columnconfigure(3, weight=0)
 
         # Actions (zwischen Datum und Uhrzeit)
         actions = ctk.CTkFrame(center, fg_color="transparent")
@@ -114,11 +116,27 @@ class HeaderBar(ctk.CTkFrame):
             font=get_safe_font("Bahnschrift", 38, "bold"), 
             text_color=COLOR_PRIMARY
         )
-        self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 16))
+        self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 12))
+
+        self.shower_btn = ctk.CTkButton(
+            center,
+            text="🚿",
+            command=self._on_shower_pressed,
+            fg_color="transparent",
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            corner_radius=10,
+            font=get_safe_font("Bahnschrift", 20, "bold"),
+            width=64,
+            height=40,
+            border_width=1,
+            border_color=COLOR_BORDER,
+        )
+        self.shower_btn.grid(row=0, column=2, sticky="e", padx=(0, 12))
 
         # Light Control - Icon und Switch horizontal nebeneinander
         light_control = ctk.CTkFrame(center, fg_color="transparent")
-        light_control.grid(row=0, column=2, sticky="ns", padx=8)
+        light_control.grid(row=0, column=3, sticky="ns", padx=8)
         
         ctk.CTkLabel(
             light_control,
@@ -150,6 +168,7 @@ class HeaderBar(ctk.CTkFrame):
         self._on_toggle_b = on_toggle_b
         self._on_leave = on_leave
         self._on_come_home = on_come_home
+        self._on_shower = on_shower
         self._on_exit = on_exit  # fallback only
 
         # Rechts: Außentemp mit modernem Style
@@ -210,6 +229,13 @@ class HeaderBar(ctk.CTkFrame):
         try:
             if self._on_come_home:
                 self._on_come_home()
+        except Exception:
+            pass
+
+    def _on_shower_pressed(self) -> None:
+        try:
+            if self._on_shower:
+                self._on_shower()
         except Exception:
             pass
 

@@ -821,6 +821,7 @@ class MainApp:
             on_toggle_b=self.on_toggle_b,
             on_leave=self.on_leave_home,
             on_come_home=self.on_come_home,
+            on_shower=self.on_shower_go,
             on_exit=self.on_exit,
         )
         self.header.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
@@ -1276,6 +1277,75 @@ class MainApp:
             "automation.schlafzimmer_coming_home_resume",
             status_label="Coming Home",
         )
+
+    def on_shower_go(self) -> None:
+        """Header-Button 🚿: führt das Script 'duschen gehen' aus."""
+
+        entity_id = self._get_shower_script_entity_id()
+        self._trigger_ha_script(entity_id, status_label="Duschen gehen")
+
+    def _get_shower_script_entity_id(self) -> str:
+        try:
+            env = (os.environ.get("SHOWER_SCRIPT_ENTITY_ID") or "").strip()
+            if env:
+                return env
+        except Exception:
+            pass
+
+        try:
+            client = self._get_presence_ha_client()
+            cfg = getattr(client, "config", None) if client else None
+            val = getattr(cfg, "shower_script_entity_id", None) if cfg else None
+            val = str(val or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+
+        return "script.duschen_gehen"
+
+    def _trigger_ha_script(self, entity_id: str, status_label: str) -> None:
+        entity_id = str(entity_id or "").strip()
+        if not entity_id:
+            return
+
+        try:
+            self.status.update_status(f"Script: {status_label}…")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            ok = False
+            err = ""
+            try:
+                client = self._get_presence_ha_client()
+                if not client:
+                    err = "Home Assistant nicht konfiguriert"
+                else:
+                    ok = bool(client.call_service("script", "turn_on", {"entity_id": entity_id}))
+            except Exception as exc:
+                ok = False
+                err = str(exc)
+
+            def apply() -> None:
+                try:
+                    if ok:
+                        self.status.update_status(f"Script: {status_label} gestartet")
+                    else:
+                        msg = err or "fehlgeschlagen"
+                        self.status.update_status(f"Script: Fehler ({msg})")
+                except Exception:
+                    pass
+
+            try:
+                self._post_ui(apply)
+            except Exception:
+                pass
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
 
     def _trigger_ha_automation(self, entity_id: str, status_label: str) -> None:
         entity_id = str(entity_id or "").strip()
