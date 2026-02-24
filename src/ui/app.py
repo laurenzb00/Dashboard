@@ -1262,167 +1262,16 @@ class MainApp:
             pass
 
     def on_leave_home(self):
-        """"Haus verlassen"-Aktion (Away).
+        """Header-Button 🏃 (Away): überschreibt `person.laurenz` für 10 Minuten."""
 
-        Best-effort:
-        - Hue: Gruppe 0 aus
-        - Tado: Presence -> Away
-        - Spotify: Wiedergabe pausieren
-        """
-        try:
-            self.status.update_status("Haus verlassen…")
-        except Exception:
-            pass
-
-        # Hue/HA: leave-home scene (best-effort)
-        try:
-            if hasattr(self, "hue_tab") and self.hue_tab:
-                try:
-                    if hasattr(self.hue_tab, "leave_home_safe"):
-                        ok = bool(self.hue_tab.leave_home_safe())
-                        if not ok:
-                            self.hue_tab._threaded_group_cmd(False)
-                    else:
-                        self.hue_tab._threaded_group_cmd(False)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Other services: do them in a worker thread to keep UI responsive.
-        def worker() -> None:
-            tado_ok = False
-            spotify_ok = False
-            profile_ok = False
-
-            try:
-                tab = getattr(self, "tado_tab", None)
-                if tab is not None and hasattr(tab, "set_away_safe"):
-                    tado_ok = bool(tab.set_away_safe())
-                    if hasattr(tab, "apply_profile_safe"):
-                        profile_ok = bool(tab.apply_profile_safe("eco"))
-            except Exception:
-                tado_ok = False
-
-            try:
-                tab = getattr(self, "spotify_tab", None)
-                if tab is not None and hasattr(tab, "pause_playback_safe"):
-                    spotify_ok = bool(tab.pause_playback_safe())
-            except Exception:
-                spotify_ok = False
-
-            def apply() -> None:
-                parts = ["Haus verlassen: Hue aus"]
-                if tado_ok:
-                    parts.append("Tado Away")
-                if profile_ok:
-                    parts.append("Eco")
-                if spotify_ok:
-                    parts.append("Spotify Pause")
-                try:
-                    self.status.update_status(" | ".join(parts))
-                except Exception:
-                    pass
-
-            self._post_ui(apply)
-
-        try:
-            threading.Thread(target=worker, daemon=True).start()
-        except Exception:
-            pass
-
-        try:
-            self.root.after(800, self._sync_hue_switch_state)
-        except Exception:
-            pass
-
-        # Presence override: force `person.laurenz` to Away for 10 minutes.
         try:
             self._presence_override_start(location_name="not_home")
         except Exception:
             pass
 
     def on_come_home(self):
-        """"Komme heim"-Aktion.
+        """Header-Button 🏠 (Home): überschreibt `person.laurenz` für 10 Minuten."""
 
-        Best-effort:
-        - Hue: Gruppe 0 an
-        - Tado: Presence -> Home
-        - Spotify: Wiedergabe starten
-        """
-        try:
-            self.status.update_status("Komme heim…")
-        except Exception:
-            pass
-
-        # Hue/HA: come-home scene (best-effort); fallback to old behavior
-        try:
-            if hasattr(self, "hue_tab") and self.hue_tab:
-                try:
-                    if hasattr(self.hue_tab, "come_home_safe"):
-                        ok = bool(self.hue_tab.come_home_safe())
-                        if not ok:
-                            if hasattr(self.hue_tab, "activate_scene_by_name_safe"):
-                                self.hue_tab.activate_scene_by_name_safe("Hell")
-                            else:
-                                self.hue_tab._threaded_group_cmd(True)
-                    else:
-                        if hasattr(self.hue_tab, "activate_scene_by_name_safe"):
-                            self.hue_tab.activate_scene_by_name_safe("Hell")
-                        else:
-                            self.hue_tab._threaded_group_cmd(True)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        def worker() -> None:
-            tado_ok = False
-            spotify_ok = False
-            profile_ok = False
-
-            try:
-                tab = getattr(self, "tado_tab", None)
-                if tab is not None and hasattr(tab, "set_home_safe"):
-                    tado_ok = bool(tab.set_home_safe())
-                    if hasattr(tab, "apply_profile_safe"):
-                        profile_ok = bool(tab.apply_profile_safe("comfort"))
-            except Exception:
-                tado_ok = False
-
-            try:
-                tab = getattr(self, "spotify_tab", None)
-                if tab is not None and hasattr(tab, "resume_playback_safe"):
-                    spotify_ok = bool(tab.resume_playback_safe())
-            except Exception:
-                spotify_ok = False
-
-            def apply() -> None:
-                parts = ["Komme heim: Hue Hell"]
-                if tado_ok:
-                    parts.append("Tado Home")
-                if profile_ok:
-                    parts.append("Komfort")
-                if spotify_ok:
-                    parts.append("Spotify Play")
-                try:
-                    self.status.update_status(" | ".join(parts))
-                except Exception:
-                    pass
-
-            self._post_ui(apply)
-
-        try:
-            threading.Thread(target=worker, daemon=True).start()
-        except Exception:
-            pass
-
-        try:
-            self.root.after(800, self._sync_hue_switch_state)
-        except Exception:
-            pass
-
-        # Presence override: force `person.laurenz` to Home for 10 minutes.
         try:
             self._presence_override_start(location_name="home")
         except Exception:
