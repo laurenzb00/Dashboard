@@ -1263,20 +1263,16 @@ class MainApp:
             pass
 
     def on_leave_home(self):
-        """Header-Button 🏃 (Away): startet die Leaving-Home Automation."""
+        """Header-Button 🏃 (Away): erzwingt Away via Home-Assistant Webhook."""
 
-        self._trigger_ha_automation(
-            "automation.leaving_home_alles_licht_aus_heizung_aus_spotify_iphone",
-            status_label="Leaving Home",
-        )
+        webhook_id = self._get_force_away_webhook_id()
+        self._trigger_ha_webhook(webhook_id, status_label="Away erzwingen")
 
     def on_come_home(self):
-        """Header-Button 🏠 (Home): startet die Coming-Home Automation."""
+        """Header-Button 🏠 (Home): erzwingt Home via Home-Assistant Webhook."""
 
-        self._trigger_ha_automation(
-            "automation.schlafzimmer_coming_home_resume",
-            status_label="Coming Home",
-        )
+        webhook_id = self._get_force_home_webhook_id()
+        self._trigger_ha_webhook(webhook_id, status_label="Home erzwingen")
 
     def on_shower_go(self) -> None:
         """Header-Button 🚿: führt das Script 'duschen gehen' aus."""
@@ -1303,6 +1299,115 @@ class MainApp:
             pass
 
         return "script.duschen_gehen"
+
+    def _get_leaving_home_input_boolean_entity_id(self) -> str:
+        try:
+            env = (os.environ.get("LEAVING_HOME_INPUT_BOOLEAN_ENTITY_ID") or "").strip()
+            if env:
+                return env
+        except Exception:
+            pass
+
+        try:
+            client = self._get_presence_ha_client()
+            cfg = getattr(client, "config", None) if client else None
+            val = getattr(cfg, "leaving_home_input_boolean_entity_id", None) if cfg else None
+            val = str(val or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+
+        return "input_boolean.leaving_home"
+
+    def _get_force_away_webhook_id(self) -> str:
+        """Webhook-ID für 'Away erzwingen' (Header-Button 🏃)."""
+
+        try:
+            env = (os.environ.get("HOMEASSISTANT_FORCE_AWAY_WEBHOOK_ID") or "").strip()
+            if env:
+                return env
+        except Exception:
+            pass
+
+        try:
+            client = self._get_presence_ha_client()
+            cfg = getattr(client, "config", None) if client else None
+            val = getattr(cfg, "force_away_webhook_id", None) if cfg else None
+            val = str(val or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+
+        # Fallback: default ID (matches provided webhook example)
+        return "9b5bdbb281ff4d129a5c3f95d3530f58"
+
+    def _get_force_home_webhook_id(self) -> str:
+        """Webhook-ID für 'Home erzwingen' (Header-Button 🏠)."""
+
+        try:
+            env = (os.environ.get("HOMEASSISTANT_FORCE_HOME_WEBHOOK_ID") or "").strip()
+            if env:
+                return env
+        except Exception:
+            pass
+
+        try:
+            client = self._get_presence_ha_client()
+            cfg = getattr(client, "config", None) if client else None
+            val = getattr(cfg, "force_home_webhook_id", None) if cfg else None
+            val = str(val or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+
+        # Fallback: default ID (matches provided webhook example)
+        return "3d3a1b55b8554ee49bbfa77a4380a0b0"
+
+    def _trigger_ha_input_boolean_turn_on(self, entity_id: str, status_label: str) -> None:
+        entity_id = str(entity_id or "").strip()
+        if not entity_id:
+            return
+
+        try:
+            self.status.update_status(f"Input Boolean: {status_label}…")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            ok = False
+            err = ""
+            try:
+                client = self._get_presence_ha_client()
+                if not client:
+                    err = "Home Assistant nicht konfiguriert"
+                else:
+                    ok = bool(client.call_service("input_boolean", "turn_on", {"entity_id": entity_id}))
+            except Exception as exc:
+                ok = False
+                err = str(exc)
+
+            def apply() -> None:
+                try:
+                    if ok:
+                        self.status.update_status(f"Input Boolean: {status_label} aktiviert")
+                    else:
+                        msg = err or "fehlgeschlagen"
+                        self.status.update_status(f"Input Boolean: Fehler ({msg})")
+                except Exception:
+                    pass
+
+            try:
+                self._post_ui(apply)
+            except Exception:
+                pass
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
 
     def _trigger_ha_script(self, entity_id: str, status_label: str) -> None:
         entity_id = str(entity_id or "").strip()
@@ -1377,6 +1482,49 @@ class MainApp:
                     else:
                         msg = err or "fehlgeschlagen"
                         self.status.update_status(f"Automation: Fehler ({msg})")
+                except Exception:
+                    pass
+
+            try:
+                self._post_ui(apply)
+            except Exception:
+                pass
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            pass
+
+    def _trigger_ha_webhook(self, webhook_id: str, status_label: str) -> None:
+        webhook_id = str(webhook_id or "").strip()
+        if not webhook_id:
+            return
+
+        try:
+            self.status.update_status(f"Webhook: {status_label}…")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            ok = False
+            err = ""
+            try:
+                client = self._get_presence_ha_client()
+                if not client:
+                    err = "Home Assistant nicht konfiguriert"
+                else:
+                    ok = bool(client.trigger_webhook(webhook_id))
+            except Exception as exc:
+                ok = False
+                err = str(exc)
+
+            def apply() -> None:
+                try:
+                    if ok:
+                        self.status.update_status(f"Webhook: {status_label} ausgelöst")
+                    else:
+                        msg = err or "fehlgeschlagen"
+                        self.status.update_status(f"Webhook: Fehler ({msg})")
                 except Exception:
                     pass
 

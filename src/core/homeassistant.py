@@ -27,6 +27,9 @@ class HomeAssistantConfig:
     vorraum_scene_off: Optional[str] = None
     vorraum_status_entity_id: Optional[str] = None
     shower_script_entity_id: Optional[str] = None
+    leaving_home_input_boolean_entity_id: Optional[str] = None
+    force_away_webhook_id: Optional[str] = None
+    force_home_webhook_id: Optional[str] = None
     actions: Optional[List[Dict[str, Any]]] = None
 
 
@@ -167,6 +170,9 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         vorraum_scene_off=_opt_str("vorraum_scene_off"),
         vorraum_status_entity_id=_opt_str("vorraum_status_entity_id"),
         shower_script_entity_id=_opt_str("shower_script_entity_id"),
+        leaving_home_input_boolean_entity_id=_opt_str("leaving_home_input_boolean_entity_id"),
+        force_away_webhook_id=_opt_str("force_away_webhook_id"),
+        force_home_webhook_id=_opt_str("force_home_webhook_id"),
         actions=actions,
     )
 
@@ -228,6 +234,29 @@ class HomeAssistantClient:
             self._url(f"/api/services/{domain}/{service}"),
             headers=self._headers(),
             data=json.dumps(data or {}),
+            timeout=self.config.timeout_s,
+            verify=self.config.verify_ssl,
+        )
+        r.raise_for_status()
+        return True
+
+    def trigger_webhook(self, webhook_id: str, data: Optional[Dict[str, Any]] = None) -> bool:
+        """Trigger a Home Assistant webhook (no auth header).
+
+        Webhooks are addressed via: POST /api/webhook/<webhook_id>
+        """
+
+        webhook_id = str(webhook_id or "").strip()
+        if not webhook_id:
+            return False
+
+        url = self._url(f"/api/webhook/{webhook_id}")
+        headers = {"Content-Type": "application/json"}
+
+        r = requests.post(
+            url,
+            headers=headers,
+            json=(data or {}),
             timeout=self.config.timeout_s,
             verify=self.config.verify_ssl,
         )
