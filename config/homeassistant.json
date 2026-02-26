@@ -25,5 +25,8 @@
 
   "shower_script_entity_id": "script.duschen_gehen",
 
+  "force_away_webhook_id": "9b5bdbb281ff4d129a5c3f95d3530f58",
+  "force_home_webhook_id": "3d3a1b55b8554ee49bbfa77a4380a0b0",
+
   "actions": []
 }
