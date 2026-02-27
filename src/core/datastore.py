@@ -101,6 +101,12 @@ class DataStore:
             logging.error(f"Fehler beim Prüfen auf DB-Lock: {e}")
         self._init_db()
         self._hydrate_last_ingest_cache()
+        # TTL caches for frequently queried latest records
+        self._cache_fronius: Optional[dict] = None
+        self._cache_fronius_ts: float = 0.0
+        self._cache_heating: Optional[dict] = None
+        self._cache_heating_ts: float = 0.0
+        self._CACHE_TTL: float = 2.0  # seconds
     
     def _init_db(self):
         """Initialisiere Datenbank mit Tabellen."""
@@ -234,19 +240,19 @@ class DataStore:
             return False
     
     def get_last_fronius_record(self):
-        """Hole letzten PV-Record als dict mit final keys (schema.py)."""
+        """Hole letzten PV-Record als dict mit final keys (schema.py). Cached for 2s."""
+        now = time.monotonic()
+        if self._cache_fronius is not None and (now - self._cache_fronius_ts) < self._CACHE_TTL:
+            return self._cache_fronius
         from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, LOAD_POWER_KW
         cursor = self.conn.cursor()
         cursor.execute(
-            """
-            SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power
-            FROM fronius ORDER BY timestamp DESC LIMIT 1
-            """
+            "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
+            "FROM fronius ORDER BY timestamp DESC LIMIT 1"
         )
         row = cursor.fetchone()
         if row:
-            self._update_last_ingest_locked(row[0])
-            return {
+            result = {
                 'timestamp': row[0],
                 PV_POWER_KW: row[1] or 0.0,
                 GRID_POWER_KW: row[2] or 0.0,
@@ -254,23 +260,27 @@ class DataStore:
                 BATTERY_SOC_PCT: row[4] or 0.0,
                 LOAD_POWER_KW: row[5],
             }
+            self._cache_fronius = result
+            self._cache_fronius_ts = now
+            return result
         return None
     
     def get_hourly_averages(self, hours=24):
         """Hole stündliche Durchschnitte der letzten N Stunden."""
+        cutoff = _hours_ago_iso(hours)
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT 
-                datetime(timestamp, 'start of hour') as hour,
+            SELECT
+                substr(timestamp, 1, 13) || ':00:00' as hour,
                 AVG(pv_power) as avg_pv,
                 AVG(grid_power) as avg_grid,
                 AVG(batt_power) as avg_batt,
                 AVG(soc) as avg_soc
             FROM fronius
-            WHERE timestamp > datetime('now', '-' || ? || ' hours')
+            WHERE timestamp >= ?
             GROUP BY hour
             ORDER BY hour DESC
-        """, (hours,))
+        """, (cutoff,))
         
         return [
             {
@@ -286,20 +296,16 @@ class DataStore:
     def get_daily_totals(self, days: Optional[int] = 30) -> List[dict]:
         """Integriere PV-Leistung zu täglichen kWh-Werten."""
         cursor = self.conn.cursor()
-        params: list = []
-        where = ""
         if days is not None:
-            where = "WHERE timestamp >= datetime('now', '-' || ? || ' days')"
-            params.append(days)
-        rows = cursor.execute(
-            f"""
-            SELECT timestamp, pv_power
-            FROM fronius
-            {where}
-            ORDER BY timestamp ASC
-            """,
-            params,
-        )
+            cutoff = _hours_ago_iso(days * 24)
+            rows = cursor.execute(
+                "SELECT timestamp, pv_power FROM fronius WHERE timestamp >= ? ORDER BY timestamp ASC",
+                (cutoff,),
+            )
+        else:
+            rows = cursor.execute(
+                "SELECT timestamp, pv_power FROM fronius ORDER BY timestamp ASC"
+            )
         return _integrate_daily_energy(rows)
 
     def get_monthly_totals(self, months: int = 12) -> List[dict]:
@@ -364,6 +370,7 @@ class DataStore:
             )
             self._commit_with_retry()
             self._update_last_ingest_locked(ts)
+            self._cache_fronius = None  # invalidate cache
 
     def insert_heating_record(self, record: dict) -> None:
         """Persistiere Heizungs-/Pufferdaten."""
@@ -388,29 +395,42 @@ class DataStore:
             )
             self._commit_with_retry()
             self._update_last_ingest_locked(ts)
+            self._cache_heating = None  # invalidate cache
 
     def get_recent_fronius(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
         cutoff = _hours_ago_iso(hours)
         cursor = self.conn.cursor()
-        params: list = [cutoff, cutoff]
         if limit:
             # If a LIMIT is requested we want the newest records, not the oldest.
             # Fetch descending and reverse to keep chronological order for charts.
-            sql = (
-                "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
-                "FROM fronius WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
-                "ORDER BY datetime(timestamp) DESC LIMIT ?"
-            )
-            params.append(limit)
-            rows = cursor.execute(sql, params).fetchall()
+            if cutoff:
+                sql = (
+                    "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
+                    "FROM fronius WHERE timestamp >= ? "
+                    "ORDER BY timestamp DESC LIMIT ?"
+                )
+                rows = cursor.execute(sql, (cutoff, limit)).fetchall()
+            else:
+                sql = (
+                    "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
+                    "FROM fronius ORDER BY timestamp DESC LIMIT ?"
+                )
+                rows = cursor.execute(sql, (limit,)).fetchall()
             rows.reverse()
         else:
-            sql = (
-                "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
-                "FROM fronius WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
-                "ORDER BY datetime(timestamp) ASC"
-            )
-            rows = cursor.execute(sql, params).fetchall()
+            if cutoff:
+                sql = (
+                    "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
+                    "FROM fronius WHERE timestamp >= ? "
+                    "ORDER BY timestamp ASC"
+                )
+                rows = cursor.execute(sql, (cutoff,)).fetchall()
+            else:
+                sql = (
+                    "SELECT timestamp, pv_power, grid_power, batt_power, soc, load_power "
+                    "FROM fronius ORDER BY timestamp ASC"
+                )
+                rows = cursor.execute(sql, ()).fetchall()
         return [
             {
                 'timestamp': row[0],
@@ -426,25 +446,35 @@ class DataStore:
     def get_recent_heating(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
         cutoff = _hours_ago_iso(hours)
         cursor = self.conn.cursor()
-        params: list = [cutoff, cutoff]
         if limit:
-            # If a LIMIT is requested we want the newest records, not the oldest.
-            # Fetch descending and reverse to keep chronological order for charts.
-            sql = (
-                "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
-                "FROM heating WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
-                "ORDER BY datetime(timestamp) DESC LIMIT ?"
-            )
-            params.append(limit)
-            rows = cursor.execute(sql, params).fetchall()
+            if cutoff:
+                sql = (
+                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "FROM heating WHERE timestamp >= ? "
+                    "ORDER BY timestamp DESC LIMIT ?"
+                )
+                rows = cursor.execute(sql, (cutoff, limit)).fetchall()
+            else:
+                sql = (
+                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "FROM heating ORDER BY timestamp DESC LIMIT ?"
+                )
+                rows = cursor.execute(sql, (limit,)).fetchall()
             rows.reverse()
         else:
-            sql = (
-                "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
-                "FROM heating WHERE (? IS NULL OR datetime(timestamp) >= datetime(?)) "
-                "ORDER BY datetime(timestamp) ASC"
-            )
-            rows = cursor.execute(sql, params).fetchall()
+            if cutoff:
+                sql = (
+                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "FROM heating WHERE timestamp >= ? "
+                    "ORDER BY timestamp ASC"
+                )
+                rows = cursor.execute(sql, (cutoff,)).fetchall()
+            else:
+                sql = (
+                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "FROM heating ORDER BY timestamp ASC"
+                )
+                rows = cursor.execute(sql, ()).fetchall()
         return [
             {
                 'timestamp': row[0],
@@ -460,22 +490,20 @@ class DataStore:
 
     def get_last_heating_record(self) -> Optional[dict]:
         """
-        Hole letzten Heizungs-Record als dict mit final keys (schema.py).
-        Zeitstrategie: UTC everywhere. Mapping: Kessel = BMK_KESSEL_C, Warmwasser = BMK_WARMWASSER_C.
-        Keine Fallbacks, keine Verschachtelung.
+        Hole letzten Heizungs-Record als dict mit final keys (schema.py). Cached for 2s.
         """
+        now = time.monotonic()
+        if self._cache_heating is not None and (now - self._cache_heating_ts) < self._CACHE_TTL:
+            return self._cache_heating
         from .schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         cursor = self.conn.cursor()
         cursor.execute(
-            """
-            SELECT timestamp, kesseltemp, warmwasser, außentemp, puffer_top, puffer_mid, puffer_bot
-            FROM heating ORDER BY timestamp DESC LIMIT 1
-            """
+            "SELECT timestamp, kesseltemp, warmwasser, außentemp, puffer_top, puffer_mid, puffer_bot "
+            "FROM heating ORDER BY timestamp DESC LIMIT 1"
         )
         row = cursor.fetchone()
         if row:
-            self._update_last_ingest_locked(row[0])
-            return {
+            result = {
                 'timestamp': row[0],
                 BMK_KESSEL_C: _safe_float(row[1]),
                 BMK_WARMWASSER_C: _safe_float(row[2]),
@@ -484,14 +512,14 @@ class DataStore:
                 BUF_MID_C: _safe_float(row[5]),
                 BUF_BOTTOM_C: _safe_float(row[6]),
             }
+            self._cache_heating = result
+            self._cache_heating_ts = now
+            return result
         return None
 
     def get_latest_timestamp(self) -> Optional[str]:
         with self._lock:
-            ts = self._get_latest_timestamp_unlocked()
-            if ts:
-                self._update_last_ingest_locked(ts)
-            return ts
+            return self._get_latest_timestamp_unlocked()
 
     def get_last_ingest_datetime(self) -> Optional[datetime]:
         with self._lock:

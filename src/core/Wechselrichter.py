@@ -5,6 +5,9 @@ import time
 
 from core.datastore import get_shared_datastore
 
+# Reuse TCP connections across requests
+_session = requests.Session()
+
 def abrufen_und_speichern():
     url = "http://192.168.1.202/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
     # Throttle for timeout and warning logs
@@ -13,7 +16,7 @@ def abrufen_und_speichern():
     if not hasattr(abrufen_und_speichern, "_last_warning_log"):
         abrufen_und_speichern._last_warning_log = 0
     try:
-        response = requests.get(url, timeout=5)
+        response = _session.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
             zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

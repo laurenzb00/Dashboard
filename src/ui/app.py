@@ -52,6 +52,19 @@ from ui.state_schema import validate_payload
 
 from core.datastore import DataStore, get_shared_datastore
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
+from core.schema import (
+    PV_POWER_KW,
+    GRID_POWER_KW,
+    BATTERY_POWER_KW,
+    BATTERY_SOC_PCT,
+    LOAD_POWER_KW,
+    BMK_KESSEL_C,
+    BMK_WARMWASSER_C,
+    BMK_BETRIEBSMODUS,
+    BUF_TOP_C,
+    BUF_MID_C,
+    BUF_BOTTOM_C,
+)
 
 _UI_DIR = os.path.dirname(os.path.abspath(__file__))
 _SRC_DIR = os.path.dirname(_UI_DIR)
@@ -183,7 +196,7 @@ class MainApp:
             except queue.Empty:
                 pass
             try:
-                self.root.after(50, pump)
+                self.root.after(100, pump)
             except Exception:
                 pass
 
@@ -236,55 +249,45 @@ class MainApp:
     def _compute_last_heating_event_dt(self) -> datetime | None:
         """Heuristik: letzte 'Einheiz'-Phase erkennen.
 
-        User-Spec (aktuell):
-        - Temperaturen müssen davor NICHT fallen.
-        - Entscheidend ist, ob innerhalb der letzten ~2h ein klarer Anstieg vorhanden ist.
-        - Beim Einheizen steigt die Kesseltemperatur schnell und stark an,
-          während Puffer oben ggf. nur langsam und nur um wenige Grad (3–5°C) steigt.
-
         Rückgabewert: Zeitpunkt des (geschätzten) Startpunkts des Einheizens.
         """
         if not getattr(self, "datastore", None):
             return None
         try:
-            # Request more than 2h to tolerate irregular sampling; filter below.
-            rows = self.datastore.get_recent_heating(hours=6, limit=2600)
+            # Only 3h needed (2h window + 1h buffer for slopes)
+            rows = self.datastore.get_recent_heating(hours=3, limit=1200)
         except Exception:
             return None
 
-        points: list[tuple[datetime, float, float]] = []
+        # Pre-convert timestamps to Unix floats for faster comparison
+        points: list[tuple[float, float, float, datetime]] = []
         for row in rows:
             dt = self._safe_parse_iso_dt(row.get("timestamp"))
             if dt is None:
                 continue
-            try:
-                kessel = float(row.get("kessel")) if row.get("kessel") is not None else None
-            except Exception:
-                kessel = None
+            kessel_val = row.get("kessel")
             buf_val = row.get("top")
-            try:
-                puffer = float(buf_val) if buf_val is not None else None
-            except Exception:
-                puffer = None
-            if kessel is None or puffer is None:
+            if kessel_val is None or buf_val is None:
                 continue
-            points.append((dt, kessel, puffer))
+            try:
+                kessel = float(kessel_val)
+                puffer = float(buf_val)
+            except (ValueError, TypeError):
+                continue
+            points.append((dt.timestamp(), kessel, puffer, dt))
 
         if len(points) < 8:
             return None
 
-        # Ensure chronological order (datastore ordering can vary).
-        try:
-            points.sort(key=lambda x: x[0])
-        except Exception:
-            pass
+        # Data is already ordered from DB, but sort to be safe
+        points.sort(key=lambda x: x[0])
 
-        now_dt = points[-1][0]
-        window_start = now_dt - timedelta(hours=2)
+        now_ts = points[-1][0]
+        window_start_ts = now_ts - 7200.0  # 2h in seconds
         # Keep only the last 2h window (plus 1 extra point before for slope checks).
         start_idx = 0
         for idx in range(len(points)):
-            if points[idx][0] >= window_start:
+            if points[idx][0] >= window_start_ts:
                 start_idx = max(0, idx - 1)
                 break
         points = points[start_idx:]
@@ -292,38 +295,31 @@ class MainApp:
         if len(points) < 6:
             return None
 
-        # Parameters tuned for noisy sensor data and a short (2h) window.
-        # A "heating event" is primarily a fast, strong Kessel rise.
+        # Pre-compute timedelta thresholds as seconds
         KESSEL_RISE_STRONG_DEG = 10.0
         KESSEL_RISE_MIN_DEG = 8.0
-        KESSEL_LOOKAHEAD_MINUTES = 60
-        # Optional small Puffer rise confirmation (slow, few degrees).
+        KESSEL_LOOKAHEAD_S = 3600.0  # 60 min
         PUFFER_RISE_MIN_DEG = 2.5
-        PUFFER_LOOKAHEAD_MINUTES = 120
-        # Start-of-rise: require short-term positive move to avoid noise.
+        PUFFER_LOOKAHEAD_S = 7200.0  # 120 min
         START_DELTA_EPS = 0.3
-        START_CONFIRM_MINUTES = 15
-        # Ignore wild single-step spikes.
+        START_CONFIRM_S = 900.0  # 15 min
         MAX_SINGLE_STEP_DEG = 4.0
 
         last_event: datetime | None = None
 
         for i in range(1, len(points) - 2):
-            dt_i, k_i, p_i = points[i]
+            ts_i, k_i, p_i, dt_i = points[i]
 
             # Basic spike guard
-            try:
-                prev_dt, prev_k, prev_p = points[i - 1]
-                if abs(k_i - prev_k) > MAX_SINGLE_STEP_DEG and (dt_i - prev_dt).total_seconds() < 20 * 60:
-                    continue
-            except Exception:
-                pass
+            prev_ts, prev_k = points[i - 1][0], points[i - 1][1]
+            if abs(k_i - prev_k) > MAX_SINGLE_STEP_DEG and (ts_i - prev_ts) < 1200.0:
+                continue
 
             # 1) Confirm start-of-rise with a short confirmation window on Kessel.
-            dt_confirm = dt_i + timedelta(minutes=START_CONFIRM_MINUTES)
+            confirm_limit = ts_i + START_CONFIRM_S
             k_confirm_max = k_i
             for t in range(i + 1, len(points)):
-                if points[t][0] > dt_confirm:
+                if points[t][0] > confirm_limit:
                     break
                 if points[t][1] > k_confirm_max:
                     k_confirm_max = points[t][1]
@@ -331,10 +327,10 @@ class MainApp:
                 continue
 
             # 2) Look ahead for strong Kessel rise.
-            dt_k_limit = dt_i + timedelta(minutes=KESSEL_LOOKAHEAD_MINUTES)
+            k_limit = ts_i + KESSEL_LOOKAHEAD_S
             max_k = k_i
             for t in range(i + 1, len(points)):
-                if points[t][0] > dt_k_limit:
+                if points[t][0] > k_limit:
                     break
                 if points[t][1] > max_k:
                     max_k = points[t][1]
@@ -343,17 +339,16 @@ class MainApp:
                 continue
 
             # 3) Optional Puffer rise (slow). Only require it for the weaker Kessel case.
-            dt_p_limit = dt_i + timedelta(minutes=PUFFER_LOOKAHEAD_MINUTES)
+            p_limit = ts_i + PUFFER_LOOKAHEAD_S
             max_p = p_i
             for t in range(i + 1, len(points)):
-                if points[t][0] > dt_p_limit:
+                if points[t][0] > p_limit:
                     break
                 if points[t][2] > max_p:
                     max_p = points[t][2]
             p_rise = max_p - p_i
 
             if k_rise >= KESSEL_RISE_STRONG_DEG or p_rise >= PUFFER_RISE_MIN_DEG:
-                # Keep the most recent detected event in the 2h window.
                 last_event = dt_i
 
         return last_event
@@ -463,7 +458,6 @@ class MainApp:
 
     def update_tick(self):
         """Zentrale UI-Update-Schleife: holt aktuelle Daten, aktualisiert Widgets und Status."""
-        import time
         data = {}
         self._tick_count += 1
         now = time.time()
@@ -546,7 +540,6 @@ class MainApp:
             mode_part = ""
             try:
                 if hasattr(self, "app_state") and self.app_state:
-                    from core.schema import BMK_BETRIEBSMODUS
                     mode = self.app_state.get(BMK_BETRIEBSMODUS)
                     if mode not in (None, ""):
                             mode_part = f"Modus: {mode}"
@@ -620,15 +613,6 @@ class MainApp:
             if not hasattr(self, '_last_log_tick'):
                 self._last_log_tick = 0
             if now - self._last_log_tick > 10:
-                from core.schema import (
-                    PV_POWER_KW,
-                    GRID_POWER_KW,
-                    BATTERY_POWER_KW,
-                    BATTERY_SOC_PCT,
-                    BMK_KESSEL_C,
-                    BMK_WARMWASSER_C,
-                    BUF_TOP_C,
-                )
                 logging.info(
                     f"latest values: PV {data.get(PV_POWER_KW, 0)}kW, Grid {data.get(GRID_POWER_KW, 0)}kW, "
                     f"Batt {data.get(BATTERY_POWER_KW, 0)}kW, SOC {data.get(BATTERY_SOC_PCT, 0)}%, "
@@ -683,15 +667,6 @@ class MainApp:
         )
 
         if hasattr(self, "app_state") and self.app_state:
-            from core.schema import (
-                BMK_KESSEL_C,
-                BMK_WARMWASSER_C,
-                BMK_BETRIEBSMODUS,
-                BUF_TOP_C,
-                BUF_MID_C,
-                BUF_BOTTOM_C,
-            )
-
             payload = {
                 "timestamp": data.get("Zeitstempel") or data.get("timestamp"),
                 "outdoor": outdoor,
@@ -712,7 +687,6 @@ class MainApp:
     @staticmethod
     def _parse_ts(ts):
         # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
-        from datetime import datetime
         if not ts:
             return 0
         try:
@@ -969,13 +943,20 @@ class MainApp:
         date_text = now.strftime("%d.%m.%Y")
         weekday = now.strftime("%A")
         time_text = now.strftime("%H:%M")
-        heat = self.datastore.get_last_heating_record() or {}
-        norm = self.datastore.normalize_heating_record(heat, stale_minutes=5)
-        if norm['is_stale'] or norm['outdoor'] is None:
-            out_temp = "--.- °C"
-        else:
-            out_temp = f"{norm['outdoor']:.1f} °C"
-        self.header.update_header(date_text, weekday, time_text, out_temp)
+        # Only query DB for outdoor temp every 10s, not every 1s
+        if not hasattr(self, '_cached_out_temp'):
+            self._cached_out_temp = "--.- °C"
+            self._cached_out_temp_ts = 0.0
+        mono = time.monotonic()
+        if mono - self._cached_out_temp_ts >= 10.0:
+            heat = self.datastore.get_last_heating_record() or {}
+            norm = self.datastore.normalize_heating_record(heat, stale_minutes=5)
+            if norm['is_stale'] or norm['outdoor'] is None:
+                self._cached_out_temp = "--.- °C"
+            else:
+                self._cached_out_temp = f"{norm['outdoor']:.1f} °C"
+            self._cached_out_temp_ts = mono
+        self.header.update_header(date_text, weekday, time_text, self._cached_out_temp)
         self.root.after(1000, self._update_header_datetime)
 
     def _style_tabview_buttons(self) -> None:
@@ -2135,13 +2116,6 @@ class MainApp:
             self._last_data["soc"] = soc
 
         if hasattr(self, "app_state") and self.app_state:
-            from core.schema import (
-                PV_POWER_KW,
-                GRID_POWER_KW,
-                BATTERY_POWER_KW,
-                BATTERY_SOC_PCT,
-                LOAD_POWER_KW,
-            )
             payload = {
                 "timestamp": data.get("Zeitstempel") or data.get("timestamp"),
                 PV_POWER_KW: pv_kw,
@@ -2158,7 +2132,6 @@ class MainApp:
     @staticmethod
     def _parse_timestamp_value(value):
         # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
-        from datetime import datetime
         if isinstance(value, datetime):
             return value
         if not value:
@@ -2256,7 +2229,6 @@ class MainApp:
         try:
             record = self.datastore.get_last_fronius_record()
             if record:
-                from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, LOAD_POWER_KW
                 pv_kw = float(record.get(PV_POWER_KW) or 0.0)
                 grid_kw = float(record.get(GRID_POWER_KW) or 0.0)
                 batt_kw = float(record.get(BATTERY_POWER_KW) or 0.0)

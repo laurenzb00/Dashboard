@@ -180,6 +180,7 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
 class HomeAssistantClient:
     def __init__(self, config: HomeAssistantConfig):
         self.config = config
+        self._session = requests.Session()
 
     @property
     def base_url(self) -> str:
@@ -197,7 +198,7 @@ class HomeAssistantClient:
         return self.base_url + path
 
     def get_states(self) -> List[Dict[str, Any]]:
-        r = requests.get(
+        r = self._session.get(
             self._url("/api/states"),
             headers=self._headers(),
             timeout=self.config.timeout_s,
@@ -213,7 +214,7 @@ class HomeAssistantClient:
         entity_id = str(entity_id).strip()
         if not entity_id:
             return None
-        r = requests.get(
+        r = self._session.get(
             self._url(f"/api/states/{entity_id}"),
             headers=self._headers(),
             timeout=self.config.timeout_s,
@@ -230,7 +231,7 @@ class HomeAssistantClient:
         service = str(service).strip()
         if not domain or not service:
             return False
-        r = requests.post(
+        r = self._session.post(
             self._url(f"/api/services/{domain}/{service}"),
             headers=self._headers(),
             data=json.dumps(data or {}),
@@ -253,7 +254,7 @@ class HomeAssistantClient:
         url = self._url(f"/api/webhook/{webhook_id}")
         headers = {"Content-Type": "application/json"}
 
-        r = requests.post(
+        r = self._session.post(
             url,
             headers=headers,
             json=(data or {}),

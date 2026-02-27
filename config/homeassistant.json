@@ -4,7 +4,7 @@
   "verify_ssl": true,
   "timeout_s": 5,
 
-  "master_entity_id": "light.wohnzimmer",
+  "master_entity_id": "light.schlafzimmer",
 
   "ceiling_entity_id": "switch.deckenlampe_schlafzimmer",
   "ceiling_threshold_pct": 95,

@@ -5,12 +5,13 @@ import logging
 
 
 class AppState:
-    """Simple in-memory app state with pub/sub updates."""
+    """Simple in-memory app state with pub/sub updates and delta detection."""
 
     def __init__(self, validator: Optional[Callable[[dict], list[str]]] = None) -> None:
         self._data: Dict[str, object] = {}
         self._listeners: List[Callable[[dict], None]] = []
         self._validator = validator
+        self._snapshot: Optional[dict] = None
 
     def subscribe(self, callback: Callable[[dict], None]) -> Callable[[], None]:
         if callback not in self._listeners:
@@ -31,8 +32,19 @@ class AppState:
             warnings = self._validator(payload)
             for warning in warnings:
                 logging.warning("AppState payload warning: %s", warning)
+        # Skip notification if no values actually changed
+        changed = False
+        for k, v in payload.items():
+            old = self._data.get(k)
+            if old != v:
+                changed = True
+                break
         self._data.update(payload)
-        snapshot = dict(self._data)
+        if not changed:
+            return
+        # Reuse snapshot object to reduce GC pressure
+        self._snapshot = dict(self._data)
+        snapshot = self._snapshot
         for listener in list(self._listeners):
             try:
                 listener(snapshot)

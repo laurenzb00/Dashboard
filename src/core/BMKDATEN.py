@@ -1,12 +1,16 @@
 import logging
+import time
 from datetime import datetime
 from typing import Dict, Optional
 
+import pytz
 import requests
 from core.datastore import get_shared_datastore
 
 logger = logging.getLogger(__name__)
-logger = logging.getLogger(__name__)
+
+# Reuse TCP connections across requests
+_session = requests.Session()
 
 # Fehler-Log Throttle: Nur alle 10 Minuten einen Timeout-Fehler loggen
 _last_bmk_timeout_log = 0
@@ -93,10 +97,9 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
     """Ruft Daten von der Heizungs-API ab und legt sie in der CSV ab."""
     url = "http://192.168.1.201/daqdata.cgi"
 
-    import time
     global _last_bmk_timeout_log
     try:
-        response = requests.get(url, timeout=5)
+        response = _session.get(url, timeout=5)
         response.raise_for_status()
     except requests.RequestException as exc:
         # Nur alle 10 Minuten loggen, wenn Timeout
@@ -110,7 +113,6 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
         return None
 
     try:
-        import pytz
         values = [line.strip() for line in response.text.splitlines() if line.strip()]
         # Lokale Zeit (Europe/Vienna) als ISO-8601-String mit expliziter Zeitzone
         vienna = pytz.timezone("Europe/Vienna")
@@ -148,8 +150,6 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
 
         _persist_to_datastore(result)
 
-        # Optional: weiterverwenden, nicht mehr speichern um alte Abhängigkeiten zu vermeiden
-        _extrahiere_pufferdaten(values, zeitstempel)
         return result
     except Exception as exc:
         logger.error(f"Fehler bei BMK Verarbeitung: {exc}")
