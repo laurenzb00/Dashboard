@@ -19,6 +19,10 @@ from ui.styles import (
 )
 from ui.views.energy_chart import build_energy_chart
 
+# Austrian energy price defaults (EUR/kWh)
+_STROMPREIS_EUR_KWH = 0.25
+_EINSPEISETARIF_EUR_KWH = 0.08
+
 
 class ErtragTab:
     """PV-Ertrag pro Tag über längeren Zeitraum."""
@@ -114,9 +118,15 @@ class ErtragTab:
         self.var_sum = tk.StringVar(value="PV: -- kWh")
         self.var_avg = tk.StringVar(value="Verbrauch: -- kWh")
         self.var_last = tk.StringVar(value="Δ: -- kWh")
+        self.var_autarkie = tk.StringVar(value="Autarkie: --%")
+        self.var_ersparnis = tk.StringVar(value="Ersparnis: -- €")
+        self.var_monthly = tk.StringVar(value="")
         tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_ROOT, fg=COLOR_TEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
         tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
         tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(stats_frame, textvariable=self.var_autarkie, bg=COLOR_ROOT, fg=COLOR_SUCCESS, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(stats_frame, textvariable=self.var_ersparnis, bg=COLOR_ROOT, fg=COLOR_PRIMARY, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(stats_frame, textvariable=self.var_monthly, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.RIGHT, padx=(12, 0))
 
         self._last_key = None
         self.store = get_shared_datastore()
@@ -396,12 +406,13 @@ class ErtragTab:
                 btn.configure(bg=COLOR_BORDER, fg=COLOR_TEXT, activebackground=COLOR_PRIMARY)
 
     def _load_energy_flow(self, days: int, bin_minutes: int = 10) -> list[dict]:
-        """Load PV power + house consumption power for the last N days.
+        """Load PV power + house consumption power + grid power for the last N days.
 
         Output schema matches build_energy_chart():
           - timestamp: datetime
           - pv_power: float (kW)
           - house_consumption: float (kW)
+          - grid_power: float (kW, + = import, - = export)
         """
         if not self.store:
             return []
@@ -423,7 +434,8 @@ class ErtragTab:
                 + bucket_expr
                 + " AS bucket_ts, "
                 + "AVG(pv_power) AS pv_avg, "
-                + "AVG(ABS(load_power)) AS load_avg "
+                + "AVG(ABS(load_power)) AS load_avg, "
+                + "AVG(grid_power) AS grid_avg "
                 + "FROM fronius "
                 + "WHERE datetime(timestamp) >= datetime(?) "
                 + "GROUP BY bucket_ts "
@@ -435,7 +447,11 @@ class ErtragTab:
             return []
 
         out: list[dict] = []
-        for bucket_ts, pv_avg, load_avg in rows:
+        for row in rows:
+            bucket_ts = row[0]
+            pv_avg = row[1]
+            load_avg = row[2]
+            grid_avg = row[3]
             try:
                 ts = datetime.fromisoformat(str(bucket_ts))
             except Exception:
@@ -449,16 +465,22 @@ class ErtragTab:
                 load_kw = float(load_avg) if load_avg is not None else 0.0
             except Exception:
                 load_kw = 0.0
+            try:
+                grid_kw = float(grid_avg) if grid_avg is not None else 0.0
+            except Exception:
+                grid_kw = 0.0
 
             # Backward compatibility: some sources may still store W.
             if pv_kw > 200.0:
                 pv_kw = pv_kw / 1000.0
             if load_kw > 200.0:
                 load_kw = load_kw / 1000.0
+            if abs(grid_kw) > 200.0:
+                grid_kw = grid_kw / 1000.0
 
             pv_kw = max(0.0, pv_kw)
             load_kw = max(0.0, load_kw)
-            out.append({"timestamp": ts, "pv_power": pv_kw, "house_consumption": load_kw})
+            out.append({"timestamp": ts, "pv_power": pv_kw, "house_consumption": load_kw, "grid_power": grid_kw})
         return out
 
     def _update_plot(self):
@@ -506,6 +528,8 @@ class ErtragTab:
         # Integrate kW to kWh over the visible window (trapezoid), for the footer stats.
         pv_kwh = 0.0
         load_kwh = 0.0
+        grid_import_kwh = 0.0
+        grid_export_kwh = 0.0
         try:
             if len(data) >= 2:
                 max_gap_h = max(6.0, (float(bin_minutes) / 60.0) * 4.0)
@@ -519,9 +543,19 @@ class ErtragTab:
                         continue
                     pv_kwh += (float(a.get("pv_power", 0.0)) + float(b.get("pv_power", 0.0))) / 2.0 * dt_h
                     load_kwh += (float(a.get("house_consumption", 0.0)) + float(b.get("house_consumption", 0.0))) / 2.0 * dt_h
+                    # Grid: positive = import, negative = export
+                    g_a = float(a.get("grid_power", 0.0))
+                    g_b = float(b.get("grid_power", 0.0))
+                    g_avg = (g_a + g_b) / 2.0
+                    if g_avg > 0:
+                        grid_import_kwh += g_avg * dt_h
+                    else:
+                        grid_export_kwh += abs(g_avg) * dt_h
         except Exception:
             pv_kwh = 0.0
             load_kwh = 0.0
+            grid_import_kwh = 0.0
+            grid_export_kwh = 0.0
 
         diff_kwh = pv_kwh - load_kwh
         label = self._period_var.get()
@@ -529,6 +563,36 @@ class ErtragTab:
         self.var_sum.set(f"PV ({label}): {pv_kwh:.1f} kWh")
         self.var_avg.set(f"Verbrauch: {load_kwh:.1f} kWh")
         self.var_last.set(f"Δ: {diff_kwh:+.1f} kWh")
+
+        # Autarkiegrad: 1 - (Netzbezug / Gesamtverbrauch)
+        if load_kwh > 0.1:
+            autarkie_pct = max(0.0, min(100.0, (1.0 - grid_import_kwh / load_kwh) * 100.0))
+            self.var_autarkie.set(f"Autarkie: {autarkie_pct:.0f}%")
+        else:
+            self.var_autarkie.set("Autarkie: --%")
+
+        # Kostenersparnis: Eigenverbrauch × Strompreis + Einspeisung × Einspeisetarif
+        eigenverbrauch_kwh = max(0.0, pv_kwh - grid_export_kwh)
+        ersparnis_eur = eigenverbrauch_kwh * _STROMPREIS_EUR_KWH + grid_export_kwh * _EINSPEISETARIF_EUR_KWH
+        if pv_kwh > 0.1:
+            self.var_ersparnis.set(f"Ersparnis: {ersparnis_eur:.2f} €")
+        else:
+            self.var_ersparnis.set("Ersparnis: -- €")
+
+        # Monatsvergleich (last 3 months)
+        try:
+            monthly = self.store.get_monthly_totals(months=3) if self.store else []
+            if monthly:
+                parts = []
+                for m in monthly[-3:]:
+                    month_str = m.get("month", "")[:7]  # YYYY-MM
+                    kwh = float(m.get("pv_kwh", 0.0))
+                    parts.append(f"{month_str}: {kwh:.0f} kWh")
+                self.var_monthly.set(" | ".join(parts))
+            else:
+                self.var_monthly.set("")
+        except Exception:
+            self.var_monthly.set("")
 
         self._update_task_id = self.root.after(60 * 1000, self._update_plot)
 

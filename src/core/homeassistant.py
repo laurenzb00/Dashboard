@@ -197,8 +197,24 @@ class HomeAssistantClient:
             path = "/" + path
         return self.base_url + path
 
+    def _resilient_get(self, url, **kwargs):
+        """GET with automatic session recovery on connection errors."""
+        try:
+            return self._session.get(url, **kwargs)
+        except (requests.exceptions.ConnectionError, ConnectionResetError):
+            self._session = requests.Session()
+            return self._session.get(url, **kwargs)
+
+    def _resilient_post(self, url, **kwargs):
+        """POST with automatic session recovery on connection errors."""
+        try:
+            return self._session.post(url, **kwargs)
+        except (requests.exceptions.ConnectionError, ConnectionResetError):
+            self._session = requests.Session()
+            return self._session.post(url, **kwargs)
+
     def get_states(self) -> List[Dict[str, Any]]:
-        r = self._session.get(
+        r = self._resilient_get(
             self._url("/api/states"),
             headers=self._headers(),
             timeout=self.config.timeout_s,
@@ -214,7 +230,7 @@ class HomeAssistantClient:
         entity_id = str(entity_id).strip()
         if not entity_id:
             return None
-        r = self._session.get(
+        r = self._resilient_get(
             self._url(f"/api/states/{entity_id}"),
             headers=self._headers(),
             timeout=self.config.timeout_s,
@@ -231,7 +247,7 @@ class HomeAssistantClient:
         service = str(service).strip()
         if not domain or not service:
             return False
-        r = self._session.post(
+        r = self._resilient_post(
             self._url(f"/api/services/{domain}/{service}"),
             headers=self._headers(),
             data=json.dumps(data or {}),
@@ -254,7 +270,7 @@ class HomeAssistantClient:
         url = self._url(f"/api/webhook/{webhook_id}")
         headers = {"Content-Type": "application/json"}
 
-        r = self._session.post(
+        r = self._resilient_post(
             url,
             headers=headers,
             json=(data or {}),

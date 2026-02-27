@@ -579,6 +579,25 @@ class DataStore:
         if current is None or dt > current:
             self._last_ingest_dt = dt
 
+    def cleanup_old_records(self, retention_days: int = 365) -> dict:
+        """Delete records older than retention_days. Returns counts of deleted rows."""
+        cutoff = _hours_ago_iso(retention_days * 24)
+        if not cutoff:
+            return {"fronius": 0, "heating": 0}
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM fronius WHERE timestamp < ?", (cutoff,))
+            fr_count = cursor.rowcount
+            cursor.execute("DELETE FROM heating WHERE timestamp < ?", (cutoff,))
+            ht_count = cursor.rowcount
+            if fr_count > 0 or ht_count > 0:
+                self._commit_with_retry()
+                logging.info(
+                    f"[DB] Retention cleanup: {fr_count} fronius + {ht_count} heating records"
+                    f" older than {retention_days} days deleted"
+                )
+        return {"fronius": fr_count, "heating": ht_count}
+
     def seed_from_csv(self, data_dir: Optional[Path] = None) -> None:
         base = Path(data_dir) if data_dir else DATA_DIR
         fr_csv = base / "FroniusDaten.csv"

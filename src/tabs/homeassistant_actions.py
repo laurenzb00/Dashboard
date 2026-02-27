@@ -94,35 +94,18 @@ class HomeAssistantActionsTab:
         main.grid_rowconfigure(1, weight=1)
         main.grid_columnconfigure(0, weight=1)
 
-        header = Card(main, padding=12)
-        header.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
-        header.add_title("HomeA", icon="🏠")
-
-        header_body = ctk.CTkFrame(header.content(), fg_color="transparent")
-        header_body.pack(fill=tk.X)
+        header = ctk.CTkFrame(main, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=4, pady=(0, 8))
 
         ctk.CTkLabel(
-            header_body,
+            header,
             textvariable=self.status_var,
-            font=get_safe_font("Bahnschrift", 12),
+            font=get_safe_font("Bahnschrift", 11),
             text_color=COLOR_TEXT,
         ).pack(anchor="w")
 
-        ctk.CTkLabel(
-            header_body,
-            text=(
-                "Automationen/Skripte werden aus Home Assistant geladen "
-                "(optional: actions in config/homeassistant.json)."
-            ),
-            font=("Segoe UI", 10),
-            text_color=COLOR_SUBTEXT,
-            wraplength=820,
-            justify="left",
-        ).pack(anchor="w", pady=(6, 0))
-
-        self._actions_card = Card(main, padding=12)
+        self._actions_card = Card(main, padding=8)
         self._actions_card.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-        self._actions_card.add_title("Automationen & Skripte", icon="🤖")
 
         self._actions_body = ctk.CTkScrollableFrame(
             self._actions_card.content(),
@@ -262,76 +245,44 @@ class HomeAssistantActionsTab:
             ctk.CTkLabel(
                 self._actions_body,
                 text="Home Assistant ist nicht konfiguriert.",
-                font=("Segoe UI", 12),
+                font=("Segoe UI", 11),
                 text_color=COLOR_SUBTEXT,
             ).pack(anchor="w", pady=4)
             return
 
         if not self._actions:
-            msg = "⏳ Lade Automationen/Skripte …" if self._entity_load_running else "Keine Automationen/Skripte gefunden."
+            msg = "Lade …" if self._entity_load_running else "Keine Automationen/Skripte gefunden."
             ctk.CTkLabel(
                 self._actions_body,
                 text=msg,
-                font=("Segoe UI", 12),
+                font=("Segoe UI", 11),
                 text_color=COLOR_SUBTEXT,
-                wraplength=760,
-                justify="left",
             ).pack(anchor="w", pady=4)
             return
 
+        cols = 3
         grid = ctk.CTkFrame(self._actions_body, fg_color="transparent")
         grid.pack(fill=tk.BOTH, expand=True)
-        grid.grid_columnconfigure(0, weight=1)
-        grid.grid_columnconfigure(1, weight=1)
+        for c in range(cols):
+            grid.grid_columnconfigure(c, weight=1, uniform="ha_btn")
 
         for idx, action in enumerate(self._actions):
             label = str(action.get("label") or "").strip() or "Aktion"
-            domain = str(action.get("domain") or "").strip()
-            service = str(action.get("service") or "").strip()
 
-            ent = ""
-            try:
-                data = action.get("data") or {}
-                ent = str(data.get("entity_id") or "").strip()
-            except Exception:
-                ent = ""
-
-            sub = ent or f"{domain}.{service}".strip(".")
-
-            card = ctk.CTkFrame(
-                grid,
-                fg_color=COLOR_CARD,
-                corner_radius=10,
-                border_width=1,
-                border_color=COLOR_BORDER,
-            )
-            r, c = divmod(idx, 2)
-            card.grid(row=r, column=c, sticky="nsew", padx=6, pady=6)
-            card.grid_columnconfigure(0, weight=1)
-
-            ctk.CTkLabel(
-                card,
-                text=label,
-                font=get_safe_font("Bahnschrift", 13, "bold"),
-                text_color=COLOR_TEXT,
-            ).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
-
-            ctk.CTkLabel(
-                card,
-                text=sub,
-                font=("Segoe UI", 10),
-                text_color=COLOR_SUBTEXT,
-            ).grid(row=1, column=0, sticky="w", padx=10, pady=(2, 8))
-
+            r, c = divmod(idx, cols)
             ctk.CTkButton(
-                card,
-                text="Start",
+                grid,
+                text=label,
+                font=("Segoe UI", 11),
                 fg_color=COLOR_CARD,
                 text_color=COLOR_TEXT,
                 hover_color=COLOR_BORDER,
+                border_width=1,
+                border_color=COLOR_BORDER,
+                corner_radius=8,
+                height=36,
                 command=lambda a=action: self._trigger_action_async(a),
-                width=120,
-            ).grid(row=2, column=0, sticky="w", padx=10, pady=(0, 10))
+            ).grid(row=r, column=c, sticky="ew", padx=4, pady=3)
 
     def _trigger_action_async(self, action: Dict[str, Any]) -> None:
         client = self._ha_client

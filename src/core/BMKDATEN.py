@@ -12,6 +12,17 @@ logger = logging.getLogger(__name__)
 # Reuse TCP connections across requests
 _session = requests.Session()
 
+
+def _resilient_get(url, timeout):
+    """GET with automatic session recovery on connection errors."""
+    global _session
+    try:
+        return _session.get(url, timeout=timeout)
+    except (requests.exceptions.ConnectionError, ConnectionResetError):
+        _session = requests.Session()
+        return _session.get(url, timeout=timeout)
+
+
 # Fehler-Log Throttle: Nur alle 10 Minuten einen Timeout-Fehler loggen
 _last_bmk_timeout_log = 0
 _bmk_timeout_log_interval = 600  # Sekunden (10 Minuten)
@@ -99,7 +110,7 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
 
     global _last_bmk_timeout_log
     try:
-        response = _session.get(url, timeout=5)
+        response = _resilient_get(url, timeout=5)
         response.raise_for_status()
     except requests.RequestException as exc:
         # Nur alle 10 Minuten loggen, wenn Timeout

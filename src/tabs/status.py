@@ -5,10 +5,12 @@ from datetime import datetime
 from collections import deque
 import math
 import traceback
+import logging
 from types import SimpleNamespace
 import customtkinter as ctk
 
 from core.datastore import get_shared_datastore
+from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
 from core.health import get_health_snapshot
 from ui.styles import (
@@ -27,15 +29,47 @@ from ui.components.card import Card
 from ui.components.rounded import RoundedFrame
 
 class StatusTab(ctk.CTkFrame):
+    def _get_ha_client(self):
+        """Lazy-init Home Assistant client."""
+        client = getattr(self, "_ha_client", None)
+        if isinstance(client, HomeAssistantClient):
+            return client
+        try:
+            cfg = load_homeassistant_config()
+            if cfg is None:
+                return None
+            client = HomeAssistantClient(cfg)
+            self._ha_client = client
+            self._ha_config = cfg
+            return client
+        except Exception:
+            return None
+
     def _on_light_on(self):
-        # TODO: Hier Logik für Licht AN einfügen
-        self.light_icon.config(fg=COLOR_PRIMARY)
-        print("Licht AN")
+        """Activate the 'all on' scene via Home Assistant."""
+        try:
+            client = self._get_ha_client()
+            cfg = getattr(self, "_ha_config", None)
+            if client and cfg and cfg.scene_all_on:
+                client.activate_scene(cfg.scene_all_on)
+                if hasattr(self, "light_icon"):
+                    self.light_icon.configure(text_color=COLOR_PRIMARY)
+                logging.info("[STATUS] Licht AN: %s", cfg.scene_all_on)
+        except Exception as exc:
+            logging.warning("[STATUS] Licht AN fehlgeschlagen: %s", exc)
 
     def _on_light_off(self):
-        # TODO: Hier Logik für Licht AUS einfügen
-        self.light_icon.config(fg=COLOR_SUBTEXT)
-        print("Licht AUS")
+        """Activate the 'all off' scene via Home Assistant."""
+        try:
+            client = self._get_ha_client()
+            cfg = getattr(self, "_ha_config", None)
+            if client and cfg and cfg.scene_all_off:
+                client.activate_scene(cfg.scene_all_off)
+                if hasattr(self, "light_icon"):
+                    self.light_icon.configure(text_color=COLOR_SUBTEXT)
+                logging.info("[STATUS] Licht AUS: %s", cfg.scene_all_off)
+        except Exception as exc:
+            logging.warning("[STATUS] Licht AUS fehlgeschlagen: %s", exc)
     def __init__(self, parent, tab_frame=None, *args, **kwargs):
         # Use provided tab_frame as parent or parent parameter (legacy)
         frame_parent = tab_frame if tab_frame is not None else parent
@@ -190,6 +224,38 @@ class StatusTab(ctk.CTkFrame):
         for key in [BUF_MID_C, BUF_BOTTOM_C]:
             dummy_label = ctk.CTkLabel(main, text="--")
             self.snapshot_labels[key] = dummy_label
+
+        # Zeile 3, Spalte 3: Licht-Steuerung
+        light_card = Card(main, padding=12)
+        light_card.grid(row=2, column=3, sticky="nsew", padx=4, pady=4)
+        light_inner = light_card.content()
+
+        self.light_icon = ctk.CTkLabel(light_inner, text="💡", font=("Segoe UI", 22), text_color=COLOR_SUBTEXT)
+        self.light_icon.pack(pady=(6, 2))
+        ctk.CTkLabel(light_inner, text="Licht", font=("Segoe UI", 10, "bold"), text_color=COLOR_TITLE).pack(pady=(0, 6))
+
+        btn_frame = ctk.CTkFrame(light_inner, fg_color="transparent")
+        btn_frame.pack(pady=(0, 6))
+        ctk.CTkButton(
+            btn_frame,
+            text="AN",
+            width=60,
+            height=32,
+            font=("Segoe UI", 11, "bold"),
+            fg_color=COLOR_SUCCESS,
+            hover_color=COLOR_PRIMARY,
+            command=self._on_light_on,
+        ).pack(side=tk.LEFT, padx=4)
+        ctk.CTkButton(
+            btn_frame,
+            text="AUS",
+            width=60,
+            height=32,
+            font=("Segoe UI", 11, "bold"),
+            fg_color=COLOR_DANGER,
+            hover_color="#992222",
+            command=self._on_light_off,
+        ).pack(side=tk.LEFT, padx=4)
 
     def _make_health_tile(self, parent, col, title, icon):
         outer = RoundedFrame(parent, bg=COLOR_ROOT, border=None, radius=18, padding=0)

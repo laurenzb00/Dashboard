@@ -270,6 +270,11 @@ def main():
     except Exception as exc:
         logging.warning("[DB] Initial import skipped: %s", exc)
 
+    try:
+        datastore.cleanup_old_records(retention_days=365)
+    except Exception as exc:
+        logging.warning("[DB] Retention cleanup skipped: %s", exc)
+
     env_scale = os.getenv("UI_SCALING")
 
     try:
