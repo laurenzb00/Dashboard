@@ -122,7 +122,8 @@ class HueTab:
                 pass
 
             try:
-                self.root.after(50, pump)
+                # Increased from 50ms to 200ms to reduce main thread load
+                self.root.after(200, pump)
             except Exception:
                 pass
 

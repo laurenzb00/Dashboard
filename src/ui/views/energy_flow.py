@@ -123,7 +123,8 @@ class EnergyFlowView(tk.Frame):
         self._start_time = time.time()
         # UI-only animation to make flow direction clearer (no data changes).
         self._anim_enabled = True
-        self._anim_interval_ms = 140
+        # Increased from 140ms to 350ms to reduce CPU load
+        self._anim_interval_ms = 350
         self._anim_job = None
         self._anim_phase = 0.0
         self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_ROOT)
@@ -174,8 +175,11 @@ class EnergyFlowView(tk.Frame):
         self._anim_phase = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 0.7)
         if self._last_flows:
             pv, load, grid, batt, soc = self._last_flows
+            # Skip animation if power flow is minimal (idle state)
+            # This saves significant CPU when the system is inactive
             if max(abs(pv), abs(load), abs(grid), abs(batt)) < 50:
-                self._anim_job = self.after(self._anim_interval_ms, self._anim_tick)
+                # Use longer interval during idle (600ms instead of 350ms)
+                self._anim_job = self.after(600, self._anim_tick)
                 return
             frame = self.render_frame(pv, load, grid, batt, soc)
             self._tk_img = ImageTk.PhotoImage(frame)

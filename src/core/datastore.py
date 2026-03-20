@@ -106,7 +106,8 @@ class DataStore:
         self._cache_fronius_ts: float = 0.0
         self._cache_heating: Optional[dict] = None
         self._cache_heating_ts: float = 0.0
-        self._CACHE_TTL: float = 2.0  # seconds
+        # Cache TTL increased from 2s to 8s - data collectors update every 10s
+        self._CACHE_TTL: float = 8.0  # seconds
     
     def _init_db(self):
         """Initialisiere Datenbank mit Tabellen."""

@@ -152,8 +152,8 @@ class BufferStorageView(tk.Frame):
             self.spark_ax.set_yticks([])
             ax2.set_yticks([])
             try:
+                # Use only draw_idle() - draw() is redundant and blocks
                 self.spark_canvas.draw_idle()
-                self.spark_canvas.draw()
             except Exception as exc:
                 print(f"[BUFFER] Sparkline canvas draw error: {exc}")
             return
@@ -213,8 +213,8 @@ class BufferStorageView(tk.Frame):
         except Exception as exc:
             print(f"[BUFFER] tight_layout warning: {exc}")
         try:
+            # Use only draw_idle() - draw() is redundant and blocks
             self.spark_canvas.draw_idle()
-            self.spark_canvas.draw()
         except Exception as exc:
             print(f"[BUFFER] Sparkline canvas draw error: {exc}")
 
@@ -554,7 +554,8 @@ class BufferStorageView(tk.Frame):
 
         now_mono = time.monotonic()
         last = getattr(self, "_last_redraw_ts", 0.0)
-        if now_mono - last < 3.0:
+        # Increased from 3s to 10s - matplotlib heatmap redraw is expensive on Pi
+        if now_mono - last < 10.0:
             if mode_changed:
                 self._draw_mode_timeline()
             return

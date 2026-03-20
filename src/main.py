@@ -390,7 +390,8 @@ def main():
                     app.handle_bmkdaten_data(item[1])
         except queue.Empty:
             pass
-        root.after(500, poll_queue)
+        # Increased from 500ms to 1500ms - collectors update every 10s
+        root.after(1500, poll_queue)
 
 
     poll_queue()

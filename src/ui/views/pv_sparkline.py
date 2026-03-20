@@ -160,7 +160,8 @@ class PVSparklineView(tk.Frame):
         self._record_spark_sample(data)
         now = time.monotonic()
         last = getattr(self, "_last_redraw_ts", 0.0)
-        if now - last < 5.0:
+        # Increased from 5s to 30s - matplotlib redraws are expensive on Pi
+        if now - last < 30.0:
             return
         self._last_redraw_ts = now
         self._update_sparkline()

@@ -144,6 +144,7 @@ class HealthTab:
         self.var_cache = tk.StringVar(value="Sparkline cache: –")
         self.var_selfheal = tk.StringVar(value="Self-Heal: –")
         self.var_update = tk.StringVar(value="Update: –")
+        self.var_last_update = tk.StringVar(value="Letztes Update: –")
 
         body = ctk.CTkFrame(self.card_data.content(), fg_color="transparent")
         body.pack(fill=tk.BOTH, expand=True)
@@ -156,8 +157,12 @@ class HealthTab:
             self.var_cache,
             self.var_selfheal,
             self.var_update,
+            self.var_last_update,
         ):
             ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 12), text_color=COLOR_TEXT).pack(anchor="w", pady=2)
+        
+        # Load last update info on startup
+        self._load_last_update_info()
 
         btn_row = ctk.CTkFrame(body, fg_color="transparent")
         btn_row.pack(fill=tk.X, pady=(10, 0))
@@ -469,10 +474,18 @@ class HealthTab:
                 _write_log("PULL", out or "(no output)")
                 if code == 0:
                     ok = True
+                    # Detect if files were actually updated
+                    files_changed = self._parse_git_pull_changes(out)
                     if "Already up" in out or "Already up-to-date" in out:
                         msg = "Update: aktuell – Neustart…"
+                        _write_log("RESULT", "NO_CHANGES")
                     else:
-                        msg = "Update: OK – Neustart…"
+                        if files_changed:
+                            msg = f"Update: {files_changed} Dateien geändert – Neustart…"
+                            _write_log("RESULT", f"UPDATED:{files_changed}")
+                        else:
+                            msg = "Update: OK – Neustart…"
+                            _write_log("RESULT", "UPDATED")
                 else:
                     # Keep it short for the UI.
                     short = out.replace("\r", " ").replace("\n", " ")
@@ -520,6 +533,87 @@ class HealthTab:
             except Exception:
                 pass
 
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _parse_git_pull_changes(self, output: str) -> int | None:
+        """Parse git pull output to extract number of changed files."""
+        if not output:
+            return None
+        import re
+        # Match patterns like "5 files changed" or "1 file changed"
+        match = re.search(r'(\d+)\s+files?\s+changed', output)
+        if match:
+            return int(match.group(1))
+        # Match "Updating abc123..def456" followed by file list
+        if "Updating" in output and "|" in output:
+            # Count lines with | (file changes)
+            lines = [l for l in output.split('\n') if '|' in l and not l.strip().startswith('|')]
+            if lines:
+                return len(lines)
+        return None
+
+    def _load_last_update_info(self) -> None:
+        """Load and display the last update result from log file."""
+        def worker():
+            result_text = "Letztes Update: –"
+            try:
+                preferred_repo = Path("/home/laurenz/Dashboard")
+                repo_root = preferred_repo if (preferred_repo / ".git").exists() else Path(__file__).resolve().parents[2]
+                log_path = repo_root / "data" / "update_last.log"
+                
+                if not log_path.exists():
+                    result_text = "Letztes Update: kein Log"
+                else:
+                    content = log_path.read_text(encoding="utf-8", errors="ignore")
+                    lines = content.strip().split('\n')
+                    
+                    # Find last RESULT entry and its timestamp
+                    last_ts = None
+                    last_result = None
+                    for i, line in enumerate(lines):
+                        if "====" in line and "RESULT" in line:
+                            # Extract timestamp from header: ==== 2026-03-20 15:30:00 RESULT ====
+                            parts = line.replace("=", "").strip().split()
+                            if len(parts) >= 2:
+                                last_ts = f"{parts[0]} {parts[1]}"
+                            # Next line is the result
+                            if i + 1 < len(lines):
+                                last_result = lines[i + 1].strip()
+                    
+                    if last_result and last_ts:
+                        if last_result == "NO_CHANGES":
+                            result_text = f"Letztes Update ({last_ts}): ✅ Keine Änderungen"
+                        elif last_result.startswith("UPDATED:"):
+                            num = last_result.split(":")[1]
+                            result_text = f"Letztes Update ({last_ts}): 📦 {num} Dateien geändert"
+                        elif last_result == "UPDATED":
+                            result_text = f"Letztes Update ({last_ts}): 📦 Dateien aktualisiert"
+                        else:
+                            result_text = f"Letztes Update ({last_ts}): {last_result}"
+                    elif last_ts:
+                        result_text = f"Letztes Update ({last_ts}): Ergebnis unbekannt"
+                    else:
+                        # Try to find any timestamp from PULL entries
+                        for line in reversed(lines):
+                            if "====" in line and "PULL" in line:
+                                parts = line.replace("=", "").strip().split()
+                                if len(parts) >= 2:
+                                    result_text = f"Letztes Update ({parts[0]} {parts[1]}): Log vorhanden"
+                                    break
+            except Exception as e:
+                result_text = f"Letztes Update: Fehler ({type(e).__name__})"
+            
+            def apply():
+                try:
+                    self.var_last_update.set(result_text)
+                except Exception:
+                    pass
+            
+            try:
+                self.root.after(0, apply)
+            except Exception:
+                pass
+        
         threading.Thread(target=worker, daemon=True).start()
 
     def refresh(self) -> None:
@@ -621,8 +715,11 @@ class HealthTab:
             self._refresh_after_id = None
 
         try:
-            tab = getattr(self.app, "spotify_tab", None) if self.app else None
-            client = getattr(tab, "client", None) if tab else None
-            self.var_spotify.set("Spotify: OK" if client else "Spotify: –")
+            tab = getattr(self.app, \"spotify_tab\", None) if self.app else None
+            client = getattr(tab, \"client\", None) if tab else None
+            self.var_spotify.set(\"Spotify: OK\" if client else \"Spotify: –\")
         except Exception:
-            self.var_spotify.set("Spotify: –")
+            self.var_spotify.set(\"Spotify: –\")
+
+        # Refresh last update info
+        self._load_last_update_info()

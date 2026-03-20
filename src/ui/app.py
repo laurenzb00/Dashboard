@@ -196,7 +196,8 @@ class MainApp:
             except queue.Empty:
                 pass
             try:
-                self.root.after(100, pump)
+                # Increased from 100ms to 200ms to reduce main thread load
+                self.root.after(200, pump)
             except Exception:
                 pass
 
@@ -271,27 +272,37 @@ class MainApp:
             }
         if now_monotonic - float(self._status_metrics.get("last_refresh") or 0.0) < 30.0:
             return
-
-        # PV today (kWh)
-        pv_today_kwh = None
-        try:
-            daily = self.datastore.get_daily_totals(days=2) if self.datastore else []
-            today_key = datetime.now(timezone.utc).date().isoformat()
-            for item in reversed(daily or []):
-                if str(item.get("day")) == today_key:
-                    pv_today_kwh = float(item.get("pv_kwh") or 0.0)
-                    break
-            if pv_today_kwh is None and daily:
-                pv_today_kwh = float(daily[-1].get("pv_kwh") or 0.0)
-        except Exception:
-            pv_today_kwh = None
-
-        # Last heating event
-        last_heat_event_dt = self._compute_last_heating_event_dt()
-
-        self._status_metrics["pv_today_kwh"] = pv_today_kwh
-        self._status_metrics["last_heat_event_dt"] = last_heat_event_dt
+        
+        # Mark as refreshing to prevent duplicate calls
         self._status_metrics["last_refresh"] = now_monotonic
+        
+        # Run expensive DB queries in background thread
+        def worker():
+            pv_today_kwh = None
+            last_heat_event_dt = None
+            try:
+                daily = self.datastore.get_daily_totals(days=2) if self.datastore else []
+                today_key = datetime.now(timezone.utc).date().isoformat()
+                for item in reversed(daily or []):
+                    if str(item.get("day")) == today_key:
+                        pv_today_kwh = float(item.get("pv_kwh") or 0.0)
+                        break
+                if pv_today_kwh is None and daily:
+                    pv_today_kwh = float(daily[-1].get("pv_kwh") or 0.0)
+            except Exception:
+                pv_today_kwh = None
+            
+            try:
+                last_heat_event_dt = self._compute_last_heating_event_dt()
+            except Exception:
+                last_heat_event_dt = None
+            
+            def apply():
+                self._status_metrics["pv_today_kwh"] = pv_today_kwh
+                self._status_metrics["last_heat_event_dt"] = last_heat_event_dt
+            self._post_ui(apply)
+        
+        threading.Thread(target=worker, daemon=True).start()
     def build_tabs(self):
         """Robustly rebuilds all tabs, ensuring correct references after UI changes (fullscreen, etc)."""
         # CTkTabview: Tabs können nicht dynamisch entfernt werden, daher nur _add_other_tabs aufrufen
@@ -366,59 +377,13 @@ class MainApp:
         validator_thread.start()
 
     def update_tick(self):
-        """Zentrale UI-Update-Schleife: holt aktuelle Daten, aktualisiert Widgets und Status."""
-        data = {}
+        """Zentrale UI-Update-Schleife: aktualisiert Status mit gecachten Daten."""
         self._tick_count += 1
-        now = time.time()
         now_mono = time.monotonic()
         try:
-            # --- Datenquellen: Letzte Timestamps holen ---
-            pv = self.datastore.get_last_fronius_record() or {}
-            heat = self.datastore.get_last_heating_record() or {}
-            data.update(pv)
-            data.update(heat)
-
-            # --- Rate-limitiertes Debug-Logging (alle 2s) ---
-            if not hasattr(self, '_dbg_last_data'):
-                self._dbg_last_data = 0.0
-            if now - self._dbg_last_data > 2.0:
-                keys = [
-                    "pv_power_kw",
-                    "grid_power_kw",
-                    "battery_power_kw",
-                    "battery_soc_pct",
-                    "bmk_kessel_c",
-                    "bmk_warmwasser_c",
-                    "buf_top_c",
-                    "buf_mid_c",
-                    "buf_bottom_c",
-                ]
-                if DEBUG_LOG:
-                    print("[DATA_KEYS]", {k: data.get(k, "MISSING") for k in keys}, flush=True)
-                self._dbg_last_data = now
-
-            # --- Widgets/Diagramme updaten (nur im MainThread!) ---
-            if hasattr(self, "app_state") and self.app_state:
-                self.app_state.update(data)
-            else:
-                if hasattr(self, 'energy_view'):
-                    self.energy_view.update_data(data)
-                if hasattr(self, 'buffer_view'):
-                    try:
-                        self.buffer_view.update_data(data)
-                    except Exception:
-                        logging.exception("buffer_view update_data failed")
-                if hasattr(self, 'sparkline_view'):
-                    try:
-                        self.sparkline_view.update_data(data)
-                    except Exception:
-                        logging.exception("sparkline_view update_data failed")
-                if hasattr(self, 'historical_tab'):
-                    try:
-                        self.historical_tab.update_data(data)
-                    except Exception:
-                        logging.exception("historical_tab update_data failed")
-
+            # Data updates now come via handle_wechselrichter_data/handle_bmkdaten_data
+            # which push to app_state. No DB queries needed here.
+            
             # --- Statusmeldungen (unten) ---
             try:
                 self._refresh_status_metrics_if_needed(now_mono)
@@ -518,21 +483,11 @@ class MainApp:
                 except Exception:
                     pass
 
-            # --- Rate-limitiertes Logging (alle 10s) ---
-            if not hasattr(self, '_last_log_tick'):
-                self._last_log_tick = 0
-            if now - self._last_log_tick > 10:
-                logging.info(
-                    f"latest values: PV {data.get(PV_POWER_KW, 0)}kW, Grid {data.get(GRID_POWER_KW, 0)}kW, "
-                    f"Batt {data.get(BATTERY_POWER_KW, 0)}kW, SOC {data.get(BATTERY_SOC_PCT, 0)}%, "
-                    f"Kessel {data.get(BMK_KESSEL_C, 0)}°C, Warmwasser {data.get(BMK_WARMWASSER_C, 0)}°C, "
-                    f"PufferTop {data.get(BUF_TOP_C, 0)}°C"
-                )
-                self._last_log_tick = now
         except Exception:
             logging.exception("update_tick failed")
-        # Tick erneut einplanen
-        self.root.after(500, self.update_tick)
+        # Tick erneut einplanen - increased from 500ms to 2000ms
+        # Data collectors only update every 10s, so faster polling wastes CPU
+        self.root.after(2000, self.update_tick)
 
     # DEPRECATED: _loop() is no longer used. All updates handled by update_tick().
     def _loop(self):
@@ -785,7 +740,8 @@ class MainApp:
         self.build_tabs()
         # Keep the header Hue switch in sync with the bridge state.
         self._start_hue_switch_sync()
-        self.root.after(500, self.update_tick)
+        # Initial update_tick delayed, then runs every 2000ms
+        self.root.after(1000, self.update_tick)
 
         # Apply a height budget once after initial layout settles so that
         # 600px-tall screens (1014x600 / 1024x600) don't clip content.
@@ -852,21 +808,39 @@ class MainApp:
         date_text = now.strftime("%d.%m.%Y")
         weekday = now.strftime("%A")
         time_text = now.strftime("%H:%M")
-        # Only query DB for outdoor temp every 10s, not every 1s
+        # Use cached outdoor temp (updated asynchronously)
         if not hasattr(self, '_cached_out_temp'):
             self._cached_out_temp = "--.- °C"
             self._cached_out_temp_ts = 0.0
+        
+        # Trigger async refresh if cache is stale (every 15s)
         mono = time.monotonic()
-        if mono - self._cached_out_temp_ts >= 10.0:
-            heat = self.datastore.get_last_heating_record() or {}
-            norm = self.datastore.normalize_heating_record(heat, stale_minutes=5)
-            if norm['is_stale'] or norm['outdoor'] is None:
-                self._cached_out_temp = "--.- °C"
-            else:
-                self._cached_out_temp = f"{norm['outdoor']:.1f} °C"
-            self._cached_out_temp_ts = mono
+        if mono - self._cached_out_temp_ts >= 15.0:
+            self._refresh_outdoor_temp_async()
+            self._cached_out_temp_ts = mono  # Mark as refreshing
+        
         self.header.update_header(date_text, weekday, time_text, self._cached_out_temp)
-        self.root.after(1000, self._update_header_datetime)
+        # Update every 2s (time only changes visibly every minute)
+        self.root.after(2000, self._update_header_datetime)
+
+    def _refresh_outdoor_temp_async(self):
+        """Fetch outdoor temp in background thread to avoid blocking main thread."""
+        def worker():
+            try:
+                heat = self.datastore.get_last_heating_record() or {}
+                norm = self.datastore.normalize_heating_record(heat, stale_minutes=5)
+                if norm['is_stale'] or norm['outdoor'] is None:
+                    temp_str = "--.- °C"
+                else:
+                    temp_str = f"{norm['outdoor']:.1f} °C"
+            except Exception:
+                temp_str = "--.- °C"
+            
+            def apply():
+                self._cached_out_temp = temp_str
+            self._post_ui(apply)
+        
+        threading.Thread(target=worker, daemon=True).start()
 
     def _style_tabview_buttons(self) -> None:
         """Make the active tab more readable and improve contrast."""
