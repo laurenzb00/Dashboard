@@ -715,11 +715,11 @@ class HealthTab:
             self._refresh_after_id = None
 
         try:
-            tab = getattr(self.app, \"spotify_tab\", None) if self.app else None
-            client = getattr(tab, \"client\", None) if tab else None
-            self.var_spotify.set(\"Spotify: OK\" if client else \"Spotify: –\")
+            tab = getattr(self.app, "spotify_tab", None) if self.app else None
+            client = getattr(tab, "client", None) if tab else None
+            self.var_spotify.set("Spotify: OK" if client else "Spotify: –")
         except Exception:
-            self.var_spotify.set(\"Spotify: –\")
+            self.var_spotify.set("Spotify: –")
 
         # Refresh last update info
         self._load_last_update_info()
