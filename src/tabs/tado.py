@@ -417,9 +417,27 @@ class TadoTab:
         if not url:
             return
         try:
-            webbrowser.open(url)
-        except Exception:
-            pass
+            # Try multiple methods for Raspberry Pi compatibility
+            import subprocess
+            import platform
+            
+            system = platform.system().lower()
+            opened = False
+            
+            if system == "linux":
+                # Try common Linux browsers
+                for cmd in ["xdg-open", "chromium-browser", "chromium", "firefox", "sensible-browser"]:
+                    try:
+                        subprocess.Popen([cmd, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        opened = True
+                        break
+                    except FileNotFoundError:
+                        continue
+            
+            if not opened:
+                webbrowser.open(url)
+        except Exception as e:
+            logging.warning("[TADO] Browser öffnen fehlgeschlagen: %s", e)
 
     def _set_hint(self, text: str, device_url: str | None = None) -> None:
         self._device_url = device_url
