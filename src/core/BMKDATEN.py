@@ -246,7 +246,12 @@ def _bestimme_puffer_status(oben, mitte, unten):
 def _persist_to_datastore(payload: Dict[str, float]) -> None:
     try:
         store = get_shared_datastore()
+        logger.info("[DB] Speichere Heizungsdaten: ts=%s kessel=%s puffer_top=%s", 
+                    payload.get('Zeitstempel'), 
+                    payload.get('Kesseltemperatur'),
+                    payload.get('Pufferspeicher Oben') or payload.get('Puffer_Oben'))
         store.insert_heating_record(payload)
+        logger.info("[DB] Heizungseintrag erfolgreich")
     except Exception as exc:
         logger.error(f"[DB] Heizungseintrag fehlgeschlagen: {exc}")
 

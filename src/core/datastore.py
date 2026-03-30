@@ -395,10 +395,13 @@ class DataStore:
 
     def insert_heating_record(self, record: dict) -> None:
         """Persistiere Heizungs-/Pufferdaten."""
+        import logging
         if not record:
+            logging.warning("[DB-INSERT] Empty record, skipping")
             return
         ts = record.get('Zeitstempel') or record.get('timestamp')
         if not ts:
+            logging.warning("[DB-INSERT] No timestamp in record: %s", list(record.keys())[:5])
             return
         kessel = safe_float(record.get('Kesseltemperatur') or record.get('kesseltemp'))
         outdoor = safe_float(record.get('Außentemperatur') or record.get('Aussentemperatur') or record.get('aussentemp'))
@@ -406,6 +409,8 @@ class DataStore:
         mid = safe_float(record.get('Pufferspeicher Mitte') or record.get('Puffer_Mitte') or record.get('puffer_mid'))
         bot = safe_float(record.get('Pufferspeicher Unten') or record.get('Puffer_Unten') or record.get('puffer_bot'))
         warm = safe_float(record.get('Warmwasser') or record.get('Warmwassertemperatur'))
+        logging.debug("[DB-INSERT] Values: kessel=%s outdoor=%s top=%s mid=%s bot=%s warm=%s", 
+                      kessel, outdoor, top, mid, bot, warm)
         with self._lock:
             self._execute_with_retry(
                 """
