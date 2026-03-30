@@ -236,6 +236,7 @@ def run_wechselrichter():
         update_source_health("pv", ok=False, error=str(e))
 
 def run_bmkdaten():
+    logging.info("[BMKDATEN] Thread gestartet")
     try:
         while not shutdown_event.is_set():
             try:
@@ -243,9 +244,11 @@ def run_bmkdaten():
                 data = BMKDATEN.abrufen_und_speichern()
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 if data:
+                    logging.info("[BMKDATEN] Daten empfangen: %s keys, latency=%dms", len(data), latency_ms)
                     data_queue.put(('bmkdaten', data))
                     update_source_health("heating", ok=True, latency_ms=latency_ms)
                 else:
+                    logging.warning("[BMKDATEN] Keine Daten empfangen")
                     update_source_health("heating", ok=False, error="no data")
             except Exception as e:
                 logging.error(f"BMKDATEN-Thread Fehler: {e}")

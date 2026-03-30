@@ -452,6 +452,7 @@ class MainApp:
 
     def handle_bmkdaten_data(self, data: dict):
         """Echtzeit-Heizungsdaten aus dem Worker-Thread übernehmen."""
+        logging.info("[BMK] handle_bmkdaten_data called with keys: %s", list(data.keys()) if data else None)
         process_bmkdaten_data(data, self.app_state, self._source_health)
 
     def __init__(self, root: ctk.CTk, datastore: DataStore | None = None):

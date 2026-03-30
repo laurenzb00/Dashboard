@@ -104,6 +104,9 @@ def process_bmkdaten_data(
         app_state: AppState instance for reactive updates.
         source_health: Health tracking dict for data sources.
     """
+    import logging
+    logging.info("[BMK] process_bmkdaten_data: data=%s", data)
+    
     ts = parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
     source = source_health.get("heating")
     if source:
@@ -138,6 +141,9 @@ def process_bmkdaten_data(
         data.get("puffer_bot")
     )
     
+    logging.info("[BMK] Extracted: kessel=%s warmwasser=%s outdoor=%s top=%s mid=%s bot=%s",
+                 kessel, warmwasser, outdoor, top, mid, bot)
+    
     betriebsmodus = format_bmk_mode(
         data.get("Betriebsmodus") or
         data.get("betriebsmodus") or
@@ -158,4 +164,7 @@ def process_bmkdaten_data(
             BUF_BOTTOM_C: bot,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
+        logging.info("[BMK] Pushing to app_state: %s", payload)
         app_state.update(payload)
+    else:
+        logging.warning("[BMK] app_state is None!")
