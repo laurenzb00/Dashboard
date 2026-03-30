@@ -341,7 +341,7 @@ class MainApp:
                 except Exception:
                     pass
             except Exception as e:
-                print(f"[ERTRAG] Validator nicht verfügbar: {e}")
+                logger.warning("Validator nicht verfügbar: %s", e)
             # Dann jede Woche wiederholen (7 Tage = 604800 Sekunden)
             while True:
                 time.sleep(7 * 24 * 3600)  # 1 Woche
@@ -366,7 +366,7 @@ class MainApp:
                     except Exception:
                         pass
                 except Exception as e:
-                    print(f"[ERTRAG] Fehler bei wöchentlicher Validierung: {e}")
+                    logger.error("Fehler bei wöchentlicher Validierung: %s", e)
         validator_thread = threading.Thread(target=validate_loop, daemon=True)
         validator_thread.start()
 
@@ -1742,22 +1742,22 @@ class MainApp:
     def toggle_fullscreen(self):
         """Wechselt zwischen Vollbild und Fenstermodus."""
         if getattr(self, 'is_fullscreen', False):
-            print("[WINDOW] Wechsel zu Fenstermodus")
+            _dbg_print("[WINDOW] Wechsel zu Fenstermodus")
             self._apply_windowed()
             self.status.update_status("Fenstermodus")
         else:
-            print("[FULLSCREEN] Wechsel zu Vollbild")
+            _dbg_print("[FULLSCREEN] Wechsel zu Vollbild")
             self._apply_fullscreen()
             self.status.update_status("Vollbild")
 
     def minimize_window(self):
         """Minimiert das Fenster zuverlässig."""
         try:
-            print("[MINIMIZE] Iconify window (normales Minimieren)...")
+            _dbg_print("[MINIMIZE] Iconify window (normales Minimieren)...")
             self.root.iconify()
             self.status.update_status("Minimiert (Taskleiste/Alt+Tab)")
         except Exception as e:
-            print(f"[MINIMIZE] Fehler: {e}")
+            logger.warning("Minimize fehlgeschlagen: %s", e)
 
     def _on_root_map(self, event):
         """Kein automatischer Fullscreen nach Minimieren/Alt+Tab, normales Fensterverhalten."""
@@ -1804,9 +1804,9 @@ class MainApp:
             # Set initial view heights without triggering complete redraw
             view_h = max(160, body_h - 28)
             
-            print(f"[LAYOUT] Initial view height: {view_h}px (body: {body_h}, available: {available})")
+            _dbg_print(f"[LAYOUT] Initial view height: {view_h}px (body: {body_h}, available: {available})")
         except Exception as e:
-            print(f"[LAYOUT] Initial sizing failed: {e}")
+            logger.warning("Initial sizing failed: %s", e)
 
     def _handle_resize(self, w: int, h: int):
         """Handle debounced resize events - only if size actually changed significantly."""
@@ -1856,7 +1856,7 @@ class MainApp:
     def _apply_runtime_scaling(self):
         """DEPRECATED: Old runtime scaling - now handled by _handle_resize."""
         # This function is kept for compatibility but does nothing
-        print(f"[SCALING] _apply_runtime_scaling called (deprecated, doing nothing)")
+        _dbg_print("[SCALING] _apply_runtime_scaling called (deprecated, doing nothing)")
         pass
 
     def _log_component_heights(self):
@@ -1874,19 +1874,11 @@ class MainApp:
             energy_h = self.energy_view.winfo_height()
             buffer_h = self.buffer_view.winfo_height()
             
-            print(f"[DEBUG] Actual Heights:")
-            print(f"  Root window: {root_h}px")
-            print(f"  Header: {header_h}px")
-            print(f"  Notebook/Tabs: {notebook_h}px")
-            print(f"  Dashboard tab: {dash_h}px")
-            print(f"  Body content: {body_h}px")
-            print(f"  Energy view: {energy_h}px")
-            print(f"  Buffer view: {buffer_h}px")
-            print(f"  Statusbar: {status_h}px")
-            print(f"  Fixed overhead: {header_h + notebook_h + status_h}px")
-            print(f"  Available for body: {root_h - header_h - notebook_h - status_h}px")
+            if DEBUG_LOG:
+                _dbg_print(f"[DEBUG] Heights: root={root_h}, header={header_h}, notebook={notebook_h}, body={body_h}, energy={energy_h}, buffer={buffer_h}")
         except Exception as e:
-            print(f"[DEBUG] Height logging failed: {e}")
+            if DEBUG_LOG:
+                _dbg_print(f"[DEBUG] Height logging failed: {e}")
 
     def _ensure_emoji_font(self):
         """Prüft Emoji-Font und versucht Installation auf Linux (apt-get)."""
@@ -2032,15 +2024,12 @@ class MainApp:
             return None
 
     def _load_pv_sparkline(self, minutes: int = 60) -> list[float]:
-        import sys
-        print("[SPARKLINE] _load_pv_sparkline called", file=sys.stderr)
         if not self.datastore:
-            print("[SPARKLINE] Kein Datastore!", file=sys.stderr)
+            logger.debug("[SPARKLINE] Kein Datastore!")
             return []
         cutoff = datetime.now() - timedelta(minutes=minutes)
         hours = max(1, (minutes // 60) + 1)
         rows = self.datastore.get_recent_fronius(hours=hours, limit=1200)
-        print(f"[SPARKLINE] rows geladen: {len(rows)}", file=sys.stderr)
         values: list[float] = []
         for row in rows[-400:]:
             ts = self._parse_timestamp_value(row.get('timestamp'))
@@ -2050,7 +2039,6 @@ class MainApp:
             if ts < cutoff:
                 continue
             values.append(float(pv_kw))
-        print(f"[SPARKLINE] Werte für Sparkline: {values[-10:] if values else values}", file=sys.stderr)
         return values
 
 
