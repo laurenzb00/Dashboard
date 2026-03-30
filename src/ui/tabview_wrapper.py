@@ -1,5 +1,7 @@
 """Wrapper für CTkTabview, der die alte ttk.Notebook API emuliert."""
 
+from __future__ import annotations
+
 import tkinter as tk
 import customtkinter as ctk
 
