@@ -175,6 +175,14 @@ class DataStore:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Backward-compatible migration: add aussentemp if missing (fixes UTF-8 encoding issue)
+        try:
+            cols = [row[1] for row in cursor.execute("PRAGMA table_info(heating)").fetchall()]
+            if "aussentemp" not in cols:
+                logging.info("Migration: Adding 'aussentemp' column to heating table")
+                cursor.execute("ALTER TABLE heating ADD COLUMN aussentemp REAL")
+        except Exception as e:
+            logging.warning(f"Migration warning (aussentemp): {e}")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_heating_ts ON heating(timestamp)")
         
         self.conn.commit()
