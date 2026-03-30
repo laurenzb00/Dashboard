@@ -8,6 +8,7 @@ from typing import Dict, Optional
 import pytz
 import requests
 from core.datastore import get_shared_datastore
+from core.utils import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +194,7 @@ def _extrahiere_alle_daten(values, zeitstempel):
         for idx in range(min(len(values), len(PP_INDEX_MAPPING))):
             spalten_name = PP_INDEX_MAPPING.get(idx, f"Wert_{idx}")
             wert = values[idx].strip() if idx < len(values) else ""
-            float_wert = _safe_float(wert)
+            float_wert = safe_float(wert)
             daten[spalten_name] = float_wert if float_wert is not None else wert
         return daten
     except Exception as exc:
@@ -207,9 +208,9 @@ def _extrahiere_pufferdaten(values, zeitstempel):
         return None
 
     try:
-        temp_oben = _safe_float(values[4]) if len(values) > 4 else None
-        temp_mitte = _safe_float(values[5]) if len(values) > 5 else None
-        temp_unten = _safe_float(values[6]) if len(values) > 6 else None
+        temp_oben = safe_float(values[4]) if len(values) > 4 else None
+        temp_mitte = safe_float(values[5]) if len(values) > 5 else None
+        temp_unten = safe_float(values[6]) if len(values) > 6 else None
         temps_valid = [t for t in (temp_oben, temp_mitte, temp_unten) if t is not None]
         if not temps_valid:
             return None
@@ -240,15 +241,6 @@ def _bestimme_puffer_status(oben, mitte, unten):
     if temp_durchschnitt > 30:
         return "ENTLADEN"
     return "KALT"
-
-
-def _safe_float(value):
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
 
 
 def _persist_to_datastore(payload: Dict[str, float]) -> None:

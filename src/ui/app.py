@@ -53,6 +53,7 @@ from ui.app_state import AppState
 from ui.state_schema import validate_payload
 
 from core.datastore import DataStore, get_shared_datastore
+from core.utils import safe_float
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from core.schema import (
     PV_POWER_KW,
@@ -76,15 +77,6 @@ def safe_get_datastore() -> DataStore | None:
         return get_shared_datastore()
     except Exception as exc:
         logging.error("[DB] DataStore nicht erreichbar: %s", exc)
-        return None
-
-
-def _safe_float(value: str | None) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except Exception:
         return None
 
 
@@ -513,12 +505,12 @@ class MainApp:
             source["ts"] = ts
             source["count"] += 1
 
-        kessel = _safe_float(data.get("Kesseltemperatur") or data.get("kesseltemp"))
-        warmwasser = _safe_float(data.get("Warmwasser") or data.get("Warmwassertemperatur") or data.get("warmwasser"))
-        outdoor = _safe_float(data.get("Außentemperatur") or data.get("Aussentemperatur") or data.get("outdoor"))
-        top = _safe_float(data.get("Pufferspeicher Oben") or data.get("Puffer_Oben") or data.get("puffer_top"))
-        mid = _safe_float(data.get("Pufferspeicher Mitte") or data.get("Pufferspeicher_Mitte") or data.get("puffer_mid"))
-        bot = _safe_float(data.get("Pufferspeicher Unten") or data.get("Puffer_Unten") or data.get("puffer_bot"))
+        kessel = safe_float(data.get("Kesseltemperatur") or data.get("kesseltemp"))
+        warmwasser = safe_float(data.get("Warmwasser") or data.get("Warmwassertemperatur") or data.get("warmwasser"))
+        outdoor = safe_float(data.get("Außentemperatur") or data.get("Aussentemperatur") or data.get("outdoor"))
+        top = safe_float(data.get("Pufferspeicher Oben") or data.get("Puffer_Oben") or data.get("puffer_top"))
+        mid = safe_float(data.get("Pufferspeicher Mitte") or data.get("Pufferspeicher_Mitte") or data.get("puffer_mid"))
+        bot = safe_float(data.get("Pufferspeicher Unten") or data.get("Puffer_Unten") or data.get("puffer_bot"))
 
         def _format_bmk_mode(value) -> str | None:
             if value is None:
@@ -1932,11 +1924,11 @@ class MainApp:
             source["ts"] = ts
             source["count"] += 1
 
-        pv_kw = _safe_float(data.get("PV-Leistung (kW)"))
-        grid_kw = _safe_float(data.get("Netz-Leistung (kW)"))
-        batt_kw = _safe_float(data.get("Batterie-Leistung (kW)"))
-        load_kw = _safe_float(data.get("Hausverbrauch (kW)"))
-        soc = _safe_float(data.get("Batterieladestand (%)"))
+        pv_kw = safe_float(data.get("PV-Leistung (kW)"))
+        grid_kw = safe_float(data.get("Netz-Leistung (kW)"))
+        batt_kw = safe_float(data.get("Batterie-Leistung (kW)"))
+        load_kw = safe_float(data.get("Hausverbrauch (kW)"))
+        soc = safe_float(data.get("Batterieladestand (%)"))
 
         if pv_kw is not None:
             self._last_data["pv"] = pv_kw * 1000

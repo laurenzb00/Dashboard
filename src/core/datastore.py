@@ -2,6 +2,7 @@
 from __future__ import annotations
 """Central SQLite datastore for PV and heating metrics."""
 from .time_utils import ensure_utc
+from .utils import safe_float
 from collections import defaultdict
 import csv
 import os
@@ -59,12 +60,12 @@ class DataStore:
         dt = ensure_utc(dt) if dt else None
         now = datetime.now(timezone.utc)
         age_min = (now - dt).total_seconds() / 60 if dt else None
-        outdoor = _safe_float(record.get('outdoor'))
-        kessel = _safe_float(record.get(BMK_KESSEL_C))
-        warmwasser = _safe_float(record.get(BMK_WARMWASSER_C))
-        top = _safe_float(record.get(BUF_TOP_C))
-        mid = _safe_float(record.get(BUF_MID_C))
-        bot = _safe_float(record.get(BUF_BOTTOM_C))
+        outdoor = safe_float(record.get('outdoor'))
+        kessel = safe_float(record.get(BMK_KESSEL_C))
+        warmwasser = safe_float(record.get(BMK_WARMWASSER_C))
+        top = safe_float(record.get(BUF_TOP_C))
+        mid = safe_float(record.get(BUF_MID_C))
+        bot = safe_float(record.get(BUF_BOTTOM_C))
         is_stale = age_min is not None and age_min > stale_minutes
         return {
             'timestamp': ts,
@@ -78,7 +79,7 @@ class DataStore:
             BUF_MID_C: mid,
             BUF_BOTTOM_C: bot,
         }
-    """SQLite-basierter Datenspeicher für schnelle Zugriffe."""
+    """SQLite-basierter Datenspeicher fÃ¼r schnelle Zugriffe."""
 
     def __init__(self, db_path: Path | str = DB_PATH):
         self.db_path = str(db_path)
@@ -93,12 +94,12 @@ class DataStore:
                 test_conn.execute("ROLLBACK")
             except sqlite3.OperationalError as e:
                 if "database is locked" in str(e):
-                    logging.error(f"Die Datenbank {self.db_path} ist bereits von einem anderen Prozess gesperrt! Bitte stelle sicher, dass kein zweites Dashboard oder Import-Skript läuft.")
+                    logging.error(f"Die Datenbank {self.db_path} ist bereits von einem anderen Prozess gesperrt! Bitte stelle sicher, dass kein zweites Dashboard oder Import-Skript lÃ¤uft.")
                     raise SystemExit(1)
             finally:
                 test_conn.close()
         except Exception as e:
-            logging.error(f"Fehler beim Prüfen auf DB-Lock: {e}")
+            logging.error(f"Fehler beim PrÃ¼fen auf DB-Lock: {e}")
         self._init_db()
         self._hydrate_last_ingest_cache()
         # TTL caches for frequently queried latest records
@@ -116,7 +117,7 @@ class DataStore:
     
     def _init_db(self):
         """Initialisiere Datenbank mit Tabellen."""
-        # check_same_thread=False erlaubt Nutzung in verschiedenen Threads (safe für read-only)
+        # check_same_thread=False erlaubt Nutzung in verschiedenen Threads (safe fÃ¼r read-only)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=15.0)
         # Pi 5 Optimierungen: WAL + moderater Cache
         self.conn.execute("PRAGMA journal_mode=WAL")
@@ -166,7 +167,7 @@ class DataStore:
                 id INTEGER PRIMARY KEY,
                 timestamp TEXT UNIQUE,
                 kesseltemp REAL,
-                außentemp REAL,
+                auÃŸentemp REAL,
                 puffer_top REAL,
                 puffer_mid REAL,
                 puffer_bot REAL,
@@ -204,20 +205,20 @@ class DataStore:
                         ts = row.get('Zeitstempel') or row.get('timestamp')
                         if not ts:
                             continue
-                        pv = _safe_float(_first_value(
+                        pv = safe_float(_first_value(
                             row, 'PV-Leistung (kW)', 'PV', 'PV [kW]', 'P_PV'))
-                        grid = _safe_float(_first_value(
+                        grid = safe_float(_first_value(
                             row, 'Netz-Leistung (kW)', 'Netz', 'Netz [kW]', 'P_Grid'))
-                        batt = _safe_float(_first_value(
+                        batt = safe_float(_first_value(
                             row, 'Batterie-Leistung (kW)', 'Batterie', 'Batterie [kW]', 'P_Akku'))
-                        soc = _safe_float(_first_value(
+                        soc = safe_float(_first_value(
                             row, 'Batterieladestand (%)', 'SOC', 'SoC', 'State of Charge'))
 
                         pv = _normalize_power_kw(pv)
                         grid = _normalize_power_kw(grid)
                         batt = _normalize_power_kw(batt)
 
-                        load_power = _safe_float(_first_value(
+                        load_power = safe_float(_first_value(
                             row, 'Hausverbrauch (kW)', 'Hausverbrauch', 'P_Load', 'Load'))
                         load_power = _normalize_power_kw(load_power)
                         cursor.execute(
@@ -239,10 +240,10 @@ class DataStore:
                         continue
 
             self.conn.commit()
-            print(f"[DB] ✅ Imported {count} Fronius records")
+            print(f"[DB] âœ… Imported {count} Fronius records")
             return True
         except Exception as e:
-            print(f"[DB] ❌ Import error: {e}")
+            print(f"[DB] âŒ Import error: {e}")
             return False
     
     def get_last_fronius_record(self):
@@ -272,7 +273,7 @@ class DataStore:
         return None
     
     def get_hourly_averages(self, hours=24):
-        """Hole stündliche Durchschnitte der letzten N Stunden."""
+        """Hole stÃ¼ndliche Durchschnitte der letzten N Stunden."""
         cutoff = _hours_ago_iso(hours)
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -300,7 +301,7 @@ class DataStore:
         ]
     
     def get_daily_totals(self, days: Optional[int] = 30) -> List[dict]:
-        """Integriere PV-Leistung zu täglichen kWh-Werten. Results cached for 5 minutes."""
+        """Integriere PV-Leistung zu tÃ¤glichen kWh-Werten. Results cached for 5 minutes."""
         import time
         now = time.time()
         # Check cache validity
@@ -329,7 +330,7 @@ class DataStore:
         return result
 
     def get_monthly_totals(self, months: int = 12) -> List[dict]:
-        """Aggregiere tägliche PV-Werte zu MonatskWh."""
+        """Aggregiere tÃ¤gliche PV-Werte zu MonatskWh."""
         if months <= 0:
             return []
         # Holen wir etwas Puffer (31 Tage pro Monat)
@@ -353,11 +354,11 @@ class DataStore:
             for month, data in monthly.items()
         ]
         out.sort(key=lambda entry: entry['month'])
-        # Nur die letzten N Monate zurückgeben
+        # Nur die letzten N Monate zurÃ¼ckgeben
         return out[-months:]
     
     def close(self):
-        """Schließe Datenbank."""
+        """SchlieÃŸe Datenbank."""
         if self.conn:
             self.conn.close()
 
@@ -370,11 +371,11 @@ class DataStore:
         ts = record.get('Zeitstempel') or record.get('timestamp')
         if not ts:
             return
-        pv = _safe_float(record.get('PV-Leistung (kW)') or record.get('pv'))
-        grid = _safe_float(record.get('Netz-Leistung (kW)') or record.get('grid'))
-        batt = _safe_float(record.get('Batterie-Leistung (kW)') or record.get('batt'))
-        load_power = _safe_float(record.get('Hausverbrauch (kW)') or record.get('load') or record.get('P_Load'))
-        soc = _safe_float(record.get('Batterieladestand (%)') or record.get('soc'))
+        pv = safe_float(record.get('PV-Leistung (kW)') or record.get('pv'))
+        grid = safe_float(record.get('Netz-Leistung (kW)') or record.get('grid'))
+        batt = safe_float(record.get('Batterie-Leistung (kW)') or record.get('batt'))
+        load_power = safe_float(record.get('Hausverbrauch (kW)') or record.get('load') or record.get('P_Load'))
+        soc = safe_float(record.get('Batterieladestand (%)') or record.get('soc'))
 
         pv = _normalize_power_kw(pv)
         grid = _normalize_power_kw(grid)
@@ -399,16 +400,16 @@ class DataStore:
         ts = record.get('Zeitstempel') or record.get('timestamp')
         if not ts:
             return
-        kessel = _safe_float(record.get('Kesseltemperatur') or record.get('kesseltemp'))
-        outdoor = _safe_float(record.get('Außentemperatur') or record.get('Aussentemperatur') or record.get('außentemp'))
-        top = _safe_float(record.get('Pufferspeicher Oben') or record.get('Puffer_Oben') or record.get('puffer_top'))
-        mid = _safe_float(record.get('Pufferspeicher Mitte') or record.get('Puffer_Mitte') or record.get('puffer_mid'))
-        bot = _safe_float(record.get('Pufferspeicher Unten') or record.get('Puffer_Unten') or record.get('puffer_bot'))
-        warm = _safe_float(record.get('Warmwasser') or record.get('Warmwassertemperatur'))
+        kessel = safe_float(record.get('Kesseltemperatur') or record.get('kesseltemp'))
+        outdoor = safe_float(record.get('AuÃŸentemperatur') or record.get('Aussentemperatur') or record.get('auÃŸentemp'))
+        top = safe_float(record.get('Pufferspeicher Oben') or record.get('Puffer_Oben') or record.get('puffer_top'))
+        mid = safe_float(record.get('Pufferspeicher Mitte') or record.get('Puffer_Mitte') or record.get('puffer_mid'))
+        bot = safe_float(record.get('Pufferspeicher Unten') or record.get('Puffer_Unten') or record.get('puffer_bot'))
+        warm = safe_float(record.get('Warmwasser') or record.get('Warmwassertemperatur'))
         with self._lock:
             self._execute_with_retry(
                 """
-                INSERT OR REPLACE INTO heating (timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
+                INSERT OR REPLACE INTO heating (timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (ts, kessel, outdoor, top, mid, bot, warm),
@@ -469,14 +470,14 @@ class DataStore:
         if limit:
             if cutoff:
                 sql = (
-                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating WHERE timestamp >= ? "
                     "ORDER BY timestamp DESC LIMIT ?"
                 )
                 rows = cursor.execute(sql, (cutoff, limit)).fetchall()
             else:
                 sql = (
-                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating ORDER BY timestamp DESC LIMIT ?"
                 )
                 rows = cursor.execute(sql, (limit,)).fetchall()
@@ -484,14 +485,14 @@ class DataStore:
         else:
             if cutoff:
                 sql = (
-                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating WHERE timestamp >= ? "
                     "ORDER BY timestamp ASC"
                 )
                 rows = cursor.execute(sql, (cutoff,)).fetchall()
             else:
                 sql = (
-                    "SELECT timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating ORDER BY timestamp ASC"
                 )
                 rows = cursor.execute(sql, ()).fetchall()
@@ -518,19 +519,19 @@ class DataStore:
         from .schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT timestamp, kesseltemp, warmwasser, außentemp, puffer_top, puffer_mid, puffer_bot "
+            "SELECT timestamp, kesseltemp, warmwasser, auÃŸentemp, puffer_top, puffer_mid, puffer_bot "
             "FROM heating ORDER BY timestamp DESC LIMIT 1"
         )
         row = cursor.fetchone()
         if row:
             result = {
                 'timestamp': row[0],
-                BMK_KESSEL_C: _safe_float(row[1]),
-                BMK_WARMWASSER_C: _safe_float(row[2]),
-                'outdoor': _safe_float(row[3]),
-                BUF_TOP_C: _safe_float(row[4]),
-                BUF_MID_C: _safe_float(row[5]),
-                BUF_BOTTOM_C: _safe_float(row[6]),
+                BMK_KESSEL_C: safe_float(row[1]),
+                BMK_WARMWASSER_C: safe_float(row[2]),
+                'outdoor': safe_float(row[3]),
+                BUF_TOP_C: safe_float(row[4]),
+                BUF_MID_C: safe_float(row[5]),
+                BUF_BOTTOM_C: safe_float(row[6]),
             }
             self._cache_heating = result
             self._cache_heating_ts = now
@@ -655,17 +656,17 @@ class DataStore:
                     cursor.execute(
                         """
                         INSERT OR REPLACE INTO heating
-                        (timestamp, kesseltemp, außentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
+                        (timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             ts,
-                            _safe_float(row.get('Kesseltemperatur')),
-                            _safe_float(row.get('Außentemperatur') or row.get('Aussentemperatur')),
-                            _safe_float(row.get('Pufferspeicher Oben') or row.get('Puffer_Oben')),
-                            _safe_float(row.get('Pufferspeicher Mitte') or row.get('Puffer_Mitte')),
-                            _safe_float(row.get('Pufferspeicher Unten') or row.get('Puffer_Unten')),
-                            _safe_float(row.get('Warmwasser') or row.get('Warmwassertemperatur')),
+                            safe_float(row.get('Kesseltemperatur')),
+                            safe_float(row.get('AuÃŸentemperatur') or row.get('Aussentemperatur')),
+                            safe_float(row.get('Pufferspeicher Oben') or row.get('Puffer_Oben')),
+                            safe_float(row.get('Pufferspeicher Mitte') or row.get('Puffer_Mitte')),
+                            safe_float(row.get('Pufferspeicher Unten') or row.get('Puffer_Unten')),
+                            safe_float(row.get('Warmwasser') or row.get('Warmwassertemperatur')),
                         ),
                     )
                     count += 1
@@ -712,7 +713,7 @@ def _integrate_daily_energy(rows: Iterable[tuple[str, Optional[float]]]) -> List
 
         if prev_ts is not None and prev_power is not None:
             delta_h = (cur_ts - prev_ts).total_seconds() / 3600
-            # Filter offensichtliche Ausreißer (z.B. wenn Logger aus war)
+            # Filter offensichtliche AusreiÃŸer (z.B. wenn Logger aus war)
             if 0 < delta_h <= 6:
                 _distribute_segment_energy(buckets, prev_ts, prev_power, cur_ts, cur_power)
 
@@ -808,15 +809,6 @@ def _first_value(row: dict, *keys: str):
         if key in row and row[key] not in (None, ""):
             return row[key]
     return None
-
-
-def _safe_float(value):
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
 
 
 def _normalize_power_kw(value: Optional[float]) -> Optional[float]:

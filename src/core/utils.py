@@ -17,7 +17,7 @@ def safe_float(value: Union[str, float, int, None]) -> Optional[float]:
     Returns:
         float wenn Konvertierung erfolgreich, sonst None
     """
-    if value is None:
+    if value is None or value == "":
         return None
     try:
         return float(value)
