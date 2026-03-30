@@ -414,7 +414,9 @@ class TadoTab:
 
     def _open_device_url(self) -> None:
         url = self._device_url
+        logging.info("[TADO] Button geklickt, URL: %s", url)
         if not url:
+            logging.warning("[TADO] Keine URL gesetzt!")
             return
         try:
             # Try multiple methods for Raspberry Pi compatibility
@@ -422,31 +424,47 @@ class TadoTab:
             import platform
             
             system = platform.system().lower()
+            logging.info("[TADO] System: %s, versuche Browser zu öffnen für: %s", system, url)
             opened = False
             
             if system == "linux":
                 # Try common Linux browsers
                 for cmd in ["xdg-open", "chromium-browser", "chromium", "firefox", "sensible-browser"]:
                     try:
-                        subprocess.Popen([cmd, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        result = subprocess.Popen([cmd, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        logging.info("[TADO] Browser gestartet mit: %s (pid=%s)", cmd, result.pid)
                         opened = True
                         break
                     except FileNotFoundError:
+                        logging.debug("[TADO] %s nicht gefunden", cmd)
+                        continue
+                    except Exception as e:
+                        logging.warning("[TADO] %s fehlgeschlagen: %s", cmd, e)
                         continue
             
             if not opened:
+                logging.info("[TADO] Fallback: webbrowser.open()")
                 webbrowser.open(url)
+                opened = True
+                
+            if opened:
+                # Zeige Bestätigung im Hint
+                self._ui_set(self.var_hint, f"Browser geöffnet. URL: {url}")
         except Exception as e:
-            logging.warning("[TADO] Browser öffnen fehlgeschlagen: %s", e)
+            logging.error("[TADO] Browser öffnen fehlgeschlagen: %s", e)
+            self._ui_set(self.var_hint, f"Fehler beim Öffnen: {e}\nURL manuell öffnen: {url}")
 
     def _set_hint(self, text: str, device_url: str | None = None) -> None:
         self._device_url = device_url
+        logging.info("[TADO] _set_hint: device_url=%s", device_url)
         self._ui_set(self.var_hint, text)
         def _btn_state():
             try:
-                self._open_url_btn.configure(state="normal" if device_url else "disabled")
-            except Exception:
-                pass
+                new_state = "normal" if device_url else "disabled"
+                logging.debug("[TADO] Button state -> %s", new_state)
+                self._open_url_btn.configure(state=new_state)
+            except Exception as e:
+                logging.warning("[TADO] Button state update failed: %s", e)
         self._ui_call(_btn_state)
 
     def _set_power_bar(self, pct: int) -> None:
@@ -794,7 +812,8 @@ class TadoTab:
 
                     if status != "COMPLETED":
                         self._ui_set(self.var_status, "Tado Aktivierung fehlgeschlagen")
-                        self._set_hint("Aktivierung nicht abgeschlossen. Bitte später erneut versuchen.")
+                        # Keep URL available for manual activation
+                        self._set_hint(f"Aktivierung nicht abgeschlossen. URL: {url}", device_url=url)
                         self._ui_set(self.var_temp_ist, "N/A")
                         self._ui_set(self.var_humidity, "N/A")
                         while self.alive:
