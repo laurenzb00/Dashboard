@@ -196,8 +196,8 @@ class MainApp:
             except queue.Empty:
                 pass
             try:
-                # Increased from 100ms to 200ms to reduce main thread load
-                self.root.after(200, pump)
+                # Increased from 100ms to 500ms to reduce main thread load
+                self.root.after(500, pump)
             except Exception:
                 pass
 
@@ -380,6 +380,20 @@ class MainApp:
         """Zentrale UI-Update-Schleife: aktualisiert Status mit gecachten Daten."""
         self._tick_count += 1
         now_mono = time.monotonic()
+        
+        # Performance optimization: Pause animation when not on Dashboard tab
+        try:
+            current_tab = self.tabview.get()
+            is_dashboard = "Energie" in current_tab
+            if hasattr(self, "energy_view") and self.energy_view:
+                if is_dashboard and not self.energy_view._anim_enabled:
+                    self.energy_view._anim_enabled = True
+                    self.energy_view._start_animation()
+                elif not is_dashboard and self.energy_view._anim_enabled:
+                    self.energy_view._anim_enabled = False
+        except Exception:
+            pass
+        
         try:
             # Data updates now come via handle_wechselrichter_data/handle_bmkdaten_data
             # which push to app_state. No DB queries needed here.
@@ -485,9 +499,9 @@ class MainApp:
 
         except Exception:
             logging.exception("update_tick failed")
-        # Tick erneut einplanen - increased from 500ms to 2000ms
+        # Tick erneut einplanen - increased from 2000ms to 3000ms
         # Data collectors only update every 10s, so faster polling wastes CPU
-        self.root.after(2000, self.update_tick)
+        self.root.after(3000, self.update_tick)
 
     # DEPRECATED: _loop() is no longer used. All updates handled by update_tick().
     def _loop(self):
@@ -820,8 +834,8 @@ class MainApp:
             self._cached_out_temp_ts = mono  # Mark as refreshing
         
         self.header.update_header(date_text, weekday, time_text, self._cached_out_temp)
-        # Update every 2s (time only changes visibly every minute)
-        self.root.after(2000, self._update_header_datetime)
+        # Update every 10s (time only changes visibly every minute, temp every 15s)
+        self.root.after(10000, self._update_header_datetime)
 
     def _refresh_outdoor_temp_async(self):
         """Fetch outdoor temp in background thread to avoid blocking main thread."""
@@ -1918,55 +1932,6 @@ class MainApp:
             return "✅", "⚠️"
         return "~", "▲"
 
-    # --- Update Loop mit echten Daten (OPTIMIZED for Pi performance) ---
-    def _loop(self):
-        self._tick += 1
-        self._update_status_summary()
-
-        # Versuche echte Daten zu laden
-        try:
-            self._fetch_real_data()
-        except Exception as e:
-            logging.debug(f"Fehler beim Abrufen echter Daten: {e}")
-
-        # Header every 3s
-        now = datetime.now()
-        if self._tick % 1 == 0:
-            date_text = now.strftime("%d.%m.%Y")
-            weekday = now.strftime("%A")
-            time_text = now.strftime("%H:%M")
-            out_temp = f"{self._last_data['out_temp']:.1f} °C"
-            self.header.update_header(date_text, weekday, time_text, out_temp)
-            soc = self._last_data["soc"]
-            self.status.update_center(f"SOC {soc:.0f}%")
-
-        # Energy every 3s (was 1.5s) - smart delta detection avoids redundant rendering
-        self.energy_view.update_flows(
-            self._last_data["pv"],
-            self._last_data["load"],
-            self._last_data["grid"],
-            self._last_data["batt"],
-            self._last_data["soc"],
-        )
-
-        # Buffer every 9s (was 6s) - matplotlib rendering is expensive
-        if self._tick % 3 == 0:
-                # Show Warmwasser as the main value in the mini diagram
-                warmwasser = self._last_data.get("warmwasser")
-                self.buffer_view.update_temperatures(
-                    self._last_data["puffer_top"],
-                    self._last_data["puffer_mid"],
-                    self._last_data["puffer_bot"],
-                    warmwasser,
-                )
-
-        # Data freshness every 15s
-        if self._tick % 5 == 0:
-            self._update_freshness_and_sparkline()
-
-        # Pi 5: 2s main loop (balanced performance)
-        self.root.after(2000, self._loop)
-
     def handle_wechselrichter_data(self, data: dict):
         """Echtzeit-PV-Daten aus dem Worker-Thread übernehmen."""
         ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
@@ -2103,57 +2068,6 @@ class MainApp:
             values.append(float(pv_kw))
         print(f"[SPARKLINE] Werte für Sparkline: {values[-10:] if values else values}", file=sys.stderr)
         return values
-
-    def _fetch_real_data(self):
-        """Versucht, echte Daten direkt aus dem DataStore zu laden."""
-        if not self.datastore:
-            return
-
-        try:
-            record = self.datastore.get_last_fronius_record()
-            if record:
-                pv_kw = float(record.get(PV_POWER_KW) or 0.0)
-                grid_kw = float(record.get(GRID_POWER_KW) or 0.0)
-                batt_kw = float(record.get(BATTERY_POWER_KW) or 0.0)
-                soc = float(record.get(BATTERY_SOC_PCT) or 0.0)
-                load_kw = record.get(LOAD_POWER_KW)
-                if load_kw is None:
-                    load_kw = pv_kw + grid_kw - batt_kw
-                else:
-                    load_kw = float(load_kw)
-
-                self._last_data["pv"] = pv_kw * 1000
-                self._last_data["grid"] = grid_kw * 1000
-                self._last_data["batt"] = -batt_kw * 1000
-                self._last_data["load"] = load_kw * 1000
-                self._last_data["soc"] = soc
-        except Exception as exc:
-            logging.debug(f"DataStore Fronius Fehler: {exc}")
-
-        try:
-            heating = self.datastore.get_last_heating_record()
-            if heating:
-                out_val = _safe_float(heating.get('outdoor'))
-                top_val = _safe_float(heating.get('top'))
-                mid_val = _safe_float(heating.get('mid'))
-                bot_val = _safe_float(heating.get('bot'))
-                warm_val = _safe_float(heating.get('warm'))
-                kessel_val = _safe_float(heating.get('kessel'))
-
-                if out_val is not None:
-                    self._last_data["out_temp"] = out_val
-                if top_val is not None:
-                    self._last_data["puffer_top"] = top_val
-                if mid_val is not None:
-                    self._last_data["puffer_mid"] = mid_val
-                if bot_val is not None:
-                    self._last_data["puffer_bot"] = bot_val
-                if warm_val is not None:
-                    self._last_data["warmwasser"] = warm_val
-                if kessel_val is not None:
-                    self._last_data["kesseltemperatur"] = kessel_val
-        except Exception as exc:
-            logging.debug(f"DataStore BMK Fehler: {exc}")
 
 
 def run():
