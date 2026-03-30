@@ -505,10 +505,6 @@ class MainApp:
         # Data collectors only update every 10s, so faster polling wastes CPU
         self.root.after(3000, self.update_tick)
 
-    # DEPRECATED: _loop() is no longer used. All updates handled by update_tick().
-    def _loop(self):
-        pass
-
     def handle_bmkdaten_data(self, data: dict):
         """Echtzeit-Heizungsdaten aus dem Worker-Thread übernehmen."""
         ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
@@ -559,10 +555,6 @@ class MainApp:
             }
             payload = {k: v for k, v in payload.items() if v is not None}
             self.app_state.update(payload)
-
-    # DEPRECATED: _fetch_real_data() is no longer used.
-    def _fetch_real_data(self):
-        pass
 
     @staticmethod
     def _parse_ts(ts):

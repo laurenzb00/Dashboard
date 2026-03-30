@@ -582,9 +582,11 @@ class DataStore:
     def _get_latest_timestamp_unlocked(self) -> Optional[str]:
         cursor = self.conn.cursor()
         cursor.execute("SELECT MAX(timestamp) FROM fronius")
-        fr = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        fr = row[0] if row else None
         cursor.execute("SELECT MAX(timestamp) FROM heating")
-        ht = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        ht = row[0] if row else None
         values = [ts for ts in (fr, ht) if ts]
         if not values:
             return None
@@ -624,9 +626,11 @@ class DataStore:
         heat_csv = base / "Heizungstemperaturen.csv"
         cursor = self.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM fronius")
-        fr_count = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        fr_count = row[0] if row else 0
         cursor.execute("SELECT COUNT(*) FROM heating")
-        heat_count = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        heat_count = row[0] if row else 0
         fr_needs_signal = fr_csv.exists() and not self._table_has_signal("fronius", "pv_power")
         if (fr_count == 0 or fr_needs_signal) and fr_csv.exists():
             if fr_count > 0:
@@ -679,7 +683,8 @@ class DataStore:
             f"WHERE {column} IS NOT NULL AND ABS({column}) > ?"
         )
         cursor.execute(query, (threshold,))
-        return cursor.fetchone()[0] > 0
+        row = cursor.fetchone()
+        return (row[0] if row else 0) > 0
 
 
 # Quick Startup Helper

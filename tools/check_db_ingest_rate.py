@@ -26,25 +26,29 @@ def main() -> int:
 
     def max_ts(table: str) -> str | None:
         cur.execute(f"SELECT MAX(timestamp) FROM {table}")
-        return cur.fetchone()[0]
+        row = cur.fetchone()
+        return row[0] if row else None
 
     def total_rows(table: str) -> int:
         cur.execute(f"SELECT COUNT(*) FROM {table}")
-        return int(cur.fetchone()[0])
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     def count_since(table: str, cutoff: str) -> int:
         cur.execute(
             f"SELECT COUNT(*) FROM {table} WHERE datetime(timestamp) >= datetime(?)",
             (cutoff,),
         )
-        return int(cur.fetchone()[0])
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     def count_between(table: str, start: str, end: str) -> int:
         cur.execute(
             f"SELECT COUNT(*) FROM {table} WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) <= datetime(?)",
             (start, end),
         )
-        return int(cur.fetchone()[0])
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     def last_timestamps(table: str, n: int = 5) -> list[str]:
         cur.execute(f"SELECT timestamp FROM {table} ORDER BY datetime(timestamp) DESC LIMIT ?", (n,))
