@@ -106,8 +106,13 @@ class DataStore:
         self._cache_fronius_ts: float = 0.0
         self._cache_heating: Optional[dict] = None
         self._cache_heating_ts: float = 0.0
+        # Cache for daily totals (expensive query)
+        self._cache_daily_totals: Optional[List[dict]] = None
+        self._cache_daily_totals_ts: float = 0.0
+        self._cache_daily_totals_days: Optional[int] = None
         # Cache TTL increased from 2s to 8s - data collectors update every 10s
         self._CACHE_TTL: float = 8.0  # seconds
+        self._DAILY_CACHE_TTL: float = 300.0  # 5 minutes for daily totals
     
     def _init_db(self):
         """Initialisiere Datenbank mit Tabellen."""
@@ -295,7 +300,15 @@ class DataStore:
         ]
     
     def get_daily_totals(self, days: Optional[int] = 30) -> List[dict]:
-        """Integriere PV-Leistung zu täglichen kWh-Werten."""
+        """Integriere PV-Leistung zu täglichen kWh-Werten. Results cached for 5 minutes."""
+        import time
+        now = time.time()
+        # Check cache validity
+        if (self._cache_daily_totals is not None 
+            and self._cache_daily_totals_days == days
+            and (now - self._cache_daily_totals_ts) < self._DAILY_CACHE_TTL):
+            return self._cache_daily_totals
+        
         cursor = self.conn.cursor()
         if days is not None:
             cutoff = _hours_ago_iso(days * 24)
@@ -307,7 +320,13 @@ class DataStore:
             rows = cursor.execute(
                 "SELECT timestamp, pv_power FROM fronius ORDER BY timestamp ASC"
             )
-        return _integrate_daily_energy(rows)
+        result = _integrate_daily_energy(rows)
+        
+        # Update cache
+        self._cache_daily_totals = result
+        self._cache_daily_totals_ts = now
+        self._cache_daily_totals_days = days
+        return result
 
     def get_monthly_totals(self, months: int = 12) -> List[dict]:
         """Aggregiere tägliche PV-Werte zu MonatskWh."""

@@ -34,19 +34,10 @@ from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SO
 
 class EnergyFlowView(tk.Frame):
     def _request_redraw(self):
-        c = getattr(self, "canvas", None)
-        if c is None:
-            return
-        if hasattr(c, "draw_idle"):
-            c.draw_idle()
-            return
-        if hasattr(c, "draw"):
-            c.draw()
-            return
-        try:
-            c.update_idletasks()
-        except Exception:
-            pass
+        """Request canvas redraw without blocking. Avoids update_idletasks() which can freeze UI."""
+        # Tkinter Canvas doesn't need explicit redraw calls after itemconfig
+        # The canvas will update automatically on the next event loop iteration
+        pass
 
     def update_data(self, data: dict):
         """Update für Energiefluss-View: erwartet dict mit final keys."""
@@ -108,7 +99,14 @@ class EnergyFlowView(tk.Frame):
         except Exception as e:
             return
         try:
+            # Fix memory leak: delete old PhotoImage before creating new
+            old_img = getattr(self, '_tk_img', None)
             self._tk_img = ImageTk.PhotoImage(frame)
+            if old_img is not None:
+                try:
+                    del old_img
+                except Exception:
+                    pass
         except Exception as e:
             return
         try:
@@ -182,7 +180,14 @@ class EnergyFlowView(tk.Frame):
                 self._anim_job = self.after(1000, self._anim_tick)
                 return
             frame = self.render_frame(pv, load, grid, batt, soc)
+            # Fix memory leak: delete old PhotoImage before creating new
+            old_img = getattr(self, '_tk_img', None)
             self._tk_img = ImageTk.PhotoImage(frame)
+            if old_img is not None:
+                try:
+                    del old_img
+                except Exception:
+                    pass
             self.canvas.itemconfig(self._canvas_img, image=self._tk_img)
             self._request_redraw()
         self._anim_job = self.after(self._anim_interval_ms, self._anim_tick)

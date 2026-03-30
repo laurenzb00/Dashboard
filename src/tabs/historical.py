@@ -504,3 +504,11 @@ class HistoricalTab(tk.Frame):
             except Exception:
                 pass
             self.after_job = None
+        # Fix memory leak: properly close matplotlib figure
+        try:
+            import matplotlib.pyplot as plt
+            if hasattr(self, 'fig') and self.fig is not None:
+                plt.close(self.fig)
+                self.fig = None
+        except Exception:
+            pass

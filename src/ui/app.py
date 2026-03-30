@@ -196,8 +196,8 @@ class MainApp:
             except queue.Empty:
                 pass
             try:
-                # Increased from 100ms to 500ms to reduce main thread load
-                self.root.after(500, pump)
+                # Increased from 100ms to 1000ms to reduce main thread load
+                self.root.after(1000, pump)
             except Exception:
                 pass
 

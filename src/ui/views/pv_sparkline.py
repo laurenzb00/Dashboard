@@ -523,3 +523,13 @@ class PVSparklineView(tk.Frame):
             return float(value)
         except (ValueError, TypeError):
             return None
+
+    def stop(self):
+        """Clean up matplotlib figure to prevent memory leak."""
+        try:
+            import matplotlib.pyplot as plt
+            if hasattr(self, 'spark_fig') and self.spark_fig is not None:
+                plt.close(self.spark_fig)
+                self.spark_fig = None
+        except Exception:
+            pass
