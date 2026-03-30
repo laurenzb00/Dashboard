@@ -167,7 +167,7 @@ class DataStore:
                 id INTEGER PRIMARY KEY,
                 timestamp TEXT UNIQUE,
                 kesseltemp REAL,
-                auÃŸentemp REAL,
+                aussentemp REAL,
                 puffer_top REAL,
                 puffer_mid REAL,
                 puffer_bot REAL,
@@ -401,7 +401,7 @@ class DataStore:
         if not ts:
             return
         kessel = safe_float(record.get('Kesseltemperatur') or record.get('kesseltemp'))
-        outdoor = safe_float(record.get('AuÃŸentemperatur') or record.get('Aussentemperatur') or record.get('auÃŸentemp'))
+        outdoor = safe_float(record.get('Außentemperatur') or record.get('Aussentemperatur') or record.get('aussentemp'))
         top = safe_float(record.get('Pufferspeicher Oben') or record.get('Puffer_Oben') or record.get('puffer_top'))
         mid = safe_float(record.get('Pufferspeicher Mitte') or record.get('Puffer_Mitte') or record.get('puffer_mid'))
         bot = safe_float(record.get('Pufferspeicher Unten') or record.get('Puffer_Unten') or record.get('puffer_bot'))
@@ -409,7 +409,7 @@ class DataStore:
         with self._lock:
             self._execute_with_retry(
                 """
-                INSERT OR REPLACE INTO heating (timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
+                INSERT OR REPLACE INTO heating (timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (ts, kessel, outdoor, top, mid, bot, warm),
@@ -470,14 +470,14 @@ class DataStore:
         if limit:
             if cutoff:
                 sql = (
-                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating WHERE timestamp >= ? "
                     "ORDER BY timestamp DESC LIMIT ?"
                 )
                 rows = cursor.execute(sql, (cutoff, limit)).fetchall()
             else:
                 sql = (
-                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating ORDER BY timestamp DESC LIMIT ?"
                 )
                 rows = cursor.execute(sql, (limit,)).fetchall()
@@ -485,14 +485,14 @@ class DataStore:
         else:
             if cutoff:
                 sql = (
-                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating WHERE timestamp >= ? "
                     "ORDER BY timestamp ASC"
                 )
                 rows = cursor.execute(sql, (cutoff,)).fetchall()
             else:
                 sql = (
-                    "SELECT timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
+                    "SELECT timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot, warmwasser "
                     "FROM heating ORDER BY timestamp ASC"
                 )
                 rows = cursor.execute(sql, ()).fetchall()
@@ -519,7 +519,7 @@ class DataStore:
         from .schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT timestamp, kesseltemp, warmwasser, auÃŸentemp, puffer_top, puffer_mid, puffer_bot "
+            "SELECT timestamp, kesseltemp, warmwasser, aussentemp, puffer_top, puffer_mid, puffer_bot "
             "FROM heating ORDER BY timestamp DESC LIMIT 1"
         )
         row = cursor.fetchone()
@@ -656,13 +656,13 @@ class DataStore:
                     cursor.execute(
                         """
                         INSERT OR REPLACE INTO heating
-                        (timestamp, kesseltemp, auÃŸentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
+                        (timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             ts,
                             safe_float(row.get('Kesseltemperatur')),
-                            safe_float(row.get('AuÃŸentemperatur') or row.get('Aussentemperatur')),
+                            safe_float(row.get('Außentemperatur') or row.get('Aussentemperatur')),
                             safe_float(row.get('Pufferspeicher Oben') or row.get('Puffer_Oben')),
                             safe_float(row.get('Pufferspeicher Mitte') or row.get('Puffer_Mitte')),
                             safe_float(row.get('Pufferspeicher Unten') or row.get('Puffer_Unten')),

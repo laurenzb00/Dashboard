@@ -271,14 +271,6 @@ class HealthTab:
 
         threading.Thread(target=worker, daemon=True).start()
 
-        hint = ctk.CTkLabel(
-            container,
-            text="Hinweis: Timestamps werden standardmäßig als UTC interpretiert. Optional: env DASHBOARD_TS_ASSUME_LOCAL=1",
-            font=("Segoe UI", 10),
-            text_color=COLOR_SUBTEXT,
-        )
-        hint.pack(anchor="w", pady=(10, 0))
-
     def _rebuild_spark_cache(self) -> None:
         try:
             view = getattr(self.app, "sparkline_view", None) if self.app else None

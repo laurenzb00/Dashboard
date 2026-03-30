@@ -1456,7 +1456,6 @@ class MainApp:
     def handle_wechselrichter_data(self, data: dict):
         """Echtzeit-PV-Daten aus dem Worker-Thread übernehmen."""
         process_wechselrichter_data(data, self.app_state, self._last_data, self._source_health)
-        self._update_status_summary()
 
     def _get_last_timestamp(self) -> datetime | None:
         if not self.datastore:
