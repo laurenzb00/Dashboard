@@ -454,13 +454,25 @@ class TadoTab:
             logging.error("[TADO] Browser öffnen fehlgeschlagen: %s", e)
             self._ui_set(self.var_hint, f"Fehler beim Öffnen: {e}\nURL manuell öffnen: {url}")
 
-    def _set_hint(self, text: str, device_url: str | None = None) -> None:
-        self._device_url = device_url
-        logging.info("[TADO] _set_hint: device_url=%s", device_url)
+    # Sentinel to distinguish "not passed" from "passed as None"
+    _KEEP_URL = object()
+
+    def _set_hint(self, text: str, device_url: str | None | object = _KEEP_URL, clear_url: bool = False) -> None:
+        # Only update _device_url if explicitly passed or clear_url=True
+        if clear_url:
+            self._device_url = None
+            logging.info("[TADO] _set_hint: clearing device_url")
+        elif device_url is not self._KEEP_URL:
+            self._device_url = device_url
+            logging.info("[TADO] _set_hint: device_url=%s", device_url)
+        else:
+            logging.info("[TADO] _set_hint: keeping existing device_url=%s", self._device_url)
+        
         self._ui_set(self.var_hint, text)
+        current_url = self._device_url
         def _btn_state():
             try:
-                new_state = "normal" if device_url else "disabled"
+                new_state = "normal" if current_url else "disabled"
                 logging.debug("[TADO] Button state -> %s", new_state)
                 self._open_url_btn.configure(state=new_state)
             except Exception as e:
@@ -846,7 +858,7 @@ class TadoTab:
                 return
             
             self._ui_set(self.var_status, "Verbunden")
-            self._set_hint("")
+            self._set_hint("", clear_url=True)  # Clear URL after successful connection
             # Start in Auto mode until we see an overlay
             self._ui_set(self.var_mode, "Auto")
             self._ui_call(self._set_controls_enabled, False)
