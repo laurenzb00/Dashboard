@@ -1,22 +1,16 @@
+"""Main application module for the Smart Home Dashboard.
+
+This module contains the MainApp class which orchestrates the entire
+dashboard UI and coordinates between various tabs and data sources.
+"""
+
 import tkinter as tk
 import customtkinter as ctk
 import os
-
-DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
-_show_status = os.environ.get("DASHBOARD_SHOW_STATUS_TAB", "").strip().lower() in ("1", "true", "yes", "on")
-_hide_status = os.environ.get("DASHBOARD_HIDE_STATUS_TAB", "").strip().lower() in ("1", "true", "yes", "on")
-# Default: hidden (user requested). Re-enable via DASHBOARD_SHOW_STATUS_TAB=1.
-SHOW_STATUS_TAB = bool(_show_status) and not bool(_hide_status)
-
-
-def _dbg_print(msg: str) -> None:
-    if DEBUG_LOG:
-        print(msg, flush=True)
 import platform
 import shutil
 import subprocess
-from datetime import datetime, timedelta
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 import logging
 import time
 import threading
@@ -26,9 +20,23 @@ from tkinter import ttk
 
 logger = logging.getLogger(__name__)
 
-# Füge parent-Verzeichnis (src/) zu Python-Pfad hinzu
+# Environment configuration
+DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+_show_status = os.environ.get("DASHBOARD_SHOW_STATUS_TAB", "").strip().lower() in ("1", "true", "yes", "on")
+_hide_status = os.environ.get("DASHBOARD_HIDE_STATUS_TAB", "").strip().lower() in ("1", "true", "yes", "on")
+SHOW_STATUS_TAB = bool(_show_status) and not bool(_hide_status)
+
+
+def _dbg_print(msg: str) -> None:
+    """Debug print if DASHBOARD_DEBUG is enabled."""
+    if DEBUG_LOG:
+        print(msg, flush=True)
+
+
+# Add parent directory (src/) to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# UI components
 from ui.styles import (
     init_style,
     COLOR_ROOT,
@@ -51,7 +59,34 @@ from ui.views.buffer_storage import BufferStorageView
 from ui.views.pv_sparkline import PVSparklineView
 from ui.app_state import AppState
 from ui.state_schema import validate_payload
+from ui.tabview_wrapper import TabviewWrapper
 
+# Refactored modules
+from ui.app_helpers import (
+    parse_iso_datetime,
+    parse_timestamp_value,
+    format_age_short,
+    format_age_compact,
+    age_seconds,
+    compose_status_text,
+)
+from ui.app_callbacks import (
+    get_shower_script_entity_id,
+    get_leaving_home_input_boolean_entity_id,
+    get_force_away_webhook_id,
+    get_force_home_webhook_id,
+    trigger_ha_input_boolean_turn_on,
+    trigger_ha_script,
+    trigger_ha_automation,
+    trigger_ha_webhook,
+)
+from ui.app_data_handlers import (
+    process_wechselrichter_data,
+    process_bmkdaten_data,
+)
+from ui.app_presence import PresenceOverrideManager
+
+# Core modules
 from core.datastore import DataStore, get_shared_datastore
 from core.utils import safe_float
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
@@ -141,40 +176,16 @@ except ImportError:
     StatusTab = None
 
 
-class TabviewWrapper:
-    """Wrapper für CTkTabview, der die alte ttk.Notebook API emuliert."""
-    def __init__(self, tabview: ctk.CTkTabview):
-        self._tabview = tabview
-        self._tabs = {}  # tab_name -> frame
-    
-    @property
-    def tk(self):
-        """Tkinter root für Kompatibilität mit Tabs."""
-        return self._tabview.winfo_toplevel().tk
-    
-    def add(self, frame, text=""):
-        """Emuliert notebook.add(frame, text='...')"""
-        # Erstelle Tab in CTkTabview
-        self._tabview.add(text)
-        # Hole das Tab-Frame von CTkTabview
-        tab_frame = self._tabview.tab(text)
-        # Kopiere frame-Inhalt in tab_frame
-        frame.pack(in_=tab_frame, fill=tk.BOTH, expand=True)
-        self._tabs[text] = frame
-        return text
-    
-    def tabs(self):
-        """Gibt Liste aller Tab-Namen zurück."""
-        return list(self._tabs.keys())
-    
-    def forget(self, tab_id):
-        """Entfernt einen Tab (für CTkTabview nicht implementiert)."""
-        pass
-
-
 
 class MainApp:
+    """Main application class for the Smart Home Dashboard.
+    
+    Coordinates all UI components, data sources, and tab management.
+    Uses a background queue for thread-safe UI updates.
+    """
+    
     def _start_ui_pump(self) -> None:
+        """Start the UI queue pump for thread-safe updates."""
         if getattr(self, "_ui_pump_started", False):
             return
         self._ui_pump_started = True
@@ -201,50 +212,17 @@ class MainApp:
             pass
 
     def _post_ui(self, callback) -> None:
+        """Post a callback to be executed on the main thread."""
         try:
             self._ui_queue.put(callback)
         except Exception:
             pass
 
-    @staticmethod
-    def _safe_parse_iso_dt(value: str | None) -> datetime | None:
-        if not value:
-            return None
-        try:
-            raw = str(value).strip()
-            if raw.endswith("Z"):
-                raw = raw[:-1] + "+00:00"
-            dt = datetime.fromisoformat(raw)
-            if dt.tzinfo is None:
-                # Treat naive timestamps as local time.
-                dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
-            return dt
-        except Exception:
-            return None
-
-    @staticmethod
-    def _format_age_short(seconds: float | None) -> str:
-        if seconds is None:
-            return "--"
-        try:
-            total = max(0, int(seconds))
-        except Exception:
-            return "--"
-        if total < 60:
-            return f"{total}s"
-        minutes, _ = divmod(total, 60)
-        if minutes < 60:
-            return f"{minutes}m"
-        hours, minutes = divmod(minutes, 60)
-        if hours < 24:
-            return f"{hours}h {minutes:02d}m"
-        days, hours = divmod(hours, 24)
-        return f"{days}d {hours:02d}h"
-
     def _compute_last_heating_event_dt(self) -> datetime | None:
         """Heuristik: letzte 'Einheiz'-Phase erkennen.
 
-        Rückgabewert: Zeitpunkt des (geschätzten) Startpunkts des Einheizens.
+        Returns:
+            Zeitpunkt des (geschätzten) Startpunkts des Einheizens.
         """
         if not getattr(self, "datastore", None):
             return None
@@ -258,6 +236,7 @@ class MainApp:
         return compute_last_heating_event(rows)
 
     def _refresh_status_metrics_if_needed(self, now_monotonic: float) -> None:
+        """Refresh status metrics (PV today, last heating event) if stale."""
         if not hasattr(self, "_status_metrics"):
             self._status_metrics = {
                 "last_refresh": 0.0,
@@ -408,7 +387,7 @@ class MainApp:
             try:
                 if last_heat_event_dt is not None:
                     age_s = (datetime.now().astimezone() - last_heat_event_dt).total_seconds()
-                    heat_part = f"Einheizen: {last_heat_event_dt.strftime('%H:%M')} (vor {self._format_age_short(age_s)})"
+                    heat_part = f"Einheizen: {last_heat_event_dt.strftime('%H:%M')} (vor {format_age_short(age_s)})"
             except Exception:
                 pass
 
@@ -436,34 +415,8 @@ class MainApp:
             except Exception:
                 cal_text = ""
 
-            def _compose_status(max_len: int = 140) -> str:
-                sep = " • "
-                parts: list[str] = []
-                for item in (mode_part, heat_part, pv_part, cal_text):
-                    t = (item or "").strip()
-                    if t:
-                        parts.append(t)
-
-                # Drop least important parts first if too long (calendar)
-                def joined(p: list[str]) -> str:
-                    return sep.join(p)
-
-                if len(joined(parts)) <= max_len:
-                    return joined(parts)
-
-                # Remove calendar
-                if cal_text and cal_text in parts:
-                    parts = [p for p in parts if p != cal_text]
-                if len(joined(parts)) <= max_len:
-                    return joined(parts)
-                s = joined(parts)
-                if len(s) <= max_len:
-                    return s
-
-                # Last resort: hard cut (rare, but prevents important bits from being cut at the very end)
-                return (s[: max_len - 1] + "…") if max_len > 1 else "…"
-
-            status_str = _compose_status(140)
+            # Use centralized compose_status_text helper
+            status_str = compose_status_text([mode_part, heat_part, pv_part, cal_text], max_len=140)
 
             # Throttle auto-status updates to reduce visual noise.
             try:
@@ -499,64 +452,7 @@ class MainApp:
 
     def handle_bmkdaten_data(self, data: dict):
         """Echtzeit-Heizungsdaten aus dem Worker-Thread übernehmen."""
-        ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
-        source = self._source_health.get("heating")
-        if source:
-            source["ts"] = ts
-            source["count"] += 1
-
-        kessel = safe_float(data.get("Kesseltemperatur") or data.get("kesseltemp"))
-        warmwasser = safe_float(data.get("Warmwasser") or data.get("Warmwassertemperatur") or data.get("warmwasser"))
-        outdoor = safe_float(data.get("Außentemperatur") or data.get("Aussentemperatur") or data.get("outdoor"))
-        top = safe_float(data.get("Pufferspeicher Oben") or data.get("Puffer_Oben") or data.get("puffer_top"))
-        mid = safe_float(data.get("Pufferspeicher Mitte") or data.get("Pufferspeicher_Mitte") or data.get("puffer_mid"))
-        bot = safe_float(data.get("Pufferspeicher Unten") or data.get("Puffer_Unten") or data.get("puffer_bot"))
-
-        def _format_bmk_mode(value) -> str | None:
-            if value is None:
-                return None
-            try:
-                if isinstance(value, bool):
-                    return "1" if value else "0"
-                if isinstance(value, (int, float)):
-                    # avoid "1.0" noise for enum-like values
-                    iv = int(value)
-                    return str(iv)
-                s = str(value).strip()
-                return s if s else None
-            except Exception:
-                return None
-
-        betriebsmodus = _format_bmk_mode(
-            data.get("Betriebsmodus")
-            or data.get("betriebsmodus")
-            or data.get("Modus_Status")
-            or data.get("Betriebsstatus")
-        )
-
-        if hasattr(self, "app_state") and self.app_state:
-            payload = {
-                "timestamp": data.get("Zeitstempel") or data.get("timestamp"),
-                "outdoor": outdoor,
-                BMK_KESSEL_C: kessel,
-                BMK_WARMWASSER_C: warmwasser,
-                BMK_BETRIEBSMODUS: betriebsmodus,
-                BUF_TOP_C: top,
-                BUF_MID_C: mid,
-                BUF_BOTTOM_C: bot,
-            }
-            payload = {k: v for k, v in payload.items() if v is not None}
-            self.app_state.update(payload)
-
-    @staticmethod
-    def _parse_ts(ts):
-        # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
-        if not ts:
-            return 0
-        try:
-            return datetime.fromisoformat(str(ts)).timestamp()
-        except Exception:
-            return 0
+        process_bmkdaten_data(data, self.app_state, self._source_health)
 
     def __init__(self, root: ctk.CTk, datastore: DataStore | None = None):
         _dbg_print("[INIT] MainApp: Initialisierung gestartet")
@@ -1143,262 +1039,60 @@ class MainApp:
         self._trigger_ha_script(entity_id, status_label="Duschen gehen")
 
     def _get_shower_script_entity_id(self) -> str:
-        try:
-            env = (os.environ.get("SHOWER_SCRIPT_ENTITY_ID") or "").strip()
-            if env:
-                return env
-        except Exception:
-            pass
-
-        try:
-            client = self._get_presence_ha_client()
-            cfg = getattr(client, "config", None) if client else None
-            val = getattr(cfg, "shower_script_entity_id", None) if cfg else None
-            val = str(val or "").strip()
-            if val:
-                return val
-        except Exception:
-            pass
-
-        return "script.duschen_gehen"
+        """Get the shower script entity ID."""
+        return get_shower_script_entity_id(self._get_presence_ha_client())
 
     def _get_leaving_home_input_boolean_entity_id(self) -> str:
-        try:
-            env = (os.environ.get("LEAVING_HOME_INPUT_BOOLEAN_ENTITY_ID") or "").strip()
-            if env:
-                return env
-        except Exception:
-            pass
-
-        try:
-            client = self._get_presence_ha_client()
-            cfg = getattr(client, "config", None) if client else None
-            val = getattr(cfg, "leaving_home_input_boolean_entity_id", None) if cfg else None
-            val = str(val or "").strip()
-            if val:
-                return val
-        except Exception:
-            pass
-
-        return "input_boolean.leaving_home"
+        """Get the leaving home input boolean entity ID."""
+        return get_leaving_home_input_boolean_entity_id(self._get_presence_ha_client())
 
     def _get_force_away_webhook_id(self) -> str:
-        """Webhook-ID für 'Away erzwingen' (Header-Button 🏃)."""
-
-        try:
-            env = (os.environ.get("HOMEASSISTANT_FORCE_AWAY_WEBHOOK_ID") or "").strip()
-            if env:
-                return env
-        except Exception:
-            pass
-
-        try:
-            client = self._get_presence_ha_client()
-            cfg = getattr(client, "config", None) if client else None
-            val = getattr(cfg, "force_away_webhook_id", None) if cfg else None
-            val = str(val or "").strip()
-            if val:
-                return val
-        except Exception:
-            pass
-
-        # Fallback: default ID (matches provided webhook example)
-        return "9b5bdbb281ff4d129a5c3f95d3530f58"
+        """Get the force away webhook ID."""
+        return get_force_away_webhook_id(self._get_presence_ha_client())
 
     def _get_force_home_webhook_id(self) -> str:
-        """Webhook-ID für 'Home erzwingen' (Header-Button 🏠)."""
-
-        try:
-            env = (os.environ.get("HOMEASSISTANT_FORCE_HOME_WEBHOOK_ID") or "").strip()
-            if env:
-                return env
-        except Exception:
-            pass
-
-        try:
-            client = self._get_presence_ha_client()
-            cfg = getattr(client, "config", None) if client else None
-            val = getattr(cfg, "force_home_webhook_id", None) if cfg else None
-            val = str(val or "").strip()
-            if val:
-                return val
-        except Exception:
-            pass
-
-        # Fallback: default ID (matches provided webhook example)
-        return "3d3a1b55b8554ee49bbfa77a4380a0b0"
+        """Get the force home webhook ID."""
+        return get_force_home_webhook_id(self._get_presence_ha_client())
 
     def _trigger_ha_input_boolean_turn_on(self, entity_id: str, status_label: str) -> None:
-        entity_id = str(entity_id or "").strip()
-        if not entity_id:
-            return
-
-        try:
-            self.status.update_status(f"Input Boolean: {status_label}…")
-        except Exception:
-            pass
-
-        def worker() -> None:
-            ok = False
-            err = ""
-            try:
-                client = self._get_presence_ha_client()
-                if not client:
-                    err = "Home Assistant nicht konfiguriert"
-                else:
-                    ok = bool(client.call_service("input_boolean", "turn_on", {"entity_id": entity_id}))
-            except Exception as exc:
-                ok = False
-                err = str(exc)
-
-            def apply() -> None:
-                try:
-                    if ok:
-                        self.status.update_status(f"Input Boolean: {status_label} aktiviert")
-                    else:
-                        msg = err or "fehlgeschlagen"
-                        self.status.update_status(f"Input Boolean: Fehler ({msg})")
-                except Exception:
-                    pass
-
-            try:
-                self._post_ui(apply)
-            except Exception:
-                pass
-
-        try:
-            threading.Thread(target=worker, daemon=True).start()
-        except Exception:
-            pass
+        """Turn on a Home Assistant input boolean."""
+        trigger_ha_input_boolean_turn_on(
+            self._get_presence_ha_client(),
+            entity_id,
+            status_label,
+            self.status.update_status,
+            self._post_ui,
+        )
 
     def _trigger_ha_script(self, entity_id: str, status_label: str) -> None:
-        entity_id = str(entity_id or "").strip()
-        if not entity_id:
-            return
-
-        try:
-            self.status.update_status(f"Script: {status_label}…")
-        except Exception:
-            pass
-
-        def worker() -> None:
-            ok = False
-            err = ""
-            try:
-                client = self._get_presence_ha_client()
-                if not client:
-                    err = "Home Assistant nicht konfiguriert"
-                else:
-                    ok = bool(client.call_service("script", "turn_on", {"entity_id": entity_id}))
-            except Exception as exc:
-                ok = False
-                err = str(exc)
-
-            def apply() -> None:
-                try:
-                    if ok:
-                        self.status.update_status(f"Script: {status_label} gestartet")
-                    else:
-                        msg = err or "fehlgeschlagen"
-                        self.status.update_status(f"Script: Fehler ({msg})")
-                except Exception:
-                    pass
-
-            try:
-                self._post_ui(apply)
-            except Exception:
-                pass
-
-        try:
-            threading.Thread(target=worker, daemon=True).start()
-        except Exception:
-            pass
+        """Trigger a Home Assistant script."""
+        trigger_ha_script(
+            self._get_presence_ha_client(),
+            entity_id,
+            status_label,
+            self.status.update_status,
+            self._post_ui,
+        )
 
     def _trigger_ha_automation(self, entity_id: str, status_label: str) -> None:
-        entity_id = str(entity_id or "").strip()
-        if not entity_id:
-            return
-
-        try:
-            self.status.update_status(f"Automation: {status_label}…")
-        except Exception:
-            pass
-
-        def worker() -> None:
-            ok = False
-            err = ""
-            try:
-                client = self._get_presence_ha_client()
-                if not client:
-                    err = "Home Assistant nicht konfiguriert"
-                else:
-                    ok = bool(client.call_service("automation", "trigger", {"entity_id": entity_id}))
-            except Exception as exc:
-                ok = False
-                err = str(exc)
-
-            def apply() -> None:
-                try:
-                    if ok:
-                        self.status.update_status(f"Automation: {status_label} gestartet")
-                    else:
-                        msg = err or "fehlgeschlagen"
-                        self.status.update_status(f"Automation: Fehler ({msg})")
-                except Exception:
-                    pass
-
-            try:
-                self._post_ui(apply)
-            except Exception:
-                pass
-
-        try:
-            threading.Thread(target=worker, daemon=True).start()
-        except Exception:
-            pass
+        """Trigger a Home Assistant automation."""
+        trigger_ha_automation(
+            self._get_presence_ha_client(),
+            entity_id,
+            status_label,
+            self.status.update_status,
+            self._post_ui,
+        )
 
     def _trigger_ha_webhook(self, webhook_id: str, status_label: str) -> None:
-        webhook_id = str(webhook_id or "").strip()
-        if not webhook_id:
-            return
-
-        try:
-            self.status.update_status(f"Webhook: {status_label}…")
-        except Exception:
-            pass
-
-        def worker() -> None:
-            ok = False
-            err = ""
-            try:
-                client = self._get_presence_ha_client()
-                if not client:
-                    err = "Home Assistant nicht konfiguriert"
-                else:
-                    ok = bool(client.trigger_webhook(webhook_id))
-            except Exception as exc:
-                ok = False
-                err = str(exc)
-
-            def apply() -> None:
-                try:
-                    if ok:
-                        self.status.update_status(f"Webhook: {status_label} ausgelöst")
-                    else:
-                        msg = err or "fehlgeschlagen"
-                        self.status.update_status(f"Webhook: Fehler ({msg})")
-                except Exception:
-                    pass
-
-            try:
-                self._post_ui(apply)
-            except Exception:
-                pass
-
-        try:
-            threading.Thread(target=worker, daemon=True).start()
-        except Exception:
-            pass
+        """Trigger a Home Assistant webhook."""
+        trigger_ha_webhook(
+            self._get_presence_ha_client(),
+            webhook_id,
+            status_label,
+            self.status.update_status,
+            self._post_ui,
+        )
 
     # ------------------------------------------------------------------
     # Presence override (Home/Away buttons)
@@ -1433,176 +1127,26 @@ class MainApp:
         except Exception:
             return None
 
+    def _init_presence_override_manager(self) -> None:
+        """Initialize the presence override manager."""
+        self._presence_manager = PresenceOverrideManager(
+            get_ha_client=self._get_presence_ha_client,
+            post_ui=self._post_ui,
+            status_callback=self.status.update_status,
+            after_func=self.root.after,
+            after_cancel_func=self.root.after_cancel,
+        )
+
     def _presence_override_start(self, location_name: str, minutes: int = 10) -> None:
         """Start (or restart) a temporary presence override."""
-
-        # Cancel existing timer.
-        try:
-            self._presence_override_stop(silent=True)
-        except Exception:
-            pass
-
-        # Configuration (fixed by user request: 10 minutes override).
-        try:
-            duration_s = max(60, int(minutes) * 60)
-        except Exception:
-            duration_s = 600
-        refresh_s = 30  # keep-alive cadence (tracker mode)
-
-        self._presence_override_person_entity_id = "person.laurenz"
-        # Optional script-based override (recommended): create two HA scripts that
-        # implement the 10-minute override logic via helpers/templates.
-        script_home = (os.environ.get("PRESENCE_OVERRIDE_SCRIPT_HOME") or "").strip()
-        script_away = (os.environ.get("PRESENCE_OVERRIDE_SCRIPT_AWAY") or "").strip()
-        if script_home and script_away:
-            self._presence_override_mode = "script"
-            self._presence_override_script_entity_id = script_home if str(location_name).strip() == "home" else script_away
-            # No keep-alive needed; HA owns the timer. We just keep the UI timer.
-            refresh_s = 30
-        else:
-            self._presence_override_mode = "tracker"
-            self._presence_override_script_entity_id = None
-            # Mobile-app trackers can't be overridden reliably via device_tracker.see.
-            # Use a dedicated manual tracker entity that you add to the person in HA.
-            self._presence_override_tracker_entity_id = os.environ.get(
-                "PRESENCE_OVERRIDE_TRACKER_ENTITY_ID",
-                "device_tracker.laurenz_override",
-            ).strip() or "device_tracker.laurenz_override"
-        self._presence_override_location_name = str(location_name or "").strip() or "home"
-        self._presence_override_refresh_s = int(refresh_s)
-        self._presence_override_deadline_mono = time.monotonic() + float(duration_s)
-        self._presence_override_after_id = None
-        self._presence_override_last_ok = None
-        self._presence_override_last_error = ""
-
-        try:
-            pretty = "HOME" if self._presence_override_location_name == "home" else "AWAY"
-            self.status.update_status(f"Presence Override: {pretty} (10m)")
-        except Exception:
-            pass
-
-        # Trigger immediately and schedule keep-alives.
-        self._presence_override_tick()
+        if not hasattr(self, "_presence_manager"):
+            self._init_presence_override_manager()
+        self._presence_manager.start(location_name, minutes)
 
     def _presence_override_stop(self, silent: bool = False) -> None:
-        after_id = getattr(self, "_presence_override_after_id", None)
-        if after_id is not None:
-            try:
-                self.root.after_cancel(after_id)
-            except Exception:
-                pass
-
-        self._presence_override_after_id = None
-        self._presence_override_deadline_mono = None
-        self._presence_override_location_name = None
-
-        if not silent:
-            try:
-                self.status.update_status("Presence Override: beendet")
-            except Exception:
-                pass
-
-    def _presence_override_tick(self) -> None:
-        deadline = getattr(self, "_presence_override_deadline_mono", None)
-        if not deadline:
-            return
-
-        now = time.monotonic()
-        if now >= float(deadline):
-            self._presence_override_stop(silent=False)
-            return
-
-        person_ent = getattr(self, "_presence_override_person_entity_id", "person.laurenz")
-        mode = str(getattr(self, "_presence_override_mode", "tracker") or "tracker")
-        script_ent = getattr(self, "_presence_override_script_entity_id", None)
-        tracker_ent = getattr(self, "_presence_override_tracker_entity_id", "device_tracker.laurenz_override")
-        location_name = getattr(self, "_presence_override_location_name", "home")
-        refresh_s = int(getattr(self, "_presence_override_refresh_s", 30) or 30)
-        refresh_s = max(10, min(120, refresh_s))
-
-        # Run the actual HA call in a background thread.
-        def worker() -> None:
-            ok = False
-            err = ""
-            try:
-                client = self._get_presence_ha_client()
-                if not client:
-                    err = "Home Assistant nicht konfiguriert"
-                else:
-                    if mode == "script":
-                        if not script_ent:
-                            err = "Override-Script nicht konfiguriert"
-                        else:
-                            ok = bool(client.call_service("script", "turn_on", {"entity_id": str(script_ent)}))
-                            if not ok:
-                                err = "script.turn_on fehlgeschlagen"
-                    else:
-                        # If the override tracker isn't attached to the person in HA, the person won't follow.
-                        try:
-                            pst = client.get_state(person_ent) or {}
-                            trackers = (pst.get("attributes") or {}).get("device_trackers") or []
-                            if isinstance(trackers, list) and tracker_ent not in [str(x) for x in trackers]:
-                                err = f"Bitte {tracker_ent} bei {person_ent} hinzufügen"
-                        except Exception:
-                            pass
-
-                        ok = bool(client.force_person_presence(person_ent, location_name, device_tracker_entity_id=tracker_ent))
-                        if not ok:
-                            err = "device_tracker.see fehlgeschlagen"
-            except Exception as exc:
-                ok = False
-                err = str(exc)
-
-            def apply() -> None:
-                prev_ok = getattr(self, "_presence_override_last_ok", None)
-                prev_err = str(getattr(self, "_presence_override_last_error", "") or "")
-                self._presence_override_last_ok = bool(ok)
-                self._presence_override_last_error = str(err or "")
-
-                # Only update status when state changes (avoid spam every 30s).
-                if prev_ok is None:
-                    if not ok and err:
-                        try:
-                            self.status.update_status(f"Presence Override: Fehler ({err})")
-                        except Exception:
-                            pass
-                    return
-
-                if bool(prev_ok) != bool(ok):
-                    if ok:
-                        try:
-                            pretty = "HOME" if location_name == "home" else "AWAY"
-                            self.status.update_status(f"Presence Override: {pretty} (10m)")
-                        except Exception:
-                            pass
-                    else:
-                        msg = err or prev_err
-                        if msg:
-                            try:
-                                self.status.update_status(f"Presence Override: Fehler ({msg})")
-                            except Exception:
-                                pass
-
-            try:
-                self._post_ui(apply)
-            except Exception:
-                pass
-
-        try:
-            # In script mode we only need to fire once (first tick).
-            if mode == "script":
-                if getattr(self, "_presence_override_last_ok", None) is None:
-                    threading.Thread(target=worker, daemon=True).start()
-            else:
-                threading.Thread(target=worker, daemon=True).start()
-        except Exception:
-            pass
-
-        # Reschedule keep-alive.
-        try:
-            self._presence_override_after_id = self.root.after(refresh_s * 1000, self._presence_override_tick)
-        except Exception:
-            self._presence_override_after_id = None
+        """Stop the presence override."""
+        if hasattr(self, "_presence_manager"):
+            self._presence_manager.stop(silent)
 
     def _apply_fullscreen(self):
         """Setzt echtes Vollbild (ohne overrideredirect) und zentriert das Fenster."""
@@ -1910,101 +1454,8 @@ class MainApp:
 
     def handle_wechselrichter_data(self, data: dict):
         """Echtzeit-PV-Daten aus dem Worker-Thread übernehmen."""
-        ts = self._parse_timestamp_value(data.get("Zeitstempel")) or datetime.now()
-        source = self._source_health.get("pv")
-        if source:
-            source["ts"] = ts
-            source["count"] += 1
-
-        pv_kw = safe_float(data.get("PV-Leistung (kW)"))
-        grid_kw = safe_float(data.get("Netz-Leistung (kW)"))
-        batt_kw = safe_float(data.get("Batterie-Leistung (kW)"))
-        load_kw = safe_float(data.get("Hausverbrauch (kW)"))
-        soc = safe_float(data.get("Batterieladestand (%)"))
-
-        if pv_kw is not None:
-            self._last_data["pv"] = pv_kw * 1000
-        if load_kw is not None:
-            self._last_data["load"] = load_kw * 1000
-        if batt_kw is not None:
-            self._last_data["batt"] = -batt_kw * 1000
-
-        if grid_kw is not None:
-            self._last_data["grid"] = grid_kw * 1000
-        elif pv_kw is not None or load_kw is not None or batt_kw is not None:
-            calc_load = load_kw if load_kw is not None else (pv_kw or 0.0) + (grid_kw or 0.0) - (batt_kw or 0.0)
-            calc_grid = (calc_load or 0.0) - (pv_kw or 0.0) + (batt_kw or 0.0)
-            self._last_data["grid"] = calc_grid * 1000
-
-        if soc is not None:
-            self._last_data["soc"] = soc
-
-        if hasattr(self, "app_state") and self.app_state:
-            payload = {
-                "timestamp": data.get("Zeitstempel") or data.get("timestamp"),
-                PV_POWER_KW: pv_kw,
-                GRID_POWER_KW: grid_kw,
-                BATTERY_POWER_KW: batt_kw,
-                BATTERY_SOC_PCT: soc,
-                LOAD_POWER_KW: load_kw,
-            }
-            payload = {k: v for k, v in payload.items() if v is not None}
-            self.app_state.update(payload)
-
+        process_wechselrichter_data(data, self.app_state, self._last_data, self._source_health)
         self._update_status_summary()
-
-    @staticmethod
-    def _parse_timestamp_value(value):
-        # Erwartet ISO-8601-String mit expliziter Zeitzone (Europe/Vienna)
-        if isinstance(value, datetime):
-            return value
-        if not value:
-            return None
-        try:
-            return datetime.fromisoformat(str(value))
-        except Exception:
-            return None
-
-    @staticmethod
-    def _format_age_compact(seconds: float | int) -> str:
-        seconds = int(max(0, seconds))
-        if seconds < 60:
-            return f"{seconds}s"
-        if seconds < 3600:
-            return f"{seconds // 60}m"
-        return f"{seconds // 3600}h"
-
-    @staticmethod
-    def _age_seconds(ts: datetime | None) -> float | None:
-        if ts is None:
-            return None
-        try:
-            if ts.tzinfo is not None and ts.tzinfo.utcoffset(ts) is not None:
-                now = datetime.now(ts.tzinfo)
-            else:
-                now = datetime.now()
-            return (now - ts).total_seconds()
-        except Exception:
-            return None
-
-    def _update_status_summary(self):
-        # Legacy: previously wrote data-age summaries into the footer.
-        # The status bar now shows user-facing status messages, so we keep
-        # freshness info internal (e.g. for the Health tab) and do not render
-        # it in the StatusBar anymore.
-        return
-
-    def _update_freshness_and_sparkline(self):
-        last_ts = self._get_last_timestamp()
-        if last_ts:
-            delta = datetime.now() - last_ts
-            seconds = int(delta.total_seconds())
-            self._data_fresh_seconds = seconds
-        else:
-            self._data_fresh_seconds = None
-
-        # Sparkline moved into right card; keep footer minimal
-        self._update_footer_lamps()
 
     def _get_last_timestamp(self) -> datetime | None:
         if not self.datastore:
