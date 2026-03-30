@@ -1,0 +1,32 @@
+{
+  "url": "http://homeassistant.local:8123",
+  "token": "YOUR_LONG_LIVED_ACCESS_TOKEN",
+  "verify_ssl": true,
+  "timeout_s": 5,
+
+  "master_entity_id": "light.your_main_light",
+
+  "ceiling_entity_id": "switch.your_ceiling_light",
+  "ceiling_threshold_pct": 95,
+
+  "scene_all_on": "scene.all_on",
+  "scene_all_off": "scene.all_off",
+
+  "scene_come_home": "scene.welcome",
+  "scene_leave_home": "scene.goodbye",
+
+  "scene_entity_ids": [],
+
+  "dim_entity_ids": [],
+
+  "vorraum_scene_on": "scene.hallway_on",
+  "vorraum_scene_off": "scene.hallway_off",
+  "vorraum_status_entity_id": "switch.hallway_light",
+
+  "shower_script_entity_id": "script.shower_routine",
+
+  "force_away_webhook_id": "YOUR_WEBHOOK_ID",
+  "force_home_webhook_id": "YOUR_WEBHOOK_ID",
+
+  "actions": []
+}

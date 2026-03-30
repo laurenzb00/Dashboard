@@ -1,5 +1,5 @@
 {
-    "url": "http://192.168.1.201/daqdata.cgi",
+    "url": "http://YOUR_BMK_IP/daqdata.cgi",
     "timeout_s": 5,
     "sample_data": {
         "Kesseltemperatur": "55.73",

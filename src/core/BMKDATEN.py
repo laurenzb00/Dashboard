@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Dict, Optional
@@ -11,6 +13,20 @@ logger = logging.getLogger(__name__)
 
 # Reuse TCP connections across requests
 _session = requests.Session()
+
+# Load BMK config
+_CONFIG_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "config", "bkmdaten.json"
+)
+_bmk_config: Dict = {}
+try:
+    with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+        _bmk_config = json.load(f)
+except Exception as e:
+    logger.warning(f"Konnte BMK-Config nicht laden: {e}")
+
+BMK_URL = _bmk_config.get("url", "http://192.168.1.201/daqdata.cgi")
+BMK_TIMEOUT = _bmk_config.get("timeout_s", 5)
 
 
 def _resilient_get(url, timeout):
@@ -106,11 +122,11 @@ PP_INDEX_MAPPING = {
 
 def abrufen_und_speichern() -> Optional[Dict[str, float]]:
     """Ruft Daten von der Heizungs-API ab und legt sie in der CSV ab."""
-    url = "http://192.168.1.201/daqdata.cgi"
+    url = BMK_URL
 
     global _last_bmk_timeout_log
     try:
-        response = _resilient_get(url, timeout=5)
+        response = _resilient_get(url, timeout=BMK_TIMEOUT)
         response.raise_for_status()
     except requests.RequestException as exc:
         # Nur alle 10 Minuten loggen, wenn Timeout

@@ -24,6 +24,8 @@ import queue
 import sys
 from tkinter import ttk
 
+logger = logging.getLogger(__name__)
+
 # Füge parent-Verzeichnis (src/) zu Python-Pfad hinzu
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -105,7 +107,7 @@ except ImportError:
 try:
     from tabs.spotify import SpotifyTab
 except Exception as e:
-    print(f"[SPOTIFY-IMPORT-ERROR] {e}")
+    logger.warning("SpotifyTab import failed: %s", e)
     SpotifyTab = None
 
 try:
@@ -310,7 +312,7 @@ class MainApp:
         try:
             self._add_other_tabs()
         except Exception as e:
-            print(f"[build_tabs] Error adding tabs: {e}")
+            logger.error("Error adding tabs: %s", e)
         self._subscribe_view_updates()
         # Ensure all tab references are up to date
         if hasattr(self, 'historical_tab') and self.historical_tab:
@@ -905,9 +907,7 @@ class MainApp:
                 self.hue_tab = HueTab(self.root, self.notebook, tab_frame=hue_frame)
                 _dbg_print("[TABS] HueTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] HueTab initialization failed: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error("HueTab initialization failed: %s", e, exc_info=True)
                 self.hue_tab = None
 
         # HomeA (Home Assistant Automationen/Skripte) soll als 3. Tab erscheinen
@@ -923,7 +923,7 @@ class MainApp:
                 self.homeassistant_actions_tab = HomeAssistantActionsTab(self.root, self.notebook, tab_frame=ha_frame)
                 _dbg_print("[TABS] HomeAssistantActionsTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] HomeAssistantActionsTab init failed: {e}")
+                logger.error("HomeAssistantActionsTab init failed: %s", e)
                 self.homeassistant_actions_tab = None
         
         # Andere Tabs (Portierung zu CustomTkinter fortlaufend)
@@ -939,7 +939,7 @@ class MainApp:
                 self.spotify_tab = SpotifyTab(self.root, self.notebook, tab_frame=spotify_frame)
                 _dbg_print("[TABS] SpotifyTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] SpotifyTab initialization failed: {e}")
+                logger.error("SpotifyTab initialization failed: %s", e)
                 self.spotify_tab = None
 
         if TadoTab:
@@ -954,7 +954,7 @@ class MainApp:
                 self.tado_tab = TadoTab(self.root, self.notebook, tab_frame=tado_frame)
                 _dbg_print("[TABS] TadoTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] TadoTab initialization failed: {e}")
+                logger.error("TadoTab initialization failed: %s", e)
                 self.tado_tab = None
         else:
             _dbg_print(f"[TABS] TadoTab nicht verfügbar (Import fehlgeschlagen)")
@@ -971,7 +971,7 @@ class MainApp:
                 self.calendar_tab = CalendarTab(self.root, self.notebook, tab_frame=calendar_frame)
                 _dbg_print("[TABS] CalendarTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] CalendarTab init failed: {e}")
+                logger.error("CalendarTab init failed: %s", e)
                 self.calendar_tab = None
 
         if HistoricalTab:
@@ -986,7 +986,7 @@ class MainApp:
                 self.historical_tab = HistoricalTab(self.root, self.notebook, datastore=self.datastore, tab_frame=historical_frame)
                 _dbg_print("[TABS] HistoricalTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] HistoricalTab init failed: {e}")
+                logger.error("HistoricalTab init failed: %s", e)
                 self.historical_tab = None
 
         if ErtragTab:
@@ -1001,7 +1001,7 @@ class MainApp:
                 self.ertrag_tab = ErtragTab(self.root, self.notebook, tab_frame=ertrag_frame)
                 _dbg_print("[TABS] ErtragTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] ErtragTab init failed: {e}")
+                logger.error("ErtragTab init failed: %s", e)
                 self.ertrag_tab = None
 
         if TagesproduktionTab:
@@ -1027,7 +1027,7 @@ class MainApp:
                 )
                 _dbg_print("[TABS] TagesproduktionTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] TagesproduktionTab init failed: {e}")
+                logger.error("TagesproduktionTab init failed: %s", e)
                 self.tagesproduktion_tab = None
 
         # StatusTab immer als letzter Tab (rechts)
@@ -1043,7 +1043,7 @@ class MainApp:
                 self.status_tab = StatusTab(self.root, tab_frame=status_frame)
                 _dbg_print("[TABS] StatusTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] StatusTab init failed: {e}")
+                logger.error("StatusTab init failed: %s", e)
                 self.status_tab = None
         elif StatusTab:
             _dbg_print("[TABS] StatusTab ausgeblendet (DASHBOARD_HIDE_STATUS_TAB=1 zum Ausblenden aktiv)")
@@ -1061,7 +1061,7 @@ class MainApp:
                 self.health_tab = HealthTab(self.root, self.notebook, datastore=self.datastore, app=self, tab_frame=health_frame)
                 _dbg_print("[TABS] HealthTab erfolgreich hinzugefügt.")
             except Exception as e:
-                print(f"[ERROR] HealthTab init failed: {e}")
+                logger.error("HealthTab init failed: %s", e)
                 self.health_tab = None
         _dbg_print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
 

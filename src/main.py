@@ -117,6 +117,8 @@ for noisy in [
 ]:
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 shutdown_event = threading.Event()
 _CRASH_LOG_FILE = None
 CRASH_LOG_PATH = Path(__file__).resolve().with_name("crash.log")
@@ -361,7 +363,7 @@ def main():
 
     collector_threads = _start_collectors()
     elapsed = time.time() - start_time
-    print(f"[STARTUP] Dashboard bereit in {elapsed:.1f}s")
+    logger.info("Dashboard bereit in %.1fs", elapsed)
 
     def on_close():
         logging.info("Programm wird beendet…")
@@ -409,12 +411,12 @@ def run_with_restart():
         except SystemExit:
             exit_requested = True  # Explicit exit (exit button, pkill, etc.)
         except Exception as e:
-            print(f"[RESTART] Crash detected: {e}. Restarting in 3 seconds...")
+            logger.error("Crash detected: %s. Restarting in 3 seconds...", e)
             import time
             time.sleep(3)
             # Optionally log crash details here
         except:
-            print("[RESTART] Fatal error. Restarting in 3 seconds...")
+            logger.critical("Fatal error. Restarting in 3 seconds...")
             import time
             time.sleep(3)
 
