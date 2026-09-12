@@ -290,7 +290,10 @@ class TagesproduktionTab(tk.Frame):
         if not data:
             return ([], np.array([], dtype=float))
 
-        end_day = datetime.now().date()
+        # When the current window has no data, the loader may return archive
+        # data. Anchor the visible window to that archive instead of creating
+        # an empty array of dates around today's system clock.
+        end_day = max(ts.date() for ts, _value in data)
         start_day = end_day - timedelta(days=max(1, int(window_days)) - 1)
         by_day: dict[date, float] = {}
         for ts, val in data:

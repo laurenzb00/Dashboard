@@ -570,6 +570,10 @@ class SpotifyTab:
             if playback:
                 self._last_playback = playback
                 self._update_now_playing(playback)
+            elif not self._last_playback:
+                self.track_var.set("Keine aktive Wiedergabe")
+                self.artist_var.set("Starte Spotify auf einem verbundenen Gerät")
+                self.album_var.set("Kein Titel ausgewählt")
             devices = self._safe_spotify_call(self.client.devices)
             if devices:
                 self._update_devices(devices.get("devices", []))
@@ -644,7 +648,7 @@ class SpotifyTab:
         self.repeat_button.configure(text=f"Repeat: {repeat}")
 
         if track_id != self._last_track_id and track_id:
-            images = item.get("album", {}).get("images") or []
+            images = item.get("album", {}).get("images") or item.get("images") or []
             if images:
                 self._set_cover_image(images[0].get("url"))
             self._update_like_state(track_id)

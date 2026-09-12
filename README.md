@@ -89,6 +89,16 @@ bash start.sh  # Linux/macOS
 start.sh       # Windows
 ```
 
+### Datenbankpfad
+
+Standardmaessig verwendet das Dashboard `src/core/data.db`. Wenn die aktuelle
+Datenbank an einem anderen Ort liegt, kann der Pfad vor dem Start gesetzt werden:
+
+```bat
+set DASHBOARD_DB_PATH=D:\Pfad\zur\aktuellen\data.db
+python src\main.py
+```
+
 ## Integrationen
 
 - **Energie**: Fronius Wechselrichter, BMK API

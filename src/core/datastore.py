@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 
-DB_PATH = Path(__file__).resolve().with_name("data.db")
+_DEFAULT_DB_PATH = Path(__file__).resolve().with_name("data.db")
+DB_PATH = Path(os.environ.get("DASHBOARD_DB_PATH", str(_DEFAULT_DB_PATH))).expanduser()
 DATA_DIR = DB_PATH.parent.parent.parent / "data"
 
 _SHARED_LOCK = threading.Lock()

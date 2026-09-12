@@ -306,10 +306,12 @@ class ErtragTab:
         try:
             w = max(1, int(getattr(event, "width", 1)))
             h = max(1, int(getattr(event, "height", 1)))
+            if w < 50 or h < 50:
+                return
             dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
             self._apply_layout()
-            self.canvas.draw()
+            self.canvas.draw_idle()
         except Exception:
             pass
 
