@@ -428,15 +428,9 @@ class EnergyFlowView(tk.Frame):
     def _draw_node_circle(self, draw: ImageDraw.ImageDraw, x: int, y: int, name: str):
         """Draw node circle background with effects (no text/icons)."""
         r = self.node_radius + (6 if name == "home" else 0)
-        fill = COLOR_BORDER
-        if name == "home":
-            fill = COLOR_PRIMARY
-        elif name == "pv":
-            fill = COLOR_SUCCESS
-        elif name == "grid":
-            fill = COLOR_INFO
-        elif name == "battery":
-            fill = COLOR_WARNING
+        # Neutral glass-like nodes keep the data colors on the animated
+        # arrows and battery ring, matching the reference dashboard style.
+        fill = "#3A3F4D"
         # Beautiful soft shadow + subtle glow
         self._draw_soft_shadow(draw, x, y, r, fill)
         self._draw_subtle_glow(draw, x, y, r, fill)
@@ -751,9 +745,9 @@ class EnergyFlowView(tk.Frame):
         # PV -> Haus
         if pv_w > min_flow_w:
             pulse = self._anim_phase * flow_strength(pv_w)
-            self._draw_arrow(draw, pv, home, COLOR_SUCCESS, thickness(pv_w), pulse=pulse)
-            self._draw_flow_dots(draw, pv, home, COLOR_SUCCESS, flow_strength(pv_w))
-            self._draw_flow_label(img, pv, home, pv_w, offset=28, outside_pad=26, along=0, color=COLOR_SUCCESS, outside="above")
+            self._draw_arrow(draw, pv, home, COLOR_WARNING, thickness(pv_w), pulse=pulse)
+            self._draw_flow_dots(draw, pv, home, COLOR_WARNING, flow_strength(pv_w))
+            self._draw_flow_label(img, pv, home, pv_w, offset=28, outside_pad=26, along=0, color=COLOR_WARNING, outside="above")
 
         # Grid Import/Export
         if grid_w > min_flow_w:

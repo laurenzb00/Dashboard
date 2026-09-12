@@ -620,13 +620,13 @@ class MainApp:
 
         # Buffer Card (60:40 Grid) - flexible Größe
         _dbg_print("[INIT] MainApp: BufferCard und BufferView werden erstellt...")
-        self.buffer_card = Card(self.body, padding=0)
+        self.buffer_card = Card(self.body, padding=12)
         self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=6, pady=6)
         self.buffer_card.add_title("Warmwasser", icon="🔥")
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=320, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
-        self.sparkline_card = Card(self.body, padding=0)
+        self.sparkline_card = Card(self.body, padding=12)
         self.sparkline_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 6))
         self.sparkline_view = PVSparklineView(self.sparkline_card.content(), datastore=self.datastore)
         self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
@@ -1245,8 +1245,10 @@ class MainApp:
                 # The buffer needs enough vertical room for its temperature
                 # layers and boiler panel; keep it slightly larger than the
                 # energy-flow canvas in portrait mode.
-                energy_view_h = max(220, int(row0_h * 0.30) - 52)
-                buffer_view_h = max(380, int(row0_h * 0.70) - 52)
+                # Portrait reference layout: keep the energy-flow canvas
+                # compact and give the temperature visualization more height.
+                energy_view_h = max(200, int(row0_h * 0.25) - 52)
+                buffer_view_h = max(430, int(row0_h * 0.75) - 52)
             else:
                 energy_view_h = max(180, row0_h - 52)
                 buffer_view_h = energy_view_h
