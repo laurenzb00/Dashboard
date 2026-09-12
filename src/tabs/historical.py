@@ -24,6 +24,11 @@ from ui.styles import (
     COLOR_DANGER,
     COLOR_SUCCESS,
     COLOR_TITLE,
+    FONT_SIZE_TITLE,
+    FONT_SIZE_SUBTITLE,
+    FONT_SIZE_BODY,
+    BUTTON_HEIGHT_SECONDARY,
+    PADDING_SECTION,
     emoji,
 )
 
@@ -71,20 +76,20 @@ class HistoricalTab(tk.Frame):
         self._update_plot()
 
     def _build_ui(self) -> None:
-        self.grid_rowconfigure(0, minsize=44)
+        self.grid_rowconfigure(0, minsize=64)
         self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, minsize=26)
+        self.grid_rowconfigure(2, minsize=40)
         self.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self, bg=COLOR_ROOT)
-        topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        topbar.grid(row=0, column=0, sticky="ew", padx=PADDING_SECTION, pady=(PADDING_SECTION, 8))
 
         tk.Label(
             topbar,
             text="Historie",
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
-            font=("Segoe UI", 13, "bold"),
+            font=("Segoe UI", FONT_SIZE_TITLE, "bold"),
         ).pack(side=tk.LEFT, padx=(2, 10))
 
         self.topbar_status = tk.Label(
@@ -92,7 +97,7 @@ class HistoricalTab(tk.Frame):
             text="",
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
-            font=("Segoe UI", 12, "bold"),
+            font=("Segoe UI", FONT_SIZE_SUBTITLE, "bold"),
         )
         self.topbar_status.pack(side=tk.RIGHT)
 
@@ -104,7 +109,7 @@ class HistoricalTab(tk.Frame):
             text="Zeitraum:",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            font=("Segoe UI", 12),
+            font=("Segoe UI", FONT_SIZE_SUBTITLE),
         ).pack(side=tk.LEFT, padx=(0, 8))
         
         # Touch-freundliche Button-Gruppe mit CustomTkinter
@@ -114,18 +119,18 @@ class HistoricalTab(tk.Frame):
             btn = ctk.CTkButton(
                 period_frame,
                 text=period,
-                font=("Segoe UI", 11, "bold"),
-                width=50,
-                height=28,
-                corner_radius=8,
+                font=("Segoe UI", FONT_SIZE_BODY, "bold"),
+                width=68,
+                height=BUTTON_HEIGHT_SECONDARY,
+                corner_radius=10,
                 command=lambda p=period: self._select_period(p)
             )
-            btn.pack(side=tk.LEFT, padx=2)
+            btn.pack(side=tk.LEFT, padx=4)
             self._period_buttons[period] = btn
         self._update_period_button_colors()
 
         plot_container = tk.Frame(self, bg=COLOR_ROOT)
-        plot_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=0)
+        plot_container.grid(row=1, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 

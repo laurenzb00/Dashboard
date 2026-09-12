@@ -101,7 +101,7 @@ class HealthTab:
 
     def _build_ui(self) -> None:
         container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         header = ctk.CTkFrame(container, fg_color="transparent")
         header.pack(fill=tk.X, pady=(0, 10))
@@ -118,7 +118,9 @@ class HealthTab:
             text="Refresh",
             fg_color=COLOR_PRIMARY,
             command=self.refresh,
-            width=120,
+            width=144,
+            height=48,
+            font=("Segoe UI", 13, "bold"),
         )
         self._refresh_btn.pack(side=tk.RIGHT)
 

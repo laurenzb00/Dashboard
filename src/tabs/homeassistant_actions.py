@@ -88,7 +88,7 @@ class HomeAssistantActionsTab:
 
     def _build_ui(self) -> None:
         main = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         main.grid_rowconfigure(0, weight=0)
         main.grid_rowconfigure(1, weight=1)
@@ -100,11 +100,11 @@ class HomeAssistantActionsTab:
         ctk.CTkLabel(
             header,
             textvariable=self.status_var,
-            font=get_safe_font("Bahnschrift", 11),
+            font=get_safe_font("Bahnschrift", 13),
             text_color=COLOR_TEXT,
         ).pack(anchor="w")
 
-        self._actions_card = Card(main, padding=8)
+        self._actions_card = Card(main, padding=16)
         self._actions_card.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
 
         self._actions_body = ctk.CTkScrollableFrame(
@@ -245,7 +245,7 @@ class HomeAssistantActionsTab:
             ctk.CTkLabel(
                 self._actions_body,
                 text="Home Assistant ist nicht konfiguriert.",
-                font=("Segoe UI", 11),
+                font=("Segoe UI", 13),
                 text_color=COLOR_SUBTEXT,
             ).pack(anchor="w", pady=4)
             return
@@ -279,10 +279,10 @@ class HomeAssistantActionsTab:
                 hover_color=COLOR_BORDER,
                 border_width=1,
                 border_color=COLOR_BORDER,
-                corner_radius=8,
-                height=36,
+                corner_radius=10,
+                height=52,
                 command=lambda a=action: self._trigger_action_async(a),
-            ).grid(row=r, column=c, sticky="ew", padx=4, pady=3)
+            ).grid(row=r, column=c, sticky="ew", padx=8, pady=6)
 
     def _trigger_action_async(self, action: Dict[str, Any]) -> None:
         client = self._ha_client

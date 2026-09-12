@@ -15,6 +15,11 @@ from ui.styles import (
     COLOR_WARNING,
     COLOR_DANGER,
     COLOR_TITLE,
+    FONT_SIZE_TITLE,
+    FONT_SIZE_SUBTITLE,
+    FONT_SIZE_BODY,
+    BUTTON_HEIGHT_SECONDARY,
+    PADDING_SECTION,
     emoji,
 )
 from ui.views.energy_chart import build_energy_chart
@@ -51,26 +56,26 @@ class ErtragTab:
         self._period_map: dict[str, int] = {"7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
 
         # Layout like HistoricalTab: topbar + plot card + status line
-        self.tab_frame.grid_rowconfigure(0, minsize=44)
+        self.tab_frame.grid_rowconfigure(0, minsize=64)
         self.tab_frame.grid_rowconfigure(1, weight=1)
-        self.tab_frame.grid_rowconfigure(2, minsize=26)
+        self.tab_frame.grid_rowconfigure(2, minsize=40)
         self.tab_frame.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        topbar.grid(row=0, column=0, sticky="ew", padx=PADDING_SECTION, pady=(PADDING_SECTION, 8))
 
         tk.Label(
             topbar,
             text="Energiefluss",
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
-            font=("Segoe UI", 13, "bold"),
+            font=("Segoe UI", FONT_SIZE_TITLE, "bold"),
         ).pack(side=tk.LEFT, padx=(2, 10))
 
         # Zeitraum-Wahl: Touch-freundliche Buttons statt Combobox
         period_frame = tk.Frame(topbar, bg=COLOR_ROOT)
         period_frame.pack(side=tk.RIGHT, padx=(0, 12))
-        tk.Label(period_frame, text="Zeitraum:", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 12)).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(period_frame, text="Zeitraum:", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE)).pack(side=tk.LEFT, padx=(0, 10))
         
         # Touch-freundliche Button-Gruppe
         self._period_buttons = {}
@@ -78,9 +83,9 @@ class ErtragTab:
             btn = tk.Button(
                 period_frame,
                 text=period,
-                font=("Segoe UI", 11, "bold"),
-            width=8,
-                height=1,
+                font=("Segoe UI", FONT_SIZE_BODY, "bold"),
+                width=10,
+                height=2,
                 relief=tk.FLAT,
                 bg=COLOR_BORDER,
                 fg=COLOR_TEXT,
@@ -89,15 +94,15 @@ class ErtragTab:
                 borderwidth=0,
                 command=lambda p=period: self._select_period(p)
             )
-            btn.pack(side=tk.LEFT, padx=2)
+            btn.pack(side=tk.LEFT, padx=4)
             self._period_buttons[period] = btn
         self._update_period_button_colors()
 
-        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 12, "bold"))
+        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE, "bold"))
         self.topbar_status.pack(side=tk.RIGHT)
 
         plot_container = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        plot_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=0)
+        plot_container.grid(row=1, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 
@@ -114,19 +119,19 @@ class ErtragTab:
         self.energy_chart = build_energy_chart(self.chart_frame, [])
 
         stats_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        stats_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
+        stats_frame.grid(row=2, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
         self.var_sum = tk.StringVar(value="PV: -- kWh")
         self.var_avg = tk.StringVar(value="Verbrauch: -- kWh")
         self.var_last = tk.StringVar(value="Δ: -- kWh")
         self.var_autarkie = tk.StringVar(value="Autarkie: --%")
         self.var_ersparnis = tk.StringVar(value="Ersparnis: -- €")
         self.var_monthly = tk.StringVar(value="")
-        tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_ROOT, fg=COLOR_TEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
-        tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
-        tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 12))
-        tk.Label(stats_frame, textvariable=self.var_autarkie, bg=COLOR_ROOT, fg=COLOR_SUCCESS, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
-        tk.Label(stats_frame, textvariable=self.var_ersparnis, bg=COLOR_ROOT, fg=COLOR_PRIMARY, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 12))
-        tk.Label(stats_frame, textvariable=self.var_monthly, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", 10)).pack(side=tk.RIGHT, padx=(12, 0))
+        tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_ROOT, fg=COLOR_TEXT, font=("Segoe UI", FONT_SIZE_BODY, "bold")).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_BODY)).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_BODY)).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(stats_frame, textvariable=self.var_autarkie, bg=COLOR_ROOT, fg=COLOR_SUCCESS, font=("Segoe UI", FONT_SIZE_BODY, "bold")).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(stats_frame, textvariable=self.var_ersparnis, bg=COLOR_ROOT, fg=COLOR_PRIMARY, font=("Segoe UI", FONT_SIZE_BODY, "bold")).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(stats_frame, textvariable=self.var_monthly, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_BODY)).pack(side=tk.RIGHT, padx=(16, 0))
 
         self._last_key = None
         self.store = get_shared_datastore()

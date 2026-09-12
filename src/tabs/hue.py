@@ -325,12 +325,12 @@ class HueTab:
     # --- UI ---
     def _build_ui(self) -> None:
         header = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        header.pack(fill="x", padx=10, pady=10)
+        header.pack(fill="x", padx=20, pady=16)
 
         status_lbl = tk.Label(
             header,
             textvariable=self.status_var,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 12),
             fg=COLOR_SUBTEXT,
             bg=COLOR_ROOT,
         )
@@ -339,7 +339,7 @@ class HueTab:
         refresh_lbl = tk.Label(
             header,
             textvariable=self.last_refresh_var,
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 11),
             fg=COLOR_SUBTEXT,
             bg=COLOR_ROOT,
         )
@@ -361,8 +361,8 @@ class HueTab:
             from_=0,
             to=100,
             number_of_steps=100,
-            width=320,
-            height=20,
+            width=440,
+            height=28,
             variable=self._dimmer_value,
             command=lambda _v: self._apply_dimmer_label(),
             fg_color=COLOR_BORDER,
@@ -415,7 +415,7 @@ class HueTab:
         btn = tk.Button(
             header,
             text="↻ Neu laden",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 12, "bold"),
             bg=COLOR_CARD,
             fg=COLOR_TEXT,
             activebackground=COLOR_CARD,
@@ -430,7 +430,7 @@ class HueTab:
         self._apply_dimmer_label()
 
         canvas_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        canvas_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        canvas_frame.pack(fill="both", expand=True, padx=20, pady=(0, 16))
 
         self._scroll_canvas = tk.Canvas(canvas_frame, bg=COLOR_ROOT, highlightthickness=0)
         self._scroll_canvas.pack(side="left", fill="both", expand=True)
@@ -487,7 +487,7 @@ class HueTab:
             lbl = ctk.CTkLabel(
                 self._scroll_window,
                 text="Keine Szenen gefunden.",
-                font=get_safe_font("Bahnschrift", 12, "bold"),
+                font=get_safe_font("Bahnschrift", 14, "bold"),
                 text_color=COLOR_SUBTEXT,
             )
             lbl.pack(anchor="w", padx=10, pady=10)
@@ -512,7 +512,7 @@ class HueTab:
                 border_width=1,
                 text_color=COLOR_TEXT,
                 corner_radius=14,
-                height=56,
+                height=64,
                 font=get_safe_font("Bahnschrift", 14, "bold"),
             )
             b.grid(row=r, column=c, sticky="ew", padx=6, pady=6)

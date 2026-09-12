@@ -58,7 +58,7 @@ class SystemTab:
         """Modern Dashboard-style UI mit Cards."""
         # Main container with padding
         main = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Grid layout: 2 rows x 3 columns
         main.grid_rowconfigure(0, weight=1)
@@ -79,7 +79,7 @@ class SystemTab:
 
     def _create_cpu_card(self, parent) -> Card:
         """CPU Usage Card with circular progress."""
-        card = Card(parent, padding=10)
+        card = Card(parent, padding=16)
         card.add_title("CPU", icon="⚙️")
         
         # Canvas for circular progress
@@ -99,7 +99,7 @@ class SystemTab:
 
     def _create_ram_card(self, parent) -> Card:
         """RAM Usage Card with circular progress."""
-        card = Card(parent, padding=10)
+        card = Card(parent, padding=16)
         card.add_title("RAM", icon="💾")
         
         # Canvas for circular progress
@@ -119,7 +119,7 @@ class SystemTab:
 
     def _create_disk_card(self, parent) -> Card:
         """Disk Usage Card with circular progress."""
-        card = Card(parent, padding=10)
+        card = Card(parent, padding=16)
         card.add_title("SD-Karte", icon="💿")
         
         # Canvas for circular progress
@@ -139,7 +139,7 @@ class SystemTab:
 
     def _create_temp_card(self, parent) -> Card:
         """Temperature Card."""
-        card = Card(parent, padding=10)
+        card = Card(parent, padding=16)
         card.add_title("Temperatur", icon="🌡️")
         
         temp_label = tk.Label(card.content(), textvariable=self.var_temp, 
@@ -150,7 +150,7 @@ class SystemTab:
 
     def _create_uptime_card(self, parent) -> Card:
         """Uptime Card."""
-        card = Card(parent, padding=10)
+        card = Card(parent, padding=16)
         card.add_title("Uptime", icon="⏱️")
         
         uptime_label = tk.Label(card.content(), textvariable=self.var_uptime, 
@@ -169,7 +169,7 @@ class SystemTab:
 
     def _create_network_card(self, parent) -> Card:
         """Network Traffic Card."""
-        card = Card(parent, padding=10)
+        card = Card(parent, padding=16)
         card.add_title("Netzwerk", icon="📡")
         
         # Upload

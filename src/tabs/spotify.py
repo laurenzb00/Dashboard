@@ -51,18 +51,18 @@ class SpotifyTab:
             return None
     def _build_devices_tab(self) -> None:
         header = tk.Frame(self.devices_frame, bg=COLOR_ROOT)
-        header.pack(fill=tk.X)
+        header.pack(fill=tk.X, padx=16, pady=(0, 8))
         tk.Label(
             header,
             text="Geräteauswahl",
-            font=("Arial", 15, "bold"),
+            font=("Arial", 18, "bold"),
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
         ).pack(anchor=W)
         tk.Label(
             header,
             text="Wähle hier das Ausgabegerät für Spotify.",
-            font=("Arial", 11),
+            font=("Arial", 13),
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
         ).pack(anchor=W, pady=(2, 6))
@@ -74,7 +74,7 @@ class SpotifyTab:
         ).pack(anchor=W)
 
         body = tk.Frame(self.devices_frame, bg=COLOR_ROOT)
-        body.pack(fill=BOTH, expand=True, pady=(12, 0))
+        body.pack(fill=BOTH, expand=True, pady=(16, 0))
         self.device_container = tk.Frame(body, bg=COLOR_ROOT)
         self.device_container.pack(fill=BOTH, expand=True)
         tk.Label(self.device_container, text="Keine Geräte geladen", bg=COLOR_ROOT, fg=COLOR_TEXT).grid(row=0, column=0, pady=12)
@@ -104,11 +104,11 @@ class SpotifyTab:
 
     def _create_playlist_icon(self, playlist: dict, idx: int):
         # 6 Playlists pro Zeile, vertikales Scrollen, kompaktes Layout, unsichtbarer Button über Cover
-        col_count = 6
+        col_count = 5
         row = idx // col_count
         col_idx = idx % col_count
         cell = tk.Frame(self.playlist_inner, bg=COLOR_ROOT)
-        cell.grid(row=row, column=col_idx, padx=8, pady=8, sticky="n")
+        cell.grid(row=row, column=col_idx, padx=14, pady=14, sticky="n")
         image_url = (playlist.get("images") or [{}])[0].get("url")
         photo = self._get_playlist_photo(playlist.get("id"), image_url)
         # Unsichtbarer Button über dem Cover, reagiert auf Klick und leuchtet kurz auf
@@ -167,9 +167,9 @@ class SpotifyTab:
         )
         btn.pack()
         name = playlist.get("name", "Unbenannte Playlist")
-        tk.Label(cell, text=name, font=("Arial", 11, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+10, bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(2,0))
+        tk.Label(cell, text=name, font=("Arial", 13, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+24, bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(6,0))
         tracks_total = playlist.get("tracks", {}).get("total", 0)
-        tk.Label(cell, text=f"{tracks_total} Titel", font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack()
+        tk.Label(cell, text=f"{tracks_total} Titel", font=("Arial", 11), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack()
 
     def __init__(self, root, notebook, tab_frame=None):
         self.root = root
@@ -252,7 +252,7 @@ class SpotifyTab:
 
     def _build_content(self) -> None:
         self.content_notebook = ttk.Notebook(self.tab_frame, bootstyle="dark")
-        self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
+        self.content_notebook.pack(fill=BOTH, expand=True, padx=16, pady=(0, 16))
 
         self.now_playing_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
         self.library_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)

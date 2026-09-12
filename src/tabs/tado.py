@@ -214,12 +214,12 @@ class TadoTab:
 
     def _build_ui(self) -> None:
         # Layout: header + two cards
-        # On 1024x600 the content can get clipped; use a scrollable container.
+        # Keep the tab scrollable so it remains usable in windowed mode too.
         try:
             container = ctk.CTkScrollableFrame(self.tab_frame, fg_color="transparent")
         except Exception:
             container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         header = ctk.CTkFrame(container, fg_color="transparent")
         header.pack(fill=tk.X, pady=(0, 8))
@@ -227,23 +227,23 @@ class TadoTab:
         ctk.CTkLabel(
             header,
             text=emoji("🌡️ Raumtemperatur", "Raumtemperatur"),
-            font=("Segoe UI", 16, "bold"),
+            font=("Segoe UI", 18, "bold"),
             text_color=COLOR_TITLE,
         ).pack(side=tk.LEFT)
 
         ctk.CTkLabel(
             header,
             textvariable=self.var_status,
-            font=("Segoe UI", 11),
+            font=("Segoe UI", 13),
             text_color=COLOR_SUBTEXT,
         ).pack(side=tk.RIGHT)
 
         hint = ctk.CTkFrame(container, fg_color="transparent")
-        hint.pack(fill=tk.X, pady=(0, 10))
+        hint.pack(fill=tk.X, pady=(0, 16))
         self._hint_label = ctk.CTkLabel(
             hint,
             textvariable=self.var_hint,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 12),
             text_color=COLOR_SUBTEXT,
             wraplength=900,
             justify="left",
@@ -252,7 +252,8 @@ class TadoTab:
         self._open_url_btn = ctk.CTkButton(
             hint,
             text="Im Browser öffnen",
-            width=150,
+            width=180,
+            height=48,
             fg_color=COLOR_PRIMARY,
             hover_color=COLOR_SUCCESS,
             command=self._open_device_url,
@@ -267,7 +268,7 @@ class TadoTab:
 
         # Left: live data
         self.card_live = Card(content)
-        self.card_live.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=0)
+        self.card_live.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=0)
         self.card_live.add_title("Aktuell", icon="📊")
 
         live = ctk.CTkFrame(self.card_live.content(), fg_color="transparent")
@@ -289,7 +290,7 @@ class TadoTab:
 
         # Right: controls
         self.card_ctrl = Card(content)
-        self.card_ctrl.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=0)
+        self.card_ctrl.grid(row=0, column=1, sticky="nsew", padx=(10, 0), pady=0)
         self.card_ctrl.add_title("Steuerung", icon="⚙️")
 
         ctrl = ctk.CTkFrame(self.card_ctrl.content(), fg_color="transparent")
@@ -339,7 +340,8 @@ class TadoTab:
         minus_btn = ctk.CTkButton(
             slider_row,
             text="−",
-            width=40,
+            width=52,
+            height=48,
             fg_color=COLOR_CARD,
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
@@ -362,7 +364,8 @@ class TadoTab:
         plus_btn = ctk.CTkButton(
             slider_row,
             text="+",
-            width=40,
+            width=52,
+            height=48,
             fg_color=COLOR_CARD,
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,

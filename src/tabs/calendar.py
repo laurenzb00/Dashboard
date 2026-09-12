@@ -70,13 +70,13 @@ class CalendarTab:
         ctk.CTkButton(
             header, text="◀ Zurück", 
             command=self._prev_month, 
-            width=120,
-            height=36,
-            font=("Segoe UI", 12, "bold"),
+            width=144,
+            height=48,
+            font=("Segoe UI", 13, "bold"),
             fg_color=COLOR_CARD,
             hover_color=COLOR_PRIMARY,
             text_color=COLOR_TEXT
-        ).pack(side=tk.LEFT, padx=4)
+        ).pack(side=tk.LEFT, padx=8)
         
         tk.Label(header, text="Kalender", font=("Segoe UI", 15, "bold"), bg=COLOR_ROOT, fg=COLOR_TITLE).pack(side=tk.LEFT, padx=20, expand=True)
         tk.Label(header, textvariable=self.status_var, font=("Segoe UI", 10), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(side=tk.RIGHT, padx=4)
@@ -84,13 +84,13 @@ class CalendarTab:
         ctk.CTkButton(
             header, text="Weiter ▶", 
             command=self._next_month, 
-            width=120,
-            height=36,
+            width=144,
+            height=48,
             font=("Segoe UI", 12, "bold"),
             fg_color=COLOR_CARD,
             hover_color=COLOR_PRIMARY,
             text_color=COLOR_TEXT
-        ).pack(side=tk.LEFT, padx=4)
+        ).pack(side=tk.LEFT, padx=8)
 
         # Scrollable Content
         self.canvas = tk.Canvas(self.tab_frame, highlightthickness=0, bg=COLOR_ROOT)

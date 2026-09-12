@@ -105,20 +105,20 @@ class StatusTab(ctk.CTkFrame):
         ctk.CTkLabel(
             header,
             text="Systemstatus",
-            font=("Segoe UI", 16, "bold"),
+            font=("Segoe UI", 18, "bold"),
             text_color=COLOR_TITLE,
         ).pack(anchor="w")
         self.summary_label = ctk.CTkLabel(
             header,
             text="Warte auf Daten...",
-            font=("Segoe UI", 11),
+            font=("Segoe UI", 13),
             text_color=COLOR_SUBTEXT,
         )
         self.summary_label.pack(anchor="w", pady=(2, 0))
         self.detail_label = ctk.CTkLabel(
             header,
             text="",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 11),
             text_color=COLOR_SUBTEXT,
         )
         self.detail_label.pack(anchor="w")
@@ -130,15 +130,15 @@ class StatusTab(ctk.CTkFrame):
 
         self.health_labels = {}
         for idx, key in enumerate(("pv", "heating")):
-            card = Card(health_row, padding=10)
+            card = Card(health_row, padding=16)
             card.grid(row=0, column=idx, sticky="nsew", padx=4)
             card.add_title("Quelle" if key == "pv" else "Heizung", icon="📡" if key == "pv" else "🔥")
 
-            status = ctk.CTkLabel(card.content(), text="Letzter OK: --", font=("Segoe UI", 10), text_color=COLOR_TEXT)
+            status = ctk.CTkLabel(card.content(), text="Letzter OK: --", font=("Segoe UI", 13), text_color=COLOR_TEXT)
             status.pack(anchor="w")
-            latency = ctk.CTkLabel(card.content(), text="Latenz: --", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT)
+            latency = ctk.CTkLabel(card.content(), text="Latenz: --", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT)
             latency.pack(anchor="w", pady=(2, 0))
-            errors = ctk.CTkLabel(card.content(), text="Fehler: --", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT)
+            errors = ctk.CTkLabel(card.content(), text="Fehler: --", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT)
             errors.pack(anchor="w", pady=(2, 0))
 
             self.health_labels[key] = {"status": status, "latency": latency, "errors": errors}
@@ -169,14 +169,14 @@ class StatusTab(ctk.CTkFrame):
             icon_lbl = ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 28), text_color=COLOR_TEXT)
             icon_lbl.pack(pady=(8, 4))
             # Label
-            ctk.CTkLabel(inner, text=label, font=("Segoe UI", 10, "bold"), text_color=COLOR_TITLE).pack(pady=(0, 4))
+            ctk.CTkLabel(inner, text=label, font=("Segoe UI", 12, "bold"), text_color=COLOR_TITLE).pack(pady=(0, 4))
             # Status-Ampel
             lamp = tk.Canvas(inner, width=24, height=24, bg=COLOR_ROOT, highlightthickness=0)
             lamp.pack(pady=(4, 8))
 
             status_lbl = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 11, "bold"), text_color=COLOR_TEXT)
             status_lbl.pack(pady=(0, 2))
-            age_lbl = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT)
+            age_lbl = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT)
             age_lbl.pack(pady=(0, 2))
             
             self.ampel_cards.append({"label": label, "lamp": lamp, "icon": icon_lbl, "status": status_lbl, "age": age_lbl})
@@ -197,7 +197,7 @@ class StatusTab(ctk.CTkFrame):
             ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 22), text_color=COLOR_PRIMARY).pack(pady=(6, 2))
             val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
             val.pack(pady=(0, 2))
-            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
+            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
             
             self.snapshot_labels[key] = val
         
@@ -215,7 +215,7 @@ class StatusTab(ctk.CTkFrame):
             ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 22), text_color=COLOR_WARNING).pack(pady=(6, 2))
             val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
             val.pack(pady=(0, 2))
-            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 9), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
+            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
             
             self.snapshot_labels[key] = val
         
