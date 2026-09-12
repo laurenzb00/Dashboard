@@ -350,7 +350,8 @@ class HueTab:
         refresh_lbl.grid(row=0, column=1, sticky="e")
 
         dimmer_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=14)
-        dimmer_card.grid(row=1, column=0, sticky="w", pady=(10, 0))
+        dimmer_card.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        dimmer_card.grid_columnconfigure(1, weight=1)
 
         dim_lbl = ctk.CTkLabel(
             dimmer_card,
@@ -358,7 +359,7 @@ class HueTab:
             font=get_safe_font("Bahnschrift", 12, "bold"),
             text_color=COLOR_TEXT,
         )
-        dim_lbl.pack(side="left", padx=(12, 10), pady=10)
+        dim_lbl.grid(row=0, column=0, sticky="w", padx=(14, 10), pady=12)
 
         dim_slider = ctk.CTkSlider(
             dimmer_card,
@@ -374,7 +375,7 @@ class HueTab:
             button_color=COLOR_TEXT,
             button_hover_color=COLOR_TEXT,
         )
-        dim_slider.pack(side="left", padx=(0, 12), pady=10)
+        dim_slider.grid(row=0, column=1, sticky="ew", padx=(0, 16), pady=12)
 
         def _on_release(_event) -> None:
             try:

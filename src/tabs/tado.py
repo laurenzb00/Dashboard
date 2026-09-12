@@ -427,6 +427,14 @@ class TadoTab:
             logging.warning("[TADO] Keine URL gesetzt!")
             return
         try:
+            # Also place the link on the clipboard: the dashboard often runs
+            # on a headless Pi while the user opens the link on another device.
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(url)
+                self.root.update()
+            except Exception:
+                pass
             # Try multiple methods for Raspberry Pi compatibility
             import subprocess
             import platform
@@ -452,12 +460,12 @@ class TadoTab:
             
             if not opened:
                 logging.info("[TADO] Fallback: webbrowser.open()")
-                webbrowser.open(url)
+                opened = bool(webbrowser.open_new_tab(url))
                 opened = True
                 
             if opened:
                 # Zeige Bestätigung im Hint
-                self._ui_set(self.var_hint, f"Browser geöffnet. URL: {url}")
+                self._ui_set(self.var_hint, f"URL geöffnet und kopiert: {url}")
         except Exception as e:
             logging.error("[TADO] Browser öffnen fehlgeschlagen: %s", e)
             self._ui_set(self.var_hint, f"Fehler beim Öffnen: {e}\nURL manuell öffnen: {url}")

@@ -457,6 +457,13 @@ class ErtragTab:
             )
 
             rows = conn.execute(sql, (cutoff,)).fetchall()
+            if not rows:
+                sql = (
+                    "SELECT " + bucket_expr + " AS bucket_ts, "
+                    "AVG(pv_power) AS pv_avg, AVG(ABS(load_power)) AS load_avg, AVG(grid_power) AS grid_avg "
+                    "FROM fronius GROUP BY bucket_ts ORDER BY bucket_ts ASC"
+                )
+                rows = conn.execute(sql).fetchall()
         except Exception:
             return []
 

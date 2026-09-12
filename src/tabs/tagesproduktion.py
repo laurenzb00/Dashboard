@@ -265,6 +265,8 @@ class TagesproduktionTab(tk.Frame):
         out: list[tuple[datetime, float]] = []
         try:
             rows = self.datastore.get_daily_totals(days=window_days) if self.datastore else []
+            if not rows and self.datastore:
+                rows = self.datastore.get_daily_totals(days=None)
         except Exception:
             rows = []
 

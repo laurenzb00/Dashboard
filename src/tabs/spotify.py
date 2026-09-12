@@ -658,16 +658,27 @@ class SpotifyTab:
         if not url:
             self.cover_label.configure(text="Cover nicht verfügbar", image="")
             return
-        try:
-            resp = requests.get(url, timeout=5)
-            resp.raise_for_status()
-            img = Image.open(BytesIO(resp.content)).convert("RGB")
-            img = img.resize(COVER_SIZE, Image.LANCZOS)
-            self._cover_photo = ImageTk.PhotoImage(img)
-            self.cover_label.configure(image=self._cover_photo, text="")
-        except Exception as exc:
-            logging.error("[SPOTIFY] Cover-Download fehlgeschlagen: %s", exc)
-            self.cover_label.configure(text="Cover nicht verfügbar", image="")
+        self.cover_label.configure(text="Cover wird geladen ...", image="")
+
+        def worker() -> None:
+            try:
+                resp = requests.get(url, timeout=8)
+                resp.raise_for_status()
+                img = Image.open(BytesIO(resp.content)).convert("RGB")
+                img = img.resize(COVER_SIZE, Image.Resampling.LANCZOS)
+
+                def apply() -> None:
+                    if not self.alive:
+                        return
+                    self._cover_photo = ImageTk.PhotoImage(img)
+                    self.cover_label.configure(image=self._cover_photo, text="")
+
+                self.root.after(0, apply)
+            except Exception as exc:
+                logging.error("[SPOTIFY] Cover-Download fehlgeschlagen: %s", exc)
+                self.root.after(0, lambda: self.cover_label.configure(text="Cover nicht verfügbar", image=""))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _update_like_state(self, track_id: str) -> None:
         liked = self._safe_spotify_call(self.client.current_user_saved_tracks_contains, [track_id])

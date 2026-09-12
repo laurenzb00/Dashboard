@@ -329,7 +329,23 @@ class DataStore:
             rows = cursor.execute(
                 "SELECT timestamp, pv_power FROM fronius ORDER BY timestamp ASC"
             )
-        result = _integrate_daily_energy(rows)
+        raw_rows = rows.fetchall()
+        result = _integrate_daily_energy(raw_rows)
+
+        if not result:
+            fallback: dict[str, dict[str, float | int | bool]] = {}
+            for timestamp, power in raw_rows:
+                if timestamp is None or power is None:
+                    continue
+                try:
+                    day = ensure_utc(datetime.fromisoformat(str(timestamp))).date().isoformat()
+                    value = float(power)
+                except (TypeError, ValueError):
+                    continue
+                item = fallback.setdefault(day, {"pv_kwh": 0.0, "samples": 0, "estimated": True})
+                item["pv_kwh"] = max(float(item["pv_kwh"]), value)
+                item["samples"] = int(item["samples"]) + 1
+            result = [{"day": day, **values} for day, values in sorted(fallback.items())]
         
         # Update cache
         self._cache_daily_totals = result

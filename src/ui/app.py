@@ -1245,8 +1245,8 @@ class MainApp:
                 # The buffer needs enough vertical room for its temperature
                 # layers and boiler panel; keep it slightly larger than the
                 # energy-flow canvas in portrait mode.
-                energy_view_h = max(280, int(row0_h * 0.45) - 52)
-                buffer_view_h = max(280, int(row0_h * 0.55) - 52)
+                energy_view_h = max(240, int(row0_h * 0.35) - 52)
+                buffer_view_h = max(340, int(row0_h * 0.65) - 52)
             else:
                 energy_view_h = max(180, row0_h - 52)
                 buffer_view_h = energy_view_h

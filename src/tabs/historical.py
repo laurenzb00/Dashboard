@@ -351,8 +351,18 @@ class HistoricalTab(tk.Frame):
 
         try:
             rows = self.datastore.get_recent_heating(hours=hours, limit=None) if self.datastore else []
+            using_archive = False
+            if not rows and self.datastore:
+                rows = self.datastore.get_recent_heating(hours=None, limit=None)
+                using_archive = bool(rows)
         except Exception:
             rows = []
+            using_archive = False
+
+        if using_archive and rows:
+            archive_now = self._parse_ts(rows[-1].get("timestamp")) or now
+            now = archive_now
+            cutoff = now - timedelta(hours=hours)
 
         times: list[datetime] = []
         series = {
@@ -452,7 +462,7 @@ class HistoricalTab(tk.Frame):
                 self.ax.xaxis.get_offset_text().set_visible(False)
             except Exception:
                 pass
-            self._render_status(hours, 0)
+            self._render_status(hours, 0, archive=using_archive)
             self._apply_layout()
             self.canvas.draw_idle()
             self._schedule_update()
@@ -524,17 +534,18 @@ class HistoricalTab(tk.Frame):
             for value in values
             if np.isfinite(value)
         ]
-        self._render_status(hours, len(times_sorted), valid_values)
+        self._render_status(hours, len(times_sorted), valid_values, archive=using_archive)
         self.canvas.draw_idle()
         self._schedule_update()
 
-    def _render_status(self, hours: int, points: int, valid_values: list[float] | None = None) -> None:
+    def _render_status(self, hours: int, points: int, valid_values: list[float] | None = None, archive: bool = False) -> None:
         # Show the selected period label instead of huge hour numbers.
         self.topbar_status.config(text=f"{self._period_var.get()}")
         summary = f"Datenpunkte: {points}"
         if valid_values:
             summary += f"  |  Temperaturbereich: {min(valid_values):.1f} bis {max(valid_values):.1f} °C"
-        self.statusbar.config(text=f"Letztes Update: {datetime.now().strftime('%H:%M')}  |  {summary}")
+        prefix = "Archivdaten  |  " if archive else ""
+        self.statusbar.config(text=f"{prefix}Letztes Update: {datetime.now().strftime('%H:%M')}  |  {summary}")
 
     def update_data(self, data: dict) -> None:
         # Called by app update loop; keep for compatibility.
