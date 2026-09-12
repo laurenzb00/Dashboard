@@ -5,10 +5,11 @@ import tkinter as tk
 import webbrowser
 from datetime import datetime
 from io import BytesIO
-from typing import Optional
+from typing import Any, Optional
 
 import requests
 from ui.styles import COLOR_ROOT, COLOR_TEXT, COLOR_SUBTEXT, COLOR_TITLE
+from ui.components.tab_shell import TabShell
 try:
     import ttkbootstrap as ttk
     from ttkbootstrap.constants import BOTH, LEFT, RIGHT, W
@@ -462,6 +463,8 @@ class SpotifyTab:
         """Stack the Spotify player and playback controls in portrait mode."""
         try:
             self._portrait_layout = portrait
+            if hasattr(self, "_shell"):
+                self._shell.set_portrait_layout(portrait)
             container = getattr(self, "_now_playing_container", None)
             left = getattr(self, "_now_playing_left", None)
             right = getattr(self, "_now_playing_right", None)
@@ -770,16 +773,11 @@ class SpotifyTab:
         self._sync_like_button()
 
     def _build_ui(self) -> None:
-        wrapper = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        self._shell = TabShell(self.tab_frame, "Spotify", "Anmeldung, Wiedergabe und Geräte")
+        self._shell.pack(fill=BOTH, expand=True)
+        self._shell.subtitle_label.configure(textvariable=self.status_var)
+        wrapper = tk.Frame(self._shell.body, bg=COLOR_ROOT)
         wrapper.pack(fill=BOTH, expand=True)
-
-        tk.Label(
-            wrapper,
-            textvariable=self.status_var,
-            font=("Arial", 11),
-            bg=COLOR_ROOT,
-            fg=COLOR_SUBTEXT,
-        ).pack(fill=tk.X, padx=12, pady=(10, 6))
 
         self.content_notebook = ttk.Notebook(wrapper, bootstyle="dark")
         self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
@@ -906,7 +904,7 @@ class SpotifyTab:
             self._create_playlist_icon(playlist, idx)
 
 
-    def _get_playlist_photo(self, playlist_id: Optional[str], url: Optional[str]) -> Optional[ImageTk.PhotoImage]:
+    def _get_playlist_photo(self, playlist_id: Optional[str], url: Optional[str]) -> Optional[Any]:
         if not playlist_id or not url:
             return None
         cached = self._playlist_images.get(playlist_id)

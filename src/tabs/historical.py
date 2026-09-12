@@ -31,6 +31,7 @@ from ui.styles import (
     PADDING_SECTION,
     emoji,
 )
+from ui.components.tab_shell import TabShell
 
 
 class HistoricalTab(tk.Frame):
@@ -69,8 +70,9 @@ class HistoricalTab(tk.Frame):
         if tab_frame is None:
             notebook.add(self, text=emoji("📈 Historie", "Historie"))
         else:
-            # Pack self into the provided frame to fill it
-            self.pack(fill=tk.BOTH, expand=True)
+            self._shell = TabShell(tab_frame, "Historie", "Heizung und Temperaturen")
+            self._shell.pack(fill=tk.BOTH, expand=True)
+            self.pack(in_=self._shell.body, fill=tk.BOTH, expand=True)
 
         self._resize_job = None
         self._build_ui()
@@ -172,6 +174,10 @@ class HistoricalTab(tk.Frame):
             anchor="w",
         )
         self.statusbar.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        if hasattr(self, "_shell"):
+            self._shell.set_portrait_layout(portrait)
 
     @staticmethod
     def _parse_ts(value) -> datetime | None:

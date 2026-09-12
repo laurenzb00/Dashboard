@@ -23,6 +23,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.card import Card
+from ui.components.tab_shell import TabShell
 
 # --- KONFIGURATION ---
 ICAL_URLS = [
@@ -59,12 +60,15 @@ class CalendarTab:
             self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
             notebook.add(self.tab_frame, text=emoji("📅 Kalender", "Kalender"))
         
-        self.tab_frame.grid_columnconfigure(0, weight=1)
-        self.tab_frame.grid_rowconfigure(1, weight=1)
+        self._shell = TabShell(self.tab_frame, "Kalender", "Termine und Monatsübersicht")
+        self._shell.pack(fill=tk.BOTH, expand=True)
+        content = self._shell.body
+        content.grid_columnconfigure(0, weight=1)
+        content.grid_rowconfigure(1, weight=1)
 
         # Header mit Navigation - modernere Buttons
-        header = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
+        header = tk.Frame(content, bg=COLOR_ROOT)
+        header.grid(row=0, column=0, sticky="ew", padx=4, pady=(0, 8))
         
         # Navigation Buttons mit CustomTkinter
         ctk.CTkButton(
@@ -93,8 +97,8 @@ class CalendarTab:
         ).pack(side=tk.LEFT, padx=8)
 
         # Scrollable Content
-        self.canvas = tk.Canvas(self.tab_frame, highlightthickness=0, bg=COLOR_ROOT)
-        self.scrollbar = ttk.Scrollbar(self.tab_frame, orient="vertical", command=self.canvas.yview)
+        self.canvas = tk.Canvas(content, highlightthickness=0, bg=COLOR_ROOT)
+        self.scrollbar = ttk.Scrollbar(content, orient="vertical", command=self.canvas.yview)
         self.scroll_frame = tk.Frame(self.canvas, bg=COLOR_ROOT)
         
         self.scroll_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
@@ -109,8 +113,8 @@ class CalendarTab:
         self.canvas.bind("<Configure>", _on_canvas_resize)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         
-        self.canvas.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
-        self.scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 12))
+        self.canvas.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
+        self.scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 4))
 
         # Start Update Loop (no Tk calls from worker threads)
         self.root.after(0, self._schedule_refresh)
@@ -134,6 +138,10 @@ class CalendarTab:
                 self.tab_frame.destroy()
         except Exception:
             pass
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        if hasattr(self, "_shell"):
+            self._shell.set_portrait_layout(portrait)
 
     def _ui_set(self, var: tk.StringVar, value: str):
         try:

@@ -22,6 +22,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.card import Card
+from ui.components.tab_shell import TabShell
 
 
 def _fmt_age_minutes(dt: datetime | None) -> str:
@@ -100,21 +101,12 @@ class HealthTab:
         self._refresh_after_id = None
 
     def _build_ui(self) -> None:
-        container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-
-        header = ctk.CTkFrame(container, fg_color="transparent")
-        header.pack(fill=tk.X, pady=(0, 10))
-
-        ctk.CTkLabel(
-            header,
-            text=emoji("🩺 Health Check", "Health Check"),
-            font=("Segoe UI", 16, "bold"),
-            text_color=COLOR_TITLE,
-        ).pack(side=tk.LEFT)
+        container = TabShell(self.tab_frame, "Health Check", "Datenqualität und Integrationen")
+        self._shell = container
+        container.pack(fill=tk.BOTH, expand=True)
 
         self._refresh_btn = ctk.CTkButton(
-            header,
+            container.header,
             text="Refresh",
             fg_color=COLOR_PRIMARY,
             command=self.refresh,
@@ -122,9 +114,9 @@ class HealthTab:
             height=48,
             font=("Segoe UI", 13, "bold"),
         )
-        self._refresh_btn.pack(side=tk.RIGHT)
+        self._refresh_btn.grid(row=0, column=1, rowspan=2, sticky="e", padx=18, pady=14)
 
-        grid = ctk.CTkFrame(container, fg_color="transparent")
+        grid = ctk.CTkFrame(container.body, fg_color="transparent")
         grid.pack(fill=tk.BOTH, expand=True)
         grid.grid_columnconfigure(0, weight=1)
         grid.grid_columnconfigure(1, weight=1)
@@ -210,6 +202,8 @@ class HealthTab:
     def set_portrait_layout(self, portrait: bool) -> None:
         """Stack health cards for portrait screens."""
         try:
+            if hasattr(self, "_shell"):
+                self._shell.set_portrait_layout(portrait)
             if portrait:
                 self._health_grid.grid_columnconfigure(0, weight=1)
                 self._health_grid.grid_columnconfigure(1, weight=0)

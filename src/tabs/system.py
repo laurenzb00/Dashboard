@@ -21,6 +21,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.card import Card
+from ui.components.tab_shell import TabShell
 
 
 class SystemTab:
@@ -57,8 +58,10 @@ class SystemTab:
     def _build_ui(self):
         """Modern Dashboard-style UI mit Cards."""
         # Main container with padding
-        main = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        main.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        self._shell = TabShell(self.tab_frame, "System", "CPU, Speicher, Datenträger und Netzwerk")
+        self._shell.pack(fill=tk.BOTH, expand=True)
+        main = ctk.CTkFrame(self._shell.body, fg_color="transparent")
+        main.pack(fill=tk.BOTH, expand=True)
         
         # Grid layout: 2 rows x 3 columns
         main.grid_rowconfigure(0, weight=1)
@@ -81,6 +84,8 @@ class SystemTab:
     def set_portrait_layout(self, portrait: bool) -> None:
         """Use two columns in portrait and three in landscape."""
         try:
+            if hasattr(self, "_shell"):
+                self._shell.set_portrait_layout(portrait)
             columns = 2 if portrait else 3
             for col in range(3):
                 self._system_main.grid_columnconfigure(col, weight=1 if col < columns else 0)

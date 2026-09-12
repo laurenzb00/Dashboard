@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 import customtkinter as ctk
 
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
+from ui.components.tab_shell import TabShell
 from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, COLOR_WARNING, get_safe_font, emoji
 
 
@@ -324,8 +325,11 @@ class HueTab:
 
     # --- UI ---
     def _build_ui(self) -> None:
-        header = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        header.pack(fill="x", padx=20, pady=16)
+        self._shell = TabShell(self.tab_frame, "Licht", "Szenen, Dimmer und Vorraumsteuerung")
+        self._shell.pack(fill=tk.BOTH, expand=True)
+        self._shell.subtitle_label.configure(textvariable=self.status_var)
+        header = tk.Frame(self._shell.body, bg=COLOR_ROOT)
+        header.pack(fill="x", padx=4, pady=4)
 
         status_lbl = tk.Label(
             header,
@@ -429,8 +433,8 @@ class HueTab:
 
         self._apply_dimmer_label()
 
-        canvas_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        canvas_frame.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+        canvas_frame = tk.Frame(self._shell.body, bg=COLOR_ROOT)
+        canvas_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
 
         self._scroll_canvas = tk.Canvas(canvas_frame, bg=COLOR_ROOT, highlightthickness=0)
         self._scroll_canvas.pack(side="left", fill="both", expand=True)
@@ -521,6 +525,8 @@ class HueTab:
     def set_portrait_layout(self, portrait: bool) -> None:
         """Use two wider scene buttons per row in portrait mode."""
         try:
+            if hasattr(self, "_shell"):
+                self._shell.set_portrait_layout(portrait)
             if getattr(self, "_portrait_layout", False) == portrait:
                 return
             self._portrait_layout = portrait

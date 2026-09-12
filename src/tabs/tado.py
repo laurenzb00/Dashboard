@@ -22,6 +22,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.card import Card
+from ui.components.tab_shell import TabShell
 
 TADO_ENABLED = os.getenv("TADO_ENABLE", "").strip().lower() in {"1", "true", "yes", "on"}
 if not TADO_ENABLED:
@@ -213,30 +214,16 @@ class TadoTab:
         return False
 
     def _build_ui(self) -> None:
-        # Layout: header + two cards
-        # Keep the tab scrollable so it remains usable in windowed mode too.
+        # Shared page shell plus a scrollable content region for smaller windows.
+        self._shell = TabShell(self.tab_frame, "Raumtemperatur", "Tado-Zone und Heizungssteuerung")
+        self._shell.pack(fill=tk.BOTH, expand=True)
         try:
-            container = ctk.CTkScrollableFrame(self.tab_frame, fg_color="transparent")
+            container = ctk.CTkScrollableFrame(self._shell.body, fg_color="transparent")
         except Exception:
-            container = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+            container = ctk.CTkFrame(self._shell.body, fg_color="transparent")
+        container.pack(fill=tk.BOTH, expand=True)
 
-        header = ctk.CTkFrame(container, fg_color="transparent")
-        header.pack(fill=tk.X, pady=(0, 8))
-
-        ctk.CTkLabel(
-            header,
-            text=emoji("🌡️ Raumtemperatur", "Raumtemperatur"),
-            font=("Segoe UI", 18, "bold"),
-            text_color=COLOR_TITLE,
-        ).pack(side=tk.LEFT)
-
-        ctk.CTkLabel(
-            header,
-            textvariable=self.var_status,
-            font=("Segoe UI", 13),
-            text_color=COLOR_SUBTEXT,
-        ).pack(side=tk.RIGHT)
+        self._shell.subtitle_label.configure(textvariable=self.var_status)
 
         hint = ctk.CTkFrame(container, fg_color="transparent")
         hint.pack(fill=tk.X, pady=(0, 16))
@@ -406,6 +393,8 @@ class TadoTab:
     def set_portrait_layout(self, portrait: bool) -> None:
         """Stack the live and control cards when the dashboard is portrait."""
         try:
+            if hasattr(self, "_shell"):
+                self._shell.set_portrait_layout(portrait)
             if portrait:
                 self.card_live.grid_configure(row=0, column=0, columnspan=2, padx=0, pady=(0, 12))
                 self.card_ctrl.grid_configure(row=1, column=0, columnspan=2, padx=0, pady=0)

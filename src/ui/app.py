@@ -1313,6 +1313,10 @@ class MainApp:
                 "hue_tab",
                 "spotify_tab",
                 "system_tab",
+                "calendar_tab",
+                "historical_tab",
+                "tagesproduktion_tab",
+                "ertrag_tab",
             ):
                 tab = getattr(self, tab_name, None)
                 setter = getattr(tab, "set_portrait_layout", None) if tab else None

@@ -9,6 +9,7 @@ import customtkinter as ctk
 
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.card import Card
+from ui.components.tab_shell import TabShell
 from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, get_safe_font
 
 
@@ -87,25 +88,16 @@ class HomeAssistantActionsTab:
             pass
 
     def _build_ui(self) -> None:
-        main = ctk.CTkFrame(self.tab_frame, fg_color="transparent")
-        main.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        self._shell = TabShell(
+            self.tab_frame,
+            "Home Assistant",
+            "Automationen und Skripte werden geladen ...",
+        )
+        self._shell.pack(fill=tk.BOTH, expand=True)
+        self._shell.subtitle_label.configure(textvariable=self.status_var)
 
-        main.grid_rowconfigure(0, weight=0)
-        main.grid_rowconfigure(1, weight=1)
-        main.grid_columnconfigure(0, weight=1)
-
-        header = ctk.CTkFrame(main, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=4, pady=(0, 8))
-
-        ctk.CTkLabel(
-            header,
-            textvariable=self.status_var,
-            font=get_safe_font("Bahnschrift", 13),
-            text_color=COLOR_TEXT,
-        ).pack(anchor="w")
-
-        self._actions_card = Card(main, padding=16)
-        self._actions_card.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+        self._actions_card = Card(self._shell.body, padding=18)
+        self._actions_card.grid(row=0, column=0, sticky="nsew")
 
         self._actions_body = ctk.CTkScrollableFrame(
             self._actions_card.content(),
@@ -289,6 +281,8 @@ class HomeAssistantActionsTab:
         """Use a narrower two-column action grid in portrait mode."""
         try:
             self._portrait_layout = portrait
+            if hasattr(self, "_shell"):
+                self._shell.set_portrait_layout(portrait)
             grid = getattr(self, "_actions_grid", None)
             if grid is None:
                 return

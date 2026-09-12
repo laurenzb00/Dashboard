@@ -23,6 +23,7 @@ from ui.styles import (
     emoji,
 )
 from ui.views.energy_chart import build_energy_chart
+from ui.components.tab_shell import TabShell
 
 # Austrian energy price defaults (EUR/kWh)
 _STROMPREIS_EUR_KWH = 0.25
@@ -51,6 +52,10 @@ class ErtragTab:
         else:
             self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
             self.notebook.add(self.tab_frame, text=emoji("🔆 Ertrag", "Ertrag"))
+
+        self._shell = TabShell(self.tab_frame, "Ertrag", "Energiefluss, Verbrauch und Autarkie")
+        self._shell.pack(fill=tk.BOTH, expand=True)
+        self.tab_frame = self._shell.body
 
         self._period_var = tk.StringVar(value="7 Tage")
         self._period_map: dict[str, int] = {"7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
@@ -136,6 +141,10 @@ class ErtragTab:
         self._last_key = None
         self.store = get_shared_datastore()
         self._update_task_id = self.root.after(100, self._update_plot)
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        if hasattr(self, "_shell"):
+            self._shell.set_portrait_layout(portrait)
 
     def stop(self):
         self.alive = False

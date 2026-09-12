@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+import customtkinter as ctk
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -16,6 +17,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.card import Card
+from ui.components.tab_shell import TabShell
 
 class AnalyseTab:
     """Energie-Effizienz Analyse mit modernem Card-Layout."""
@@ -34,16 +36,14 @@ class AnalyseTab:
         self.tab_frame.grid_columnconfigure(0, weight=1)
         self.tab_frame.grid_rowconfigure(1, weight=1)
 
-        # Header
-        header = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
-        
-        ttk.Label(header, text="Energie-Effizienz Analyse", font=("Arial", 14, "bold")).pack(side=tk.LEFT)
-        ttk.Button(header, text="Aktualisieren", command=self._update_plot).pack(side=tk.RIGHT)
+        self._shell = TabShell(self.tab_frame, "Energie-Effizienz", "PV-Leistung im Vergleich zum Wärmespeicher")
+        self._shell.grid(row=0, column=0, rowspan=2, sticky="nsew")
+        refresh = ctk.CTkButton(self._shell.header, text="Aktualisieren", command=self._update_plot, width=150, height=46)
+        refresh.grid(row=0, column=1, rowspan=2, sticky="e", padx=18, pady=14)
 
         # Main Card
-        card = Card(self.tab_frame)
-        card.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        card = Card(self._shell.body)
+        card.grid(row=0, column=0, sticky="nsew")
         card.add_title("PV vs. Speicherung (3 Tage)", icon="📊")
         
         # Plot

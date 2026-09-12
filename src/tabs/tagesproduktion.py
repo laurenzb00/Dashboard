@@ -27,6 +27,7 @@ from ui.styles import (
     PADDING_SECTION,
     emoji,
 )
+from ui.components.tab_shell import TabShell
 
 
 class TagesproduktionTab(tk.Frame):
@@ -66,7 +67,9 @@ class TagesproduktionTab(tk.Frame):
         if tab_frame is None:
             notebook.add(self, text=emoji("📊 Tagesproduktion", "Tagesproduktion"))
         else:
-            self.pack(fill=tk.BOTH, expand=True)
+            self._shell = TabShell(tab_frame, "Tagesproduktion", "PV-Ertrag pro Tag")
+            self._shell.pack(fill=tk.BOTH, expand=True)
+            self.pack(in_=self._shell.body, fill=tk.BOTH, expand=True)
 
         self._resize_job = None
         self._build_ui()
@@ -158,6 +161,10 @@ class TagesproduktionTab(tk.Frame):
             anchor="w",
         )
         self.statusbar.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        if hasattr(self, "_shell"):
+            self._shell.set_portrait_layout(portrait)
 
     def _select_period(self, period: str) -> None:
         self._period_var.set(period)
