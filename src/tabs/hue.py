@@ -493,7 +493,7 @@ class HueTab:
             lbl.pack(anchor="w", padx=10, pady=10)
             return
 
-        cols = 3
+        cols = 2 if getattr(self, "_portrait_layout", False) else 3
         for i in range(cols):
             self._scroll_window.grid_columnconfigure(i, weight=1)
 
@@ -517,6 +517,16 @@ class HueTab:
             )
             b.grid(row=r, column=c, sticky="ew", padx=6, pady=6)
             self._scene_buttons[ent] = b
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Use two wider scene buttons per row in portrait mode."""
+        try:
+            if getattr(self, "_portrait_layout", False) == portrait:
+                return
+            self._portrait_layout = portrait
+            self._render_scenes()
+        except Exception:
+            pass
 
     def _refresh_scenes_async(self) -> None:
         if not self.alive:

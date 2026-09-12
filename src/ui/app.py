@@ -1196,6 +1196,8 @@ class MainApp:
         try:
             self.root.update_idletasks()
 
+            self._apply_dashboard_orientation()
+
             root_h = int(self.root.winfo_height() or 0)
             if root_h < 200:
                 return
@@ -1227,20 +1229,28 @@ class MainApp:
             except Exception:
                 pass
 
-            # Title/header inside cards takes some vertical space; keep views conservative.
-            view_h = max(180, row0_h - 52)
+            # In portrait mode the two cards are stacked and need separate
+            # budgets; sharing the landscape height would make the second card
+            # overflow the visible dashboard.
+            portrait = bool(getattr(self, "_portrait_layout", False))
+            if portrait:
+                energy_view_h = max(220, int(row0_h * 0.60) - 52)
+                buffer_view_h = max(180, int(row0_h * 0.40) - 52)
+            else:
+                energy_view_h = max(180, row0_h - 52)
+                buffer_view_h = energy_view_h
 
             if hasattr(self, "energy_view") and hasattr(self.energy_view, "canvas"):
                 try:
-                    self.energy_view.canvas.config(height=view_h)
-                    self.energy_view.height = view_h
+                    self.energy_view.canvas.config(height=energy_view_h)
+                    self.energy_view.height = energy_view_h
                 except Exception:
                     pass
 
             if hasattr(self, "buffer_view"):
                 try:
-                    self.buffer_view.configure(height=view_h)
-                    self.buffer_view.height = view_h
+                    self.buffer_view.configure(height=buffer_view_h)
+                    self.buffer_view.height = buffer_view_h
                 except Exception:
                     pass
 
@@ -1268,6 +1278,54 @@ class MainApp:
 
         except Exception:
             pass
+
+    def _apply_dashboard_orientation(self) -> None:
+        """Stack dashboard cards in portrait mode and restore the wide layout."""
+        try:
+            width = int(self.root.winfo_width() or 0)
+            height = int(self.root.winfo_height() or 0)
+            if width < 200 or height < 200 or not hasattr(self, "body"):
+                return
+
+            portrait = height > width
+            if portrait == getattr(self, "_portrait_layout", None):
+                return
+            self._portrait_layout = portrait
+
+            for tab_name in (
+                "tado_tab",
+                "health_tab",
+                "status_tab",
+                "homeassistant_actions_tab",
+                "hue_tab",
+                "spotify_tab",
+                "system_tab",
+            ):
+                tab = getattr(self, tab_name, None)
+                setter = getattr(tab, "set_portrait_layout", None) if tab else None
+                if callable(setter):
+                    setter(portrait)
+
+            if portrait:
+                self.body.grid_columnconfigure(0, weight=1, minsize=0)
+                self.body.grid_columnconfigure(1, weight=0, minsize=0)
+                self.body.grid_rowconfigure(0, weight=3, minsize=260)
+                self.body.grid_rowconfigure(1, weight=2, minsize=220)
+                self.body.grid_rowconfigure(2, weight=1, minsize=130)
+                self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
+                self.buffer_card.grid_configure(row=1, column=0, columnspan=1, sticky="nsew")
+                self.sparkline_card.grid_configure(row=2, column=0, columnspan=1, sticky="nsew", padx=6, pady=(0, 6))
+            else:
+                self.body.grid_columnconfigure(0, weight=4, minsize=0)
+                self.body.grid_columnconfigure(1, weight=1, minsize=360)
+                self.body.grid_rowconfigure(0, weight=1, minsize=0)
+                self.body.grid_rowconfigure(1, weight=0, minsize=0)
+                self.body.grid_rowconfigure(2, weight=0, minsize=0)
+                self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
+                self.buffer_card.grid_configure(row=0, column=1, columnspan=1, sticky="nsew")
+                self.sparkline_card.grid_configure(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 6))
+        except Exception:
+            logger.debug("Dashboard orientation update failed", exc_info=True)
 
     # Duplicate _apply_windowed removed (F811)
 

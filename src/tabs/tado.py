@@ -403,6 +403,22 @@ class TadoTab:
         )
         self._auto_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
 
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Stack the live and control cards when the dashboard is portrait."""
+        try:
+            if portrait:
+                self.card_live.grid_configure(row=0, column=0, columnspan=2, padx=0, pady=(0, 12))
+                self.card_ctrl.grid_configure(row=1, column=0, columnspan=2, padx=0, pady=0)
+                self.card_live.master.grid_columnconfigure(0, weight=1)
+                self.card_live.master.grid_columnconfigure(1, weight=0)
+            else:
+                self.card_live.grid_configure(row=0, column=0, columnspan=1, padx=(0, 10), pady=0)
+                self.card_ctrl.grid_configure(row=0, column=1, columnspan=1, padx=(10, 0), pady=0)
+                self.card_live.master.grid_columnconfigure(0, weight=1)
+                self.card_live.master.grid_columnconfigure(1, weight=1)
+        except Exception:
+            pass
+
     def _ui_set(self, var: tk.StringVar, value: str):
         try:
             self.root.after(0, var.set, value)

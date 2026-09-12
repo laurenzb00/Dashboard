@@ -136,6 +136,7 @@ class HealthTab:
         self.card_int = Card(grid)
         self.card_int.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=0)
         self.card_int.add_title("Integrationen", icon="🔌")
+        self._health_grid = grid
 
         # Data labels
         self.var_db = tk.StringVar(value="DB ingest: –")
@@ -202,6 +203,22 @@ class HealthTab:
             width=190,
         )
         self._update_btn.grid(row=0, column=2, sticky="w", padx=(10, 0))
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Stack health cards for portrait screens."""
+        try:
+            if portrait:
+                self._health_grid.grid_columnconfigure(0, weight=1)
+                self._health_grid.grid_columnconfigure(1, weight=0)
+                self.card_data.grid_configure(row=0, column=0, columnspan=2, padx=0, pady=(0, 12))
+                self.card_int.grid_configure(row=1, column=0, columnspan=2, padx=0, pady=0)
+            else:
+                self._health_grid.grid_columnconfigure(0, weight=1)
+                self._health_grid.grid_columnconfigure(1, weight=1)
+                self.card_data.grid_configure(row=0, column=0, columnspan=1, padx=(0, 6), pady=0)
+                self.card_int.grid_configure(row=0, column=1, columnspan=1, padx=(6, 0), pady=0)
+        except Exception:
+            pass
 
         # Integration labels
         self.var_hue = tk.StringVar(value="Home Assistant: –")

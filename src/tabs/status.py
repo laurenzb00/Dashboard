@@ -125,6 +125,7 @@ class StatusTab(ctk.CTkFrame):
 
         health_row = ctk.CTkFrame(self, fg_color="transparent")
         health_row.pack(fill=tk.X, padx=12, pady=(0, 8))
+        self._status_health_row = health_row
         health_row.grid_columnconfigure(0, weight=1)
         health_row.grid_columnconfigure(1, weight=1)
 
@@ -145,6 +146,7 @@ class StatusTab(ctk.CTkFrame):
 
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+        self._status_main = main
         
         # Grid: 3 Zeilen × 4 Spalten
         for i in range(4):
@@ -228,6 +230,7 @@ class StatusTab(ctk.CTkFrame):
         # Zeile 3, Spalte 3: Licht-Steuerung
         light_card = Card(main, padding=12)
         light_card.grid(row=2, column=3, sticky="nsew", padx=4, pady=4)
+        self._status_cards = [child for child in main.winfo_children() if isinstance(child, Card)]
         light_inner = light_card.content()
 
         self.light_icon = ctk.CTkLabel(light_inner, text="💡", font=("Segoe UI", 22), text_color=COLOR_SUBTEXT)
@@ -256,6 +259,25 @@ class StatusTab(ctk.CTkFrame):
             hover_color="#992222",
             command=self._on_light_off,
         ).pack(side=tk.LEFT, padx=4)
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Use two columns for status cards in portrait mode."""
+        try:
+            columns = 2 if portrait else 4
+            for col in range(4):
+                self._status_main.grid_columnconfigure(col, weight=1 if col < columns else 0)
+            for index, card in enumerate(self._status_cards):
+                card.grid_configure(row=index // columns, column=index % columns)
+            self._status_health_row.grid_columnconfigure(0, weight=1)
+            self._status_health_row.grid_columnconfigure(1, weight=0 if portrait else 1)
+            if portrait:
+                for index, card in enumerate(self._status_health_row.winfo_children()):
+                    card.grid_configure(row=index, column=0, padx=0, pady=(0, 8) if index == 0 else 0)
+            else:
+                for index, card in enumerate(self._status_health_row.winfo_children()):
+                    card.grid_configure(row=0, column=index, padx=4, pady=0)
+        except Exception:
+            pass
 
     def _make_health_tile(self, parent, col, title, icon):
         outer = RoundedFrame(parent, bg=COLOR_ROOT, border=None, radius=18, padding=0)

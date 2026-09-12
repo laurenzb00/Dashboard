@@ -104,7 +104,7 @@ class SpotifyTab:
 
     def _create_playlist_icon(self, playlist: dict, idx: int):
         # 6 Playlists pro Zeile, vertikales Scrollen, kompaktes Layout, unsichtbarer Button über Cover
-        col_count = 5
+        col_count = 4 if getattr(self, "_portrait_layout", False) else 5
         row = idx // col_count
         col_idx = idx % col_count
         cell = tk.Frame(self.playlist_inner, bg=COLOR_ROOT)
@@ -175,6 +175,7 @@ class SpotifyTab:
         self.root = root
         self.notebook = notebook
         self.alive = True
+        self._portrait_layout = False
 
         # Use provided frame or create legacy one
         if tab_frame is not None:
@@ -346,11 +347,13 @@ class SpotifyTab:
 
         container = tk.Frame(outer, bg=COLOR_ROOT)
         container.pack(fill=BOTH, expand=True, padx=12, pady=(6, 12))
+        self._now_playing_container = container
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
 
         left = tk.Frame(container, bg=COLOR_ROOT)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        self._now_playing_left = left
         self.cover_label = tk.Label(
             left,
             text="Kein Cover",
@@ -363,35 +366,36 @@ class SpotifyTab:
 
         right = tk.Frame(container, bg=COLOR_ROOT)
         right.grid(row=0, column=1, sticky="nsew")
+        self._now_playing_right = right
         right.columnconfigure(0, weight=1)
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Stack the Spotify player and controls in portrait mode."""
+        try:
+            self._portrait_layout = portrait
+            container = getattr(self, "_now_playing_container", None)
+            left = getattr(self, "_now_playing_left", None)
+            right = getattr(self, "_now_playing_right", None)
+            if not container or not left or not right:
+                return
+            if portrait:
+                container.columnconfigure(0, weight=1)
+                container.columnconfigure(1, weight=0)
+                left.grid_configure(row=0, column=0, columnspan=2, padx=0, pady=(0, 12))
+                right.grid_configure(row=1, column=0, columnspan=2, padx=0, pady=0)
+            else:
+                container.columnconfigure(0, weight=1)
+                container.columnconfigure(1, weight=1)
+                left.grid_configure(row=0, column=0, columnspan=1, padx=(0, 12), pady=0)
+                right.grid_configure(row=0, column=1, columnspan=1, padx=0, pady=0)
+        except Exception:
+            pass
 
         info_box = tk.Frame(right, bg=COLOR_ROOT)
         info_box.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         self.track_var = tk.StringVar(value="–")
         self.artist_var = tk.StringVar(value="")
         self.album_var = tk.StringVar(value="")
-        tk.Label(
-            info_box,
-            textvariable=self.track_var,
-            font=("Arial", 20, "bold"),
-            wraplength=320,
-            bg=COLOR_ROOT,
-            fg=COLOR_TEXT,
-        ).pack(anchor=W)
-        tk.Label(
-            info_box,
-            textvariable=self.artist_var,
-            font=("Arial", 13),
-            bg=COLOR_ROOT,
-            fg="#99c1ff",
-        ).pack(anchor=W, pady=(2, 0))
-        tk.Label(
-            info_box,
-            textvariable=self.album_var,
-            font=("Arial", 11),
-            bg=COLOR_ROOT,
-            fg=COLOR_SUBTEXT,
-        ).pack(anchor=W)
 
         volume_box = ttk.Labelframe(right, text="Lautstärke")
         volume_box.grid(row=1, column=0, sticky="ew", pady=(6, 12))
@@ -453,6 +457,28 @@ class SpotifyTab:
         )
         self.play_button.pack(side=LEFT, padx=4)
         ttk.Button(controls, text="⏭", width=5, command=self._next_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Stack the Spotify player and playback controls in portrait mode."""
+        try:
+            self._portrait_layout = portrait
+            container = getattr(self, "_now_playing_container", None)
+            left = getattr(self, "_now_playing_left", None)
+            right = getattr(self, "_now_playing_right", None)
+            if not container or not left or not right:
+                return
+            if portrait:
+                container.columnconfigure(0, weight=1)
+                container.columnconfigure(1, weight=0)
+                left.grid_configure(row=0, column=0, columnspan=2, padx=0, pady=(0, 12))
+                right.grid_configure(row=1, column=0, columnspan=2, padx=0, pady=0)
+            else:
+                container.columnconfigure(0, weight=1)
+                container.columnconfigure(1, weight=1)
+                left.grid_configure(row=0, column=0, columnspan=1, padx=(0, 12), pady=0)
+                right.grid_configure(row=0, column=1, columnspan=1, padx=0, pady=0)
+        except Exception:
+            pass
 
     def _build_library_tab(self) -> None:
         top = tk.Frame(self.library_frame, bg=COLOR_ROOT)

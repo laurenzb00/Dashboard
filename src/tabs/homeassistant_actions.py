@@ -260,9 +260,10 @@ class HomeAssistantActionsTab:
             ).pack(anchor="w", pady=4)
             return
 
-        cols = 3
+        cols = 2 if getattr(self, "_portrait_layout", False) else 3
         grid = ctk.CTkFrame(self._actions_body, fg_color="transparent")
         grid.pack(fill=tk.BOTH, expand=True)
+        self._actions_grid = grid
         for c in range(cols):
             grid.grid_columnconfigure(c, weight=1, uniform="ha_btn")
 
@@ -283,6 +284,22 @@ class HomeAssistantActionsTab:
                 height=52,
                 command=lambda a=action: self._trigger_action_async(a),
             ).grid(row=r, column=c, sticky="ew", padx=8, pady=6)
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Use a narrower two-column action grid in portrait mode."""
+        try:
+            self._portrait_layout = portrait
+            grid = getattr(self, "_actions_grid", None)
+            if grid is None:
+                return
+            buttons = list(grid.winfo_children())
+            columns = 2 if portrait else 3
+            for col in range(3):
+                grid.grid_columnconfigure(col, weight=1 if col < columns else 0)
+            for index, button in enumerate(buttons):
+                button.grid_configure(row=index // columns, column=index % columns)
+        except Exception:
+            pass
 
     def _trigger_action_async(self, action: Dict[str, Any]) -> None:
         client = self._ha_client

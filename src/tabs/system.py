@@ -68,14 +68,26 @@ class SystemTab:
         main.grid_columnconfigure(2, weight=1)
         
         # Row 1: CPU, RAM, Disk
-        self._create_cpu_card(main).grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
-        self._create_ram_card(main).grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
-        self._create_disk_card(main).grid(row=0, column=2, sticky="nsew", padx=4, pady=4)
+        self._system_main = main
+        self._system_cards = [self._create_cpu_card(main), self._create_ram_card(main), self._create_disk_card(main)]
+        for col, card in enumerate(self._system_cards):
+            card.grid(row=0, column=col, sticky="nsew", padx=4, pady=4)
         
         # Row 2: Temperature, Uptime, Network
-        self._create_temp_card(main).grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-        self._create_uptime_card(main).grid(row=1, column=1, sticky="nsew", padx=4, pady=4)
-        self._create_network_card(main).grid(row=1, column=2, sticky="nsew", padx=4, pady=4)
+        self._system_cards.extend([self._create_temp_card(main), self._create_uptime_card(main), self._create_network_card(main)])
+        for index, card in enumerate(self._system_cards[3:], start=3):
+            card.grid(row=1, column=index - 3, sticky="nsew", padx=4, pady=4)
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Use two columns in portrait and three in landscape."""
+        try:
+            columns = 2 if portrait else 3
+            for col in range(3):
+                self._system_main.grid_columnconfigure(col, weight=1 if col < columns else 0)
+            for index, card in enumerate(self._system_cards):
+                card.grid_configure(row=index // columns, column=index % columns)
+        except Exception:
+            pass
 
     def _create_cpu_card(self, parent) -> Card:
         """CPU Usage Card with circular progress."""
