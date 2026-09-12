@@ -77,8 +77,23 @@ class StatusBar(ctk.CTkFrame):
             pass
         self.set_status(text)
 
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Give status text and controls enough room on tall touch displays."""
+        if not portrait:
+            return
+        try:
+            self.configure(height=68)
+            self.message_label.configure(font=get_safe_font("Bahnschrift", 16))
+            self.status_label.configure(font=get_safe_font("Bahnschrift", 16))
+            self.event_label.configure(font=get_safe_font("Bahnschrift", 16, "bold"))
+            self.uptime_label.configure(font=get_safe_font("Bahnschrift", 14))
+            self.window_btn.configure(width=72, height=46)
+            self.exit_btn.configure(width=72, height=46)
+        except Exception:
+            pass
+
     def __init__(self, parent: tk.Widget, on_exit=None, on_toggle_fullscreen=None):
-        super().__init__(parent, height=52, fg_color=COLOR_HEADER, corner_radius=16)
+        super().__init__(parent, height=60, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self._status_text = ""
         self._start_monotonic = time.monotonic()
@@ -100,20 +115,20 @@ class StatusBar(ctk.CTkFrame):
             inner,
             text="",
             text_color=COLOR_TEXT,
-            font=get_safe_font("Bahnschrift", 13),
+            font=get_safe_font("Bahnschrift", 15),
             anchor="w",
         )
         self.message_label.grid(row=0, column=0, sticky="w", padx=(0, 10))
 
         # Optional (hidden) label to keep API-compatible state (some tabs call update_status)
-        self.status_label = ctk.CTkLabel(inner, text="", text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 13))
+        self.status_label = ctk.CTkLabel(inner, text="", text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 15))
 
         # Highlighted calendar/event part (compact, bold)
         self.event_label = ctk.CTkLabel(
             inner,
             text="",
             text_color=COLOR_PRIMARY,
-            font=get_safe_font("Bahnschrift", 13, "bold"),
+            font=get_safe_font("Bahnschrift", 15, "bold"),
             anchor="w",
         )
         self.event_label.grid(row=0, column=1, sticky="w", padx=(0, 10))
@@ -123,7 +138,7 @@ class StatusBar(ctk.CTkFrame):
             inner,
             text="",
             text_color=COLOR_SUBTEXT,
-            font=get_safe_font("Bahnschrift", 11),
+            font=get_safe_font("Bahnschrift", 13),
             anchor="e",
         )
         self.uptime_label.grid(row=0, column=2, sticky="e", padx=(6, 6))
@@ -139,7 +154,7 @@ class StatusBar(ctk.CTkFrame):
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 16, "bold"),
             width=64,
-            height=36,
+            height=42,
             border_width=1,
             border_color=COLOR_BORDER
         )
@@ -155,7 +170,7 @@ class StatusBar(ctk.CTkFrame):
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 14, "bold"),
             width=64,
-            height=36,
+            height=42,
             border_width=0
         )
         self.exit_btn.grid(row=0, column=4, sticky="e", padx=(4, 0))

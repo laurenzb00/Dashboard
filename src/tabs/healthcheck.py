@@ -162,7 +162,7 @@ class HealthTab:
             self.var_update,
             self.var_last_update,
         ):
-            ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 12), text_color=COLOR_TEXT).pack(anchor="w", pady=2)
+            ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 14), text_color=COLOR_TEXT).pack(anchor="w", pady=4)
         
         # Load last update info on startup
         self._load_last_update_info()
@@ -180,7 +180,8 @@ class HealthTab:
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
             command=self._rebuild_spark_cache,
-            width=170,
+            width=190,
+            height=48,
         )
         self._rebuild_cache_btn.grid(row=0, column=0, sticky="w")
 
@@ -189,7 +190,8 @@ class HealthTab:
             text="Self-Heal",
             fg_color=COLOR_PRIMARY,
             command=self._self_heal,
-            width=140,
+            width=160,
+            height=48,
         )
         self._selfheal_btn.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
@@ -200,7 +202,8 @@ class HealthTab:
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
             command=self._git_pull_and_restart,
-            width=190,
+            width=210,
+            height=48,
         )
         self._update_btn.grid(row=0, column=2, sticky="w", padx=(10, 0))
 

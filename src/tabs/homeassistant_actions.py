@@ -298,6 +298,7 @@ class HomeAssistantActionsTab:
                 grid.grid_columnconfigure(col, weight=1 if col < columns else 0)
             for index, button in enumerate(buttons):
                 button.grid_configure(row=index // columns, column=index % columns)
+                button.configure(height=60 if portrait else 52, font=("Segoe UI", 14 if portrait else 13))
         except Exception:
             pass
 

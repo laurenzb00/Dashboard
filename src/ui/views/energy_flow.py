@@ -138,10 +138,10 @@ class EnergyFlowView(tk.Frame):
         self._font_big = ImageFont.truetype("arial.ttf", _s(64)) if self._has_font("arial.ttf") else None
         self._font_small = ImageFont.truetype("arial.ttf", _s(38)) if self._has_font("arial.ttf") else None
         self._font_tiny = ImageFont.truetype("arial.ttf", _s(26)) if self._has_font("arial.ttf") else None
-        self._flow_value_size = _s(24)
-        self._flow_unit_size = _s(10)
-        self._node_value_size = _s(24)
-        self._node_unit_size = _s(10)
+        self._flow_value_size = _s(30)
+        self._flow_unit_size = _s(12)
+        self._node_value_size = _s(30)
+        self._node_unit_size = _s(12)
         # Emoji font support with multiple fallbacks
         self._font_emoji = self._find_emoji_font(_s(42))
         # Load PNG icons - will be pasted onto PIL image
@@ -323,7 +323,7 @@ class EnergyFlowView(tk.Frame):
             "pv": (margin_x + int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.16)),
             "grid": (w - margin_x - int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.16)),
             "home": (w // 2, margin_top + int(usable_h * 0.54)),
-            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.88)),
+            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.80)),
         }
 
     def _render_background(self) -> Image.Image:

@@ -506,8 +506,8 @@ class MainApp:
         }
 
         # Touch targets are deliberately generous for the 14-inch touchscreen.
-        self._base_header_h = 88
-        self._base_status_h = 52
+        self._base_header_h = 118
+        self._base_status_h = 68
 
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
@@ -518,7 +518,9 @@ class MainApp:
         # Use the complete native display instead of the former 1024x600 size.
         try:
             sw = max(1, self.root.winfo_screenwidth())
-            dpi_scale = max(1.0, min(1.25, sw / 1536.0))
+            sh = max(1, self.root.winfo_screenheight())
+            portrait_screen = sh > sw
+            dpi_scale = 1.18 if portrait_screen else max(1.0, min(1.25, sw / 1536.0))
             self.root.tk.call("tk", "scaling", dpi_scale)
         except Exception:
             pass
@@ -555,6 +557,9 @@ class MainApp:
             on_shower=self.on_shower_go,
             on_exit=self.on_exit,
         )
+        self._portrait_screen = bool(self.root.winfo_screenheight() > self.root.winfo_screenwidth())
+        if self._portrait_screen:
+            self.header.set_portrait_layout(True)
         self.header.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         _dbg_print("[INIT] MainApp: HeaderBar erstellt und platziert.")
 
@@ -628,6 +633,8 @@ class MainApp:
 
         # Statusbar - moderner Style mit besserem Spacing
         self.status = StatusBar(self.main_container, on_exit=self.on_exit, on_toggle_fullscreen=self.toggle_fullscreen)
+        if self._portrait_screen:
+            self.status.set_portrait_layout(True)
         self.status.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         self._apply_fullscreen()
         self.build_tabs()
@@ -741,9 +748,9 @@ class MainApp:
             if segmented is None:
                 return
             segmented.configure(
-                font=get_safe_font("Bahnschrift", 12, "bold"),
-                height=48,
-                corner_radius=14,
+                font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
+                height=58 if getattr(self, "_portrait_screen", False) else 52,
+                corner_radius=16,
                 border_width=1,
                 border_color=COLOR_BORDER,
                 fg_color=COLOR_CARD,
@@ -1212,7 +1219,7 @@ class MainApp:
 
             # Give the chart more room on the 1200px display while retaining a
             # useful minimum on smaller windowed screens.
-            sparkline_h = max(110, min(190, int(tab_content_h * 0.20)))
+            sparkline_h = max(130, min(230, int(tab_content_h * 0.24)))
 
             # Account for grid paddings in the dashboard body.
             row0_h = max(160, tab_content_h - sparkline_h - 18)
@@ -1235,8 +1242,11 @@ class MainApp:
             # overflow the visible dashboard.
             portrait = bool(getattr(self, "_portrait_layout", False))
             if portrait:
-                energy_view_h = max(220, int(row0_h * 0.60) - 52)
-                buffer_view_h = max(180, int(row0_h * 0.40) - 52)
+                # The buffer needs enough vertical room for its temperature
+                # layers and boiler panel; keep it slightly larger than the
+                # energy-flow canvas in portrait mode.
+                energy_view_h = max(280, int(row0_h * 0.45) - 52)
+                buffer_view_h = max(280, int(row0_h * 0.55) - 52)
             else:
                 energy_view_h = max(180, row0_h - 52)
                 buffer_view_h = energy_view_h

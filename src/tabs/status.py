@@ -163,7 +163,7 @@ class StatusTab(ctk.CTkFrame):
             ("Status", "✓", 3),
         ]
         for label, icon, col in ampel_specs:
-            card = Card(main, padding=12)
+            card = Card(main, padding=18)
             card.grid(row=0, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
             
@@ -192,7 +192,7 @@ class StatusTab(ctk.CTkFrame):
             (BATTERY_SOC_PCT, "SOC", "🔋", "%", 3),
         ]
         for key, label, icon, unit, col in energy_specs:
-            card = Card(main, padding=12)
+            card = Card(main, padding=18)
             card.grid(row=1, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
             
@@ -210,7 +210,7 @@ class StatusTab(ctk.CTkFrame):
             (BUF_TOP_C, "Puffer", "⬆️", "°C", 2),  # Zeigt Top-Wert
         ]
         for key, label, icon, unit, col in heating_specs:
-            card = Card(main, padding=12)
+            card = Card(main, padding=18)
             card.grid(row=2, column=col, sticky="nsew", padx=4, pady=4)
             inner = card.content()
             
@@ -228,7 +228,7 @@ class StatusTab(ctk.CTkFrame):
             self.snapshot_labels[key] = dummy_label
 
         # Zeile 3, Spalte 3: Licht-Steuerung
-        light_card = Card(main, padding=12)
+        light_card = Card(main, padding=18)
         light_card.grid(row=2, column=3, sticky="nsew", padx=4, pady=4)
         self._status_cards = [child for child in main.winfo_children() if isinstance(child, Card)]
         light_inner = light_card.content()

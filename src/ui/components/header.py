@@ -214,6 +214,23 @@ class HeaderBar(ctk.CTkFrame):
             if self._on_toggle_b:
                 self._on_toggle_b()
 
+    def set_portrait_layout(self, portrait: bool) -> None:
+        """Increase the header hierarchy for the tall touch display."""
+        if not portrait:
+            return
+        try:
+            self.configure(height=118)
+            self.date_label.configure(font=get_safe_font("Bahnschrift", 21, "bold"))
+            self.weekday_label.configure(font=get_safe_font("Bahnschrift", 14))
+            self.clock_label.configure(font=get_safe_font("Bahnschrift", 50, "bold"))
+            self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 19, "bold"))
+            self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 11))
+            for button in (self.leave_btn, self.home_btn, self.shower_btn):
+                button.configure(width=82, height=56, font=get_safe_font("Bahnschrift", 23, "bold"))
+            self.light_switch.configure(width=76, height=38, switch_width=76, switch_height=38)
+        except Exception:
+            pass
+
     def _on_leave_pressed(self) -> None:
         try:
             if self._on_leave:

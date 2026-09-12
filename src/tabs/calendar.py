@@ -355,7 +355,7 @@ class CalendarTab:
         grid_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
         cell_min_w = 120
-        cell_min_h = 90
+        cell_min_h = 112
         for col in range(7):
             grid_frame.grid_columnconfigure(col, weight=1, minsize=cell_min_w, uniform="calendar")
         for row in range(len(cal)):
@@ -393,10 +393,10 @@ class CalendarTab:
                         event_label = tk.Label(
                             day_card,
                             text=event_text,
-                            font=("Segoe UI", 10),
+                            font=("Segoe UI", 12),
                             bg=day_card.cget("bg"),
                             fg=COLOR_TEXT,
-                            wraplength=90,
+                            wraplength=140,
                             justify=tk.LEFT,
                         )
                         event_label.pack(anchor="w", padx=6, pady=(2, 1), fill=tk.X)
@@ -405,7 +405,7 @@ class CalendarTab:
                         more_label = tk.Label(
                             day_card,
                             text=f"+{len(day_events) - 1} mehr",
-                            font=("Segoe UI", 9, "italic"),
+                            font=("Segoe UI", 11, "italic"),
                             bg=day_card.cget("bg"),
                             fg=COLOR_SUBTEXT,
                         )
