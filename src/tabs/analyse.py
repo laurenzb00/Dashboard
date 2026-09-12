@@ -52,12 +52,21 @@ class AnalyseTab:
         self.ax1.set_facecolor(COLOR_CARD)
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=card.content())
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_widget.bind("<Configure>", self._on_canvas_resize)
 
-        self._update_plot()
+        self._resize_job = None
+        self.root.after(180, self._update_plot)
 
     def stop(self):
         self.alive = False
+        if self._resize_job is not None:
+            try:
+                self.root.after_cancel(self._resize_job)
+            except Exception:
+                pass
+            self._resize_job = None
         # Explicitly close matplotlib figure to prevent memory leaks
         try:
             import matplotlib.pyplot as plt
@@ -105,6 +114,34 @@ class AnalyseTab:
             self.ax1.spines[spine].set_linewidth(1)
         self.ax1.tick_params(colors=COLOR_TEXT, which='both')
 
+    def _on_canvas_resize(self, _event=None):
+        try:
+            if self._resize_job is not None:
+                self.root.after_cancel(self._resize_job)
+            self._resize_job = self.root.after_idle(self._resize_canvas_now)
+        except Exception:
+            pass
+
+    def _resize_canvas_now(self):
+        self._resize_job = None
+        try:
+            width = int(self.canvas_widget.winfo_width() or 0)
+            height = int(self.canvas_widget.winfo_height() or 0)
+            if width < 50 or height < 50:
+                return
+            dpi = float(self.fig.get_dpi() or 100.0)
+            self.fig.set_size_inches(width / dpi, height / dpi, forward=True)
+            compact = width < 720
+            self.fig.subplots_adjust(
+                left=0.12 if compact else 0.08,
+                right=0.90 if compact else 0.94,
+                top=0.88,
+                bottom=0.24 if compact else 0.18,
+            )
+            self.canvas.draw_idle()
+        except Exception:
+            pass
+
     def _update_plot(self):
         """Update Plot."""
         self.fig.clear()
@@ -120,7 +157,7 @@ class AnalyseTab:
         if df_pv.empty or df_heating.empty:
             self.ax1.text(0.5, 0.5, "Zu wenig Daten", color=COLOR_SUBTEXT, ha="center", va="center", 
                          transform=self.ax1.transAxes, fontsize=12)
-            self.canvas.draw()
+            self.canvas.draw_idle()
             return
 
         # Filter last 3 days
@@ -133,7 +170,7 @@ class AnalyseTab:
         if df_pv.empty or df_heating.empty:
             self.ax1.text(0.5, 0.5, "Keine Daten für die letzten 3 Tage", color=COLOR_SUBTEXT, ha="center", 
                          va="center", transform=self.ax1.transAxes, fontsize=11)
-            self.canvas.draw()
+            self.canvas.draw_idle()
             return
 
         # Plot 1: PV Leistung (Linke Achse)

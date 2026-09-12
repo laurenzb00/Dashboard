@@ -72,8 +72,9 @@ class HistoricalTab(tk.Frame):
             # Pack self into the provided frame to fill it
             self.pack(fill=tk.BOTH, expand=True)
 
+        self._resize_job = None
         self._build_ui()
-        self._update_plot()
+        self.after(180, self._update_plot)
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(0, minsize=64)
@@ -143,6 +144,7 @@ class HistoricalTab(tk.Frame):
         # Zusätzlicher Chart-Frame für Padding zwischen Card-Border und Canvas
         self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        self.chart_frame.bind("<Configure>", lambda _event: self._schedule_canvas_resize())
 
         # Figur groß genug für vollständige Darstellung ohne Abschneiden
         self.fig = Figure(figsize=(10.0, 4.8), dpi=100)
@@ -219,16 +221,27 @@ class HistoricalTab(tk.Frame):
         self.after_job = self.after(60000, self._update_plot)
 
     def _on_canvas_resize(self, event) -> None:
+        self._schedule_canvas_resize()
+
+    def _schedule_canvas_resize(self) -> None:
         try:
-            w = max(1, int(getattr(event, "width", 1)))
-            h = max(1, int(getattr(event, "height", 1)))
+            if self._resize_job is not None:
+                self.after_cancel(self._resize_job)
+            self._resize_job = self.after_idle(self._resize_canvas_now)
+        except Exception:
+            pass
+
+    def _resize_canvas_now(self) -> None:
+        self._resize_job = None
+        try:
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
             if w < 50 or h < 50:
                 return
             dpi = float(self.fig.get_dpi() or 100.0)
             self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
             self._apply_layout()
-            # Full draw to avoid leftover pixels from a previous larger render.
-            self.canvas.draw()
+            self.canvas.draw_idle()
         except Exception:
             pass
 
@@ -435,7 +448,7 @@ class HistoricalTab(tk.Frame):
                 pass
             self._render_status(hours, 0)
             self._apply_layout()
-            self.canvas.draw()
+            self.canvas.draw_idle()
             self._schedule_update()
             return
 
@@ -485,7 +498,7 @@ class HistoricalTab(tk.Frame):
             fontsize=9,
             frameon=False,
             labelcolor=COLOR_SUBTEXT,
-            ncol=3,
+            ncol=2 if int(self.canvas_widget.winfo_width() or 0) < 900 else 3,
             handlelength=1.2,
             columnspacing=0.8,
             handletextpad=0.4,
@@ -499,20 +512,35 @@ class HistoricalTab(tk.Frame):
 
         self._apply_layout()
 
-        self._render_status(hours, len(times_sorted))
-        self.canvas.draw()
+        valid_values = [
+            float(value)
+            for values in ordered_series.values()
+            for value in values
+            if np.isfinite(value)
+        ]
+        self._render_status(hours, len(times_sorted), valid_values)
+        self.canvas.draw_idle()
         self._schedule_update()
 
-    def _render_status(self, hours: int, points: int) -> None:
+    def _render_status(self, hours: int, points: int, valid_values: list[float] | None = None) -> None:
         # Show the selected period label instead of huge hour numbers.
         self.topbar_status.config(text=f"{self._period_var.get()}")
-        self.statusbar.config(text=f"Letztes Update: {datetime.now().strftime('%H:%M')}  |  Datenpunkte: {points}")
+        summary = f"Datenpunkte: {points}"
+        if valid_values:
+            summary += f"  |  Temperaturbereich: {min(valid_values):.1f} bis {max(valid_values):.1f} °C"
+        self.statusbar.config(text=f"Letztes Update: {datetime.now().strftime('%H:%M')}  |  {summary}")
 
     def update_data(self, data: dict) -> None:
         # Called by app update loop; keep for compatibility.
         self._latest_data = data
 
     def stop(self) -> None:
+        if self._resize_job is not None:
+            try:
+                self.after_cancel(self._resize_job)
+            except Exception:
+                pass
+            self._resize_job = None
         if self.after_job is not None:
             try:
                 self.after_cancel(self.after_job)

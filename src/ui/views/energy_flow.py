@@ -119,10 +119,10 @@ class EnergyFlowView(tk.Frame):
         super().__init__(parent, bg=COLOR_ROOT)
         self._last_missing_log = {"pv": 0.0, "batt": 0.0}
         self._start_time = time.time()
-        # UI-only animation to make flow direction clearer (no data changes).
-        self._anim_enabled = True
-        # Increased from 350ms to 500ms to reduce CPU load
-        self._anim_interval_ms = 500
+        # Keep the flow static between data updates. Re-rendering a large PIL
+        # canvas every few hundred milliseconds makes the whole dashboard lag.
+        self._anim_enabled = False
+        self._anim_interval_ms = 1000
         self._anim_job = None
         self._anim_phase = 0.0
         self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_ROOT)
@@ -318,12 +318,12 @@ class EnergyFlowView(tk.Frame):
         margin_top = _s(32)
         margin_bottom = _s(56)  # Space for SoC ring at the battery
         usable_h = h - margin_top - margin_bottom
-        battery_dx = _s(-200)  # Push battery into lower-left
+        battery_dx = -int(min(220, max(120, w * 0.18)))
         return {
-            "pv": (margin_x + int((w - 2 * margin_x) * 0.16), margin_top + int(usable_h * 0.14)),
-            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.16), margin_top + int(usable_h * 0.14)),
-            "home": (w // 2, margin_top + int(usable_h * 0.58)),
-            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.96)),
+            "pv": (margin_x + int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.16)),
+            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.16)),
+            "home": (w // 2, margin_top + int(usable_h * 0.54)),
+            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.88)),
         }
 
     def _render_background(self) -> Image.Image:
@@ -407,31 +407,23 @@ class EnergyFlowView(tk.Frame):
 
     def _draw_bg_gradient(self) -> Image.Image:
         """Elliptical gradient: matches widget shape, very transparent at edges."""
-        img = Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
+        # Build the soft gradient at a small resolution and upscale it. The
+        # previous per-pixel loop became extremely expensive on a 1920px display.
+        small_w = min(180, max(48, self.width // 8))
+        small_h = min(120, max(36, self.height // 8))
+        img = Image.new("RGBA", (small_w, small_h), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
-        
-        center_x = self.width // 2
-        center_y = self.height // 2
-        
-        # Subtle blueish color
+        center_x = small_w / 2
+        center_y = small_h / 2
         color = (14, 24, 40)
-        
-        for y in range(self.height):
-            for x in range(self.width):
-                # Elliptical distance - scales with widget dimensions
-                dx = (x - center_x) / (self.width / 2)
-                dy = (y - center_y) / (self.height / 2)
-                
-                # Normalized elliptical distance (0=center, 1=edge)
+        for y in range(small_h):
+            for x in range(small_w):
+                dx = (x - center_x) / max(1.0, small_w / 2)
+                dy = (y - center_y) / max(1.0, small_h / 2)
                 norm_dist = min(1.0, (dx ** 2 + dy ** 2) ** 0.5)
-                
-                # Alpha falloff: center ~220, edges ~5 (nearly invisible)
-                # Smoother power function for seamless blend
                 alpha_val = int(220 * (1.0 - norm_dist ** 0.7))
-                
                 d.point((x, y), fill=(color[0], color[1], color[2], alpha_val))
-        
-        return img
+        return img.resize((self.width, self.height), Image.Resampling.BILINEAR)
 
     def _draw_node_circle(self, draw: ImageDraw.ImageDraw, x: int, y: int, name: str):
         """Draw node circle background with effects (no text/icons)."""

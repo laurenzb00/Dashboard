@@ -68,8 +68,9 @@ class TagesproduktionTab(tk.Frame):
         else:
             self.pack(fill=tk.BOTH, expand=True)
 
+        self._resize_job = None
         self._build_ui()
-        self._update_plot()
+        self.after(180, self._update_plot)
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(0, minsize=64)
@@ -131,6 +132,7 @@ class TagesproduktionTab(tk.Frame):
 
         self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        self.chart_frame.bind("<Configure>", lambda _event: self._schedule_canvas_resize())
 
         self.fig = Figure(figsize=(10.0, 4.8), dpi=100)
         self.fig.patch.set_facecolor(COLOR_ROOT)
@@ -182,14 +184,25 @@ class TagesproduktionTab(tk.Frame):
         self.after_job = self.after(60000, self._update_plot)
 
     def _on_canvas_resize(self, event) -> None:
+        self._schedule_canvas_resize()
+
+    def _schedule_canvas_resize(self) -> None:
         try:
-            w = max(1, int(getattr(event, "width", 1)))
-            h = max(1, int(getattr(event, "height", 1)))
+            if self._resize_job is not None:
+                self.after_cancel(self._resize_job)
+            self._resize_job = self.after_idle(self._resize_canvas_now)
+        except Exception:
+            pass
+
+    def _resize_canvas_now(self) -> None:
+        self._resize_job = None
+        try:
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
             if not self._sync_size(w, h):
                 return
             self._apply_layout()
-            # Full draw avoids stale pixels that can look like an overlayed smaller chart.
-            self.canvas.draw()
+            self.canvas.draw_idle()
         except Exception:
             pass
 
@@ -323,7 +336,7 @@ class TagesproduktionTab(tk.Frame):
             )
             self.statusbar.configure(text="Keine Daten im Zeitraum")
             self._apply_layout()
-            self.canvas.draw()
+            self.canvas.draw_idle()
             self._schedule_update()
             return
 
@@ -370,19 +383,30 @@ class TagesproduktionTab(tk.Frame):
             self.ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
 
-        # Status: show last value if available.
+        # Surface useful summary values below the chart instead of only the
+        # last point, which is easy to miss on a tall portrait layout.
         last_val = None
         try:
             if len(raw) > 0:
                 last_val = float(raw[-1][1])
         except Exception:
             last_val = None
-        if last_val is None or not np.isfinite(last_val):
+        valid_values = ys[np.isfinite(ys)]
+        if valid_values.size == 0:
             self.statusbar.configure(text=f"Zeitraum: {self._period_var.get()}")
         else:
-            self.statusbar.configure(text=f"Zeitraum: {self._period_var.get()}  •  Letzter Tag: {last_val:.1f} kWh")
+            total = float(np.sum(valid_values))
+            average = float(np.mean(valid_values))
+            peak = float(np.max(valid_values))
+            last_text = f"  •  Letzter Tag: {last_val:.1f} kWh" if last_val is not None and np.isfinite(last_val) else ""
+            self.statusbar.configure(
+                text=(
+                    f"Zeitraum: {self._period_var.get()}  •  Gesamt: {total:.1f} kWh"
+                    f"  •  Ø Tag: {average:.1f} kWh  •  Maximum: {peak:.1f} kWh{last_text}"
+                )
+            )
 
         self._apply_layout()
         # Full draw (not draw_idle) to avoid ghost pixels / overlays.
-        self.canvas.draw()
+        self.canvas.draw_idle()
         self._schedule_update()

@@ -131,7 +131,7 @@ class EnergyChart:
             if not self._sync_size(w, h):
                 return
             self._apply_layout(w, h)
-            self.canvas.draw()
+            self.canvas.draw_idle()
         except Exception:
             pass
 
@@ -255,7 +255,7 @@ class EnergyChart:
                 color=COLOR_SUBTEXT,
                 fontsize=10,
             )
-            self.canvas.draw()
+            self.canvas.draw_idle()
             return
 
         xs = [p.timestamp for p in points]
@@ -295,7 +295,7 @@ class EnergyChart:
         except Exception:
             pass
 
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
 
 def build_energy_chart(parent, data: Iterable[dict]):
