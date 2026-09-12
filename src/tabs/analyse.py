@@ -104,6 +104,25 @@ class AnalyseTab:
         df['Zeitstempel'] = pd.to_datetime(df['Zeitstempel'])
         return df[['Zeitstempel', 'Pufferspeicher Oben']]
 
+    def _load_chart_data(self) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
+        """Load current data, falling back to the latest available archive."""
+        pv = self._load_pv_data()
+        heating = self._load_heating_data()
+        archive = False
+        if pv.empty or heating.empty:
+            pv_rows = self.datastore.get_recent_fronius(hours=None, limit=None) if self.datastore else []
+            heat_rows = self.datastore.get_recent_heating(hours=None, limit=None) if self.datastore else []
+            if pv_rows:
+                pv = pd.DataFrame(pv_rows).rename(columns={"timestamp": "Zeitstempel", "pv": "PV-Leistung (kW)"})
+                pv["Zeitstempel"] = pd.to_datetime(pv["Zeitstempel"])
+                pv = pv[["Zeitstempel", "PV-Leistung (kW)"]]
+            if heat_rows:
+                heating = pd.DataFrame(heat_rows).rename(columns={"timestamp": "Zeitstempel", "top": "Pufferspeicher Oben"})
+                heating["Zeitstempel"] = pd.to_datetime(heating["Zeitstempel"])
+                heating = heating[["Zeitstempel", "Pufferspeicher Oben"]]
+            archive = bool(not pv.empty and not heating.empty)
+        return pv, heating, archive
+
     def _style_axes(self):
         """Styling für Achsen."""
         self.ax1.set_facecolor(COLOR_CARD)
@@ -151,8 +170,7 @@ class AnalyseTab:
         self._style_axes()
         
         # Load data
-        df_pv = self._load_pv_data()
-        df_heating = self._load_heating_data()
+        df_pv, df_heating, archive = self._load_chart_data()
         
         if df_pv.empty or df_heating.empty:
             self.ax1.text(0.5, 0.5, "Zu wenig Daten", color=COLOR_SUBTEXT, ha="center", va="center", 
@@ -161,7 +179,7 @@ class AnalyseTab:
             return
 
         # Filter last 3 days
-        now = pd.Timestamp.now()
+        now = max(df_pv["Zeitstempel"].max(), df_heating["Zeitstempel"].max()) if archive else pd.Timestamp.now()
         start_date = now - pd.Timedelta(days=3)
         
         df_pv = df_pv[df_pv["Zeitstempel"] >= start_date]

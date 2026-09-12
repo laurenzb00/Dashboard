@@ -79,21 +79,13 @@ class HistoricalTab(tk.Frame):
         self.after(180, self._update_plot)
 
     def _build_ui(self) -> None:
-        self.grid_rowconfigure(0, minsize=64)
+        self.grid_rowconfigure(0, minsize=56)
         self.grid_rowconfigure(1, weight=1)
         self.grid_rowconfigure(2, minsize=40)
         self.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self, bg=COLOR_ROOT)
         topbar.grid(row=0, column=0, sticky="ew", padx=PADDING_SECTION, pady=(PADDING_SECTION, 8))
-
-        tk.Label(
-            topbar,
-            text="Historie",
-            bg=COLOR_ROOT,
-            fg=COLOR_TITLE,
-            font=("Segoe UI", FONT_SIZE_TITLE, "bold"),
-        ).pack(side=tk.LEFT, padx=(2, 10))
 
         self.topbar_status = tk.Label(
             topbar,
@@ -138,23 +130,23 @@ class HistoricalTab(tk.Frame):
         plot_container.grid_columnconfigure(0, weight=1)
 
         # Neutral dark background (avoid bluish tint).
-        self.card = tk.Frame(plot_container, bg=COLOR_ROOT, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        self.card = tk.Frame(plot_container, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
         self.card.grid(row=0, column=0, sticky="nsew")
         self.card.grid_rowconfigure(0, weight=1)
         self.card.grid_columnconfigure(0, weight=1)
 
         # Zusätzlicher Chart-Frame für Padding zwischen Card-Border und Canvas
-        self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
+        self.chart_frame = tk.Frame(self.card, bg=COLOR_CARD)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
         self.chart_frame.bind("<Configure>", lambda _event: self._schedule_canvas_resize())
 
         # Figur groß genug für vollständige Darstellung ohne Abschneiden
         self.fig = Figure(figsize=(10.0, 4.8), dpi=100)
         # Solid background prevents redraw artifacts that can look like "two diagrams".
-        self.fig.patch.set_facecolor(COLOR_ROOT)
+        self.fig.patch.set_facecolor(COLOR_CARD)
         self.fig.patch.set_alpha(1.0)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor(COLOR_ROOT)
+        self.ax.set_facecolor(COLOR_CARD)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
         self.canvas_widget = self.canvas.get_tk_widget()

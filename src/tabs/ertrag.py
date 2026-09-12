@@ -61,26 +61,18 @@ class ErtragTab:
         self._period_map: dict[str, int] = {"7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
 
         # Layout like HistoricalTab: topbar + plot card + status line
-        self.tab_frame.grid_rowconfigure(0, minsize=64)
+        self.tab_frame.grid_rowconfigure(0, minsize=56)
         self.tab_frame.grid_rowconfigure(1, weight=1)
         self.tab_frame.grid_rowconfigure(2, minsize=40)
         self.tab_frame.grid_columnconfigure(0, weight=1)
 
-        topbar = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        topbar = tk.Frame(self.tab_frame, bg=COLOR_CARD)
         topbar.grid(row=0, column=0, sticky="ew", padx=PADDING_SECTION, pady=(PADDING_SECTION, 8))
 
-        tk.Label(
-            topbar,
-            text="Energiefluss",
-            bg=COLOR_ROOT,
-            fg=COLOR_TITLE,
-            font=("Segoe UI", FONT_SIZE_TITLE, "bold"),
-        ).pack(side=tk.LEFT, padx=(2, 10))
-
         # Zeitraum-Wahl: Touch-freundliche Buttons statt Combobox
-        period_frame = tk.Frame(topbar, bg=COLOR_ROOT)
+        period_frame = tk.Frame(topbar, bg=COLOR_CARD)
         period_frame.pack(side=tk.RIGHT, padx=(0, 12))
-        tk.Label(period_frame, text="Zeitraum:", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE)).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Label(period_frame, text="Zeitraum:", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE)).pack(side=tk.LEFT, padx=(0, 10))
         
         # Touch-freundliche Button-Gruppe
         self._period_buttons = {}
@@ -103,7 +95,7 @@ class ErtragTab:
             self._period_buttons[period] = btn
         self._update_period_button_colors()
 
-        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE, "bold"))
+        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE, "bold"))
         self.topbar_status.pack(side=tk.RIGHT)
 
         plot_container = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
@@ -112,18 +104,18 @@ class ErtragTab:
         plot_container.grid_columnconfigure(0, weight=1)
 
         # Neutral dark background (avoid bluish tint).
-        self.card = tk.Frame(plot_container, bg=COLOR_ROOT, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        self.card = tk.Frame(plot_container, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
         self.card.grid(row=0, column=0, sticky="nsew")
         self.card.grid_rowconfigure(0, weight=1)
         self.card.grid_columnconfigure(0, weight=1)
 
-        self.chart_frame = tk.Frame(self.card, bg=COLOR_ROOT)
+        self.chart_frame = tk.Frame(self.card, bg=COLOR_CARD)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
         # Modernes Energiefluss-Diagramm (PV area + Verbrauch line + Überschuss/Defizit).
         self.energy_chart = build_energy_chart(self.chart_frame, [])
 
-        stats_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        stats_frame = tk.Frame(self.tab_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
         stats_frame.grid(row=2, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
         self.var_sum = tk.StringVar(value="PV: -- kWh")
         self.var_avg = tk.StringVar(value="Verbrauch: -- kWh")
