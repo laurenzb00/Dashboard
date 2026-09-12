@@ -354,13 +354,16 @@ class MainApp:
         self._tick_count += 1
         now_mono = time.monotonic()
         
-        # Keep the energy-flow animation disabled. The dashboard is data-driven
-        # and continuous large-canvas redraws make touch input feel sluggish.
+        # Animate arrows only while the energy tab is visible; pause them on
+        # other tabs so navigation stays responsive.
         try:
             current_tab = self.tabview.get()
             is_dashboard = "Energie" in current_tab
             if hasattr(self, "energy_view") and self.energy_view:
-                if not is_dashboard and self.energy_view._anim_enabled:
+                if is_dashboard and not self.energy_view._anim_enabled:
+                    self.energy_view._anim_enabled = True
+                    self.energy_view._start_animation()
+                elif not is_dashboard and self.energy_view._anim_enabled:
                     self.energy_view._anim_enabled = False
         except Exception:
             pass
@@ -1249,6 +1252,8 @@ class MainApp:
                 try:
                     self.buffer_view.configure(height=buffer_view_h)
                     self.buffer_view.height = buffer_view_h
+                    if hasattr(self.buffer_view, "resize"):
+                        self.buffer_view.resize(buffer_view_h)
                 except Exception:
                     pass
 

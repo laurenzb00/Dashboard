@@ -119,10 +119,10 @@ class EnergyFlowView(tk.Frame):
         super().__init__(parent, bg=COLOR_ROOT)
         self._last_missing_log = {"pv": 0.0, "batt": 0.0}
         self._start_time = time.time()
-        # Keep the flow static between data updates. Re-rendering a large PIL
-        # canvas every few hundred milliseconds makes the whole dashboard lag.
-        self._anim_enabled = False
-        self._anim_interval_ms = 1000
+        # Keep the animation deliberately slow. It runs only while measurable
+        # flows are present and avoids turning the large canvas into a busy loop.
+        self._anim_enabled = True
+        self._anim_interval_ms = 900
         self._anim_job = None
         self._anim_phase = 0.0
         self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_ROOT)
@@ -132,12 +132,12 @@ class EnergyFlowView(tk.Frame):
 
         self.width = width
         self.height = height
-        self.node_radius = _s(46)
+        self.node_radius = _s(58)
         self.ring_gap = _s(14)
         self._tk_img = None
-        self._font_big = ImageFont.truetype("arial.ttf", _s(54)) if self._has_font("arial.ttf") else None
-        self._font_small = ImageFont.truetype("arial.ttf", _s(32)) if self._has_font("arial.ttf") else None
-        self._font_tiny = ImageFont.truetype("arial.ttf", _s(22)) if self._has_font("arial.ttf") else None
+        self._font_big = ImageFont.truetype("arial.ttf", _s(64)) if self._has_font("arial.ttf") else None
+        self._font_small = ImageFont.truetype("arial.ttf", _s(38)) if self._has_font("arial.ttf") else None
+        self._font_tiny = ImageFont.truetype("arial.ttf", _s(26)) if self._has_font("arial.ttf") else None
         self._flow_value_size = _s(24)
         self._flow_unit_size = _s(10)
         self._node_value_size = _s(24)

@@ -304,7 +304,9 @@ class BufferStorageView(tk.Frame):
         self.layout.grid_rowconfigure(0, weight=1)
 
         self.plot_frame = tk.Frame(self.layout, bg=COLOR_ROOT)
-        self.plot_frame.grid(row=0, column=0, sticky="nsew")
+        # Keep the heatmap compact inside the much taller energy card.
+        self.plot_frame.grid(row=0, column=0, sticky="new")
+        self.plot_frame.grid_propagate(False)
 
         self.val_texts = []
 
@@ -320,7 +322,10 @@ class BufferStorageView(tk.Frame):
         if DEBUG_LOG:
             print(f"[BUFFER] resize() at {elapsed:.3f}s -> {height}")
         self.height = max(160, int(height))
-        # Entfernt: configure(height) für flexibles Layout
+        try:
+            self.plot_frame.configure(height=self.height)
+        except Exception:
+            pass
 
     def _create_figure(self, fig_width: float, fig_height: float) -> None:
         if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
