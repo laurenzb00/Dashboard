@@ -29,13 +29,13 @@ class HeaderBar(ctk.CTkFrame):
         on_shower=None,
         on_exit=None,
     ):
-        super().__init__(parent, height=74, fg_color=COLOR_HEADER, corner_radius=16)
+        super().__init__(parent, height=88, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self.datastore = datastore
 
         # Innerer Container mit Grid-Layout
         inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
+        inner.pack(fill=tk.BOTH, expand=True, padx=18, pady=10)
 
         inner.grid_columnconfigure(0, weight=1, minsize=160, uniform="hdr")
         inner.grid_columnconfigure(1, weight=2, uniform="hdr")
@@ -48,7 +48,7 @@ class HeaderBar(ctk.CTkFrame):
         self.date_label = ctk.CTkLabel(
             left, 
             text="--", 
-            font=get_safe_font("Bahnschrift", 16, "bold"), 
+            font=get_safe_font("Bahnschrift", 18, "bold"), 
             text_color=COLOR_TEXT,
             anchor="w"
         )
@@ -57,7 +57,7 @@ class HeaderBar(ctk.CTkFrame):
         self.weekday_label = ctk.CTkLabel(
             left, 
             text="", 
-            font=get_safe_font("Bahnschrift", 11), 
+            font=get_safe_font("Bahnschrift", 12), 
             text_color=COLOR_SUBTEXT,
             anchor="w"
         )
@@ -84,8 +84,8 @@ class HeaderBar(ctk.CTkFrame):
             hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=64,
-            height=40,
+            width=72,
+            height=48,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -103,8 +103,8 @@ class HeaderBar(ctk.CTkFrame):
             hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=64,
-            height=40,
+            width=72,
+            height=48,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -113,7 +113,7 @@ class HeaderBar(ctk.CTkFrame):
         self.clock_label = ctk.CTkLabel(
             center, 
             text="--:--", 
-            font=get_safe_font("Bahnschrift", 38, "bold"), 
+            font=get_safe_font("Bahnschrift", 42, "bold"), 
             text_color=COLOR_PRIMARY
         )
         self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 12))
@@ -127,8 +127,8 @@ class HeaderBar(ctk.CTkFrame):
             hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=64,
-            height=40,
+            width=72,
+            height=48,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -149,10 +149,10 @@ class HeaderBar(ctk.CTkFrame):
         self.light_switch = ctk.CTkSwitch(
             light_control,
             text="",
-            width=58,
-            height=28,
-            switch_width=58,
-            switch_height=28,
+            width=68,
+            height=34,
+            switch_width=68,
+            switch_height=34,
             fg_color=COLOR_BORDER,
             progress_color=COLOR_WARNING,
             button_color="#FFFFFF",

@@ -504,9 +504,9 @@ class MainApp:
             "buf_bottom_c": 0,
         }
 
-        # Define base header and status heights - moderner mit mehr Platz
-        self._base_header_h = 72  # Größerer Header (Buttons + Switch)
-        self._base_status_h = 44  # Kompaktere Statusleiste
+        # Touch targets are deliberately generous for the 14-inch touchscreen.
+        self._base_header_h = 88
+        self._base_status_h = 52
 
         # Start weekly Ertrag validation in background
         self._start_ertrag_validator()
@@ -514,18 +514,13 @@ class MainApp:
         # Debug: Bind Configure events
         self.root.bind("<Configure>", self._on_root_configure)
         self.root.bind("<Map>", self._on_root_map)
-        # Fix DPI scaling and force a true 1024x600 borderless fullscreen
+        # Use the complete native display instead of the former 1024x600 size.
         try:
-            self.root.tk.call("tk", "scaling", 1.0)
+            sw = max(1, self.root.winfo_screenwidth())
+            dpi_scale = max(1.0, min(1.25, sw / 1536.0))
+            self.root.tk.call("tk", "scaling", dpi_scale)
         except Exception:
             pass
-        sw = max(1, self.root.winfo_screenwidth())
-        sh = max(1, self.root.winfo_screenheight())
-        target_w = min(sw, 1024)
-        target_h = min(sh, 600)
-        # Minimaler Offset, aber maximale nutzbare Höhe
-        offset_y = 0
-        usable_h = max(200, target_h - offset_y)
         self.is_fullscreen = True
         self.root.resizable(False, False)
         try:
@@ -640,8 +635,7 @@ class MainApp:
         # Initial update_tick delayed, then runs every 2000ms
         self.root.after(1000, self.update_tick)
 
-        # Apply a height budget once after initial layout settles so that
-        # 600px-tall screens (1014x600 / 1024x600) don't clip content.
+        # Apply a height budget once after initial layout settles.
         try:
             self.root.after(350, self._apply_compact_height_budget)
         except Exception:
@@ -747,8 +741,8 @@ class MainApp:
                 return
             segmented.configure(
                 font=get_safe_font("Bahnschrift", 12, "bold"),
-                height=32,
-                corner_radius=12,
+                height=48,
+                corner_radius=14,
                 border_width=1,
                 border_color=COLOR_BORDER,
                 fg_color=COLOR_CARD,
@@ -1150,20 +1144,15 @@ class MainApp:
             self._presence_manager.stop(silent)
 
     def _apply_fullscreen(self):
-        """Setzt echtes Vollbild (ohne overrideredirect) und zentriert das Fenster."""
+        """Setzt echtes Vollbild auf der nativen Bildschirmauflösung."""
         try:
             self.root.attributes("-fullscreen", True)
             self.is_fullscreen = True
             self.root.resizable(False, False)
-            sw = max(1, self.root.winfo_screenwidth())
-            sh = max(1, self.root.winfo_screenheight())
-            w = min(sw, 1024)
-            h = min(sh, 600)
-            self.root.geometry(f"{w}x{h}+0+0")
         except Exception:
             pass
 
-        # Ensure compact layouts fit on small screens (e.g. 1014x600)
+        # Recalculate child sizes after the fullscreen transition.
         try:
             self.root.after(250, self._apply_compact_height_budget)
         except Exception:
@@ -1203,10 +1192,7 @@ class MainApp:
             return 36
 
     def _apply_compact_height_budget(self) -> None:
-        """Compute available height by subtracting header + tab selector + statusbar.
-
-        This prevents vertical clipping on 600px-tall screens.
-        """
+        """Compute available height by subtracting fixed chrome from the root."""
         try:
             self.root.update_idletasks()
 
@@ -1221,8 +1207,9 @@ class MainApp:
             # Height available for the active tab content area
             tab_content_h = max(200, root_h - header_h - status_h - tab_sel_h)
 
-            # Reserve a compact sparkline row so row0 (energy+buffer) always fits.
-            sparkline_h = max(88, min(140, int(tab_content_h * 0.22)))
+            # Give the chart more room on the 1200px display while retaining a
+            # useful minimum on smaller windowed screens.
+            sparkline_h = max(110, min(190, int(tab_content_h * 0.20)))
 
             # Account for grid paddings in the dashboard body.
             row0_h = max(160, tab_content_h - sparkline_h - 18)
@@ -1241,7 +1228,7 @@ class MainApp:
                 pass
 
             # Title/header inside cards takes some vertical space; keep views conservative.
-            view_h = max(140, row0_h - 52)
+            view_h = max(180, row0_h - 52)
 
             if hasattr(self, "energy_view") and hasattr(self.energy_view, "canvas"):
                 try:

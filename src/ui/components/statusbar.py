@@ -36,13 +36,13 @@ class StatusBar(ctk.CTkFrame):
             base_text = self._status_text
             cal_text = ""
 
-        # Keep the status bar compact on 1024x600 screens.
+        # Keep status text readable without wasting the wide touchscreen layout.
         # If calendar exists, reserve space for it and shorten the base text first.
-        max_total = 140
-        base_max = 140
+        max_total = 260
+        base_max = 260
         cal_max = 0
         if cal_text:
-            cal_max = 48
+            cal_max = 84
             base_max = max(40, max_total - (min(len(cal_text) + 2, cal_max) + 3))
 
         shown_base = base_text
@@ -78,7 +78,7 @@ class StatusBar(ctk.CTkFrame):
         self.set_status(text)
 
     def __init__(self, parent: tk.Widget, on_exit=None, on_toggle_fullscreen=None):
-        super().__init__(parent, height=36, fg_color=COLOR_HEADER, corner_radius=16)
+        super().__init__(parent, height=52, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self._status_text = ""
         self._start_monotonic = time.monotonic()
@@ -87,7 +87,7 @@ class StatusBar(ctk.CTkFrame):
 
         # Innerer Container
         inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        inner.pack(fill=tk.BOTH, expand=True, padx=18, pady=8)
 
         inner.grid_columnconfigure(0, weight=1)
         inner.grid_columnconfigure(1, weight=0)
@@ -138,8 +138,8 @@ class StatusBar(ctk.CTkFrame):
             hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 16, "bold"),
-            width=52,
-            height=28,
+            width=64,
+            height=36,
             border_width=1,
             border_color=COLOR_BORDER
         )
@@ -154,8 +154,8 @@ class StatusBar(ctk.CTkFrame):
             hover_color="#DC2626",
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 14, "bold"),
-            width=52,
-            height=28,
+            width=64,
+            height=36,
             border_width=0
         )
         self.exit_btn.grid(row=0, column=4, sticky="e", padx=(4, 0))
