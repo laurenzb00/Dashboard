@@ -303,7 +303,7 @@ class BufferStorageView(tk.Frame):
         self.layout.grid_columnconfigure(0, weight=1)
         self.layout.grid_rowconfigure(0, weight=1)
 
-        self.plot_frame = tk.Frame(self.layout, bg=COLOR_ROOT)
+        self.plot_frame = tk.Frame(self.layout, bg=COLOR_CARD)
         # Keep the heatmap compact inside the much taller energy card.
         self.plot_frame.grid(row=0, column=0, sticky="new")
         self.plot_frame.grid_propagate(False)
@@ -341,17 +341,17 @@ class BufferStorageView(tk.Frame):
             except Exception:
                 pass
         self.fig = Figure(figsize=(fig_width, fig_height), dpi=100)
-        self.fig.patch.set_facecolor(COLOR_ROOT)  # Explizit auf COLOR_ROOT setzen
+        self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
+        self.ax.set_facecolor(COLOR_CARD)
 
         # Betriebsmodus headline (above heatmap)
         self.mode_label = tk.Label(
             self.plot_frame,
             text="Betriebsmodus: --",
-            bg=COLOR_ROOT,
+            bg=COLOR_CARD,
             fg=COLOR_TEXT,
-            font=("Segoe UI", 12, "bold"),
+            font=("Segoe UI", 14, "bold"),
             anchor="w",
         )
         self.mode_label.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(2, 0))
@@ -365,7 +365,7 @@ class BufferStorageView(tk.Frame):
         self.mode_canvas = tk.Canvas(
             self.plot_frame,
             height=38,
-            bg=COLOR_ROOT,
+            bg=COLOR_CARD,
             highlightthickness=0,
         )
         self.mode_canvas.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 2))
@@ -378,7 +378,7 @@ class BufferStorageView(tk.Frame):
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
         self.ax.set_axis_off()
-        self.ax.set_facecolor(COLOR_ROOT)  # Konsistent mit Card-Hintergrund
+        self.ax.set_facecolor(COLOR_CARD)
 
         self.norm = Normalize(vmin=self.TEMP_MIN, vmax=self.TEMP_MAX)
         self.im = self.ax.imshow(
@@ -410,15 +410,17 @@ class BufferStorageView(tk.Frame):
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         # Entfernt: Helles weißes Overlay-Rectangle
         # Feste Schriftgröße und feste Ränder für optimalen Sitz
-        self.fig.subplots_adjust(left=0.06, right=0.98, top=0.93, bottom=0.14)
-        self.ax.text(0.26, 0.985, "Pufferspeicher", transform=self.ax.transAxes,
-             color=COLOR_TITLE, fontsize=11, va="top", ha="center", weight="bold")
+        self.fig.subplots_adjust(left=0.04, right=0.96, top=0.91, bottom=0.10)
+        self.ax.text(0.26, 0.985, "PUFFER", transform=self.ax.transAxes,
+                     color=COLOR_TITLE, fontsize=14, va="top", ha="center", weight="bold")
+        self.ax.text(0.74, 0.985, "WARMWASSER", transform=self.ax.transAxes,
+                     color=COLOR_TITLE, fontsize=14, va="top", ha="center", weight="bold")
 
         # Temperatur-Textfelder links
         self.val_texts = [
-            self.ax.text(0.12, 0.85, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.12, 0.50, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.12, 0.15, "--°C", color="#FFFFFF", fontsize=13, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.12, 0.85, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.12, 0.50, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.12, 0.15, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
         ]
 
         self.boiler_rect = FancyBboxPatch(
@@ -439,16 +441,16 @@ class BufferStorageView(tk.Frame):
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
         # Entfernt: Helles weißes Overlay-Rectangle
         self.ax.text(0.74, 0.62, "Boiler", transform=self.ax.transAxes,
-                 color=COLOR_TITLE, fontsize=11, va="top", ha="center", weight="bold")
+             color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
         # Boiler-Temperaturtext
-        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color="#FFFFFF", fontsize=18, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
+        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color="#FFFFFF", fontsize=23, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
         # Boiler-Modus-Text (Betriebsmodus)
         self.boiler_mode_text = self.ax.text(
             0.74,
             0.22,
             "",
             color=COLOR_TEXT,
-            fontsize=10,
+            fontsize=11,
             va="center",
             ha="center",
             transform=self.ax.transAxes,
@@ -458,8 +460,8 @@ class BufferStorageView(tk.Frame):
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)
         cbar = self.fig.colorbar(self.im, cax=cax, orientation="vertical")
-        cbar.set_label("°C", rotation=0, labelpad=10, color=COLOR_TEXT, fontsize=9)
-        cbar.ax.tick_params(labelsize=9, colors=COLOR_TEXT)
+        cbar.set_label("°C", rotation=0, labelpad=10, color=COLOR_TEXT, fontsize=11)
+        cbar.ax.tick_params(labelsize=10, colors=COLOR_TEXT)
         cbar.outline.set_edgecolor(COLOR_BORDER)
         cbar.outline.set_linewidth(0.8)
 
