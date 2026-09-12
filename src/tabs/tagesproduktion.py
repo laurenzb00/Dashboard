@@ -222,7 +222,14 @@ class TagesproduktionTab(tk.Frame):
 
     def _apply_layout(self) -> None:
         try:
-            self.fig.subplots_adjust(left=0.07, right=0.98, top=0.90, bottom=0.18)
+            width = int(self.canvas_widget.winfo_width() or 0)
+            compact = width < 720
+            self.fig.subplots_adjust(
+                left=0.13 if compact else 0.08,
+                right=0.97,
+                top=0.90,
+                bottom=0.24 if compact else 0.18,
+            )
         except Exception:
             pass
 

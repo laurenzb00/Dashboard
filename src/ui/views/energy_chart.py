@@ -130,7 +130,25 @@ class EnergyChart:
             h = max(1, int(getattr(event, "height", 1)))
             if not self._sync_size(w, h):
                 return
+            self._apply_layout(w, h)
             self.canvas.draw()
+        except Exception:
+            pass
+
+    def _apply_layout(self, width: int | None = None, height: int | None = None) -> None:
+        """Keep axes and labels inside the current canvas."""
+        try:
+            width = width or int(self.canvas_widget.winfo_width() or 0)
+            height = height or int(self.canvas_widget.winfo_height() or 0)
+            if width < 50 or height < 50:
+                return
+            compact = width < 720
+            self.fig.subplots_adjust(
+                left=0.12 if compact else 0.08,
+                right=0.97,
+                top=0.91,
+                bottom=0.22 if compact else 0.16,
+            )
         except Exception:
             pass
 
@@ -209,7 +227,8 @@ class EnergyChart:
         try:
             w = int(self.canvas_widget.winfo_width() or 0)
             h = int(self.canvas_widget.winfo_height() or 0)
-            self._sync_size(w, h)
+            if self._sync_size(w, h):
+                self._apply_layout(w, h)
         except Exception:
             pass
 
@@ -223,6 +242,7 @@ class EnergyChart:
         self.ax.set_facecolor(COLOR_ROOT)
         self._setup_axes_style()
         self._init_interaction_artists()
+        self._apply_layout()
 
         if not points:
             self.ax.text(

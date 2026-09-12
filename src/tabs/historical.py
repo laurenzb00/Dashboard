@@ -222,8 +222,10 @@ class HistoricalTab(tk.Frame):
         try:
             w = max(1, int(getattr(event, "width", 1)))
             h = max(1, int(getattr(event, "height", 1)))
+            if w < 50 or h < 50:
+                return
             dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
             self._apply_layout()
             # Full draw to avoid leftover pixels from a previous larger render.
             self.canvas.draw()
@@ -231,9 +233,15 @@ class HistoricalTab(tk.Frame):
             pass
 
     def _apply_layout(self) -> None:
-        # Optimierte Margins: Links für Y-Achse, rechts großzügig für letzte Labels
         try:
-            self.fig.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.16)
+            width = int(self.canvas_widget.winfo_width() or 0)
+            compact = width < 720
+            self.fig.subplots_adjust(
+                left=0.13 if compact else 0.08,
+                right=0.97,
+                top=0.88,
+                bottom=0.24 if compact else 0.17,
+            )
         except Exception:
             pass
 
@@ -245,15 +253,17 @@ class HistoricalTab(tk.Frame):
         """
         try:
             if not hasattr(self, "canvas_widget"):
-                return
+                return False
             w = int(self.canvas_widget.winfo_width() or 0)
             h = int(self.canvas_widget.winfo_height() or 0)
-            if w <= 2 or h <= 2:
-                return
+            if w < 50 or h < 50:
+                return False
             dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
+            self._apply_layout()
+            return True
         except Exception:
-            pass
+            return False
 
     def _style_axes(self) -> None:
         self.ax.set_facecolor(COLOR_ROOT)
