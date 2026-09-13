@@ -65,9 +65,16 @@ DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true
 class BufferStorageView(tk.Frame):
 
     # Heatmap scale targets (°C)
+    # TEMP_BLUE_MAX/TEMP_ORANGE_FROM used to sit only 2°C apart (53/55), so
+    # two close real readings (z.B. Puffer-Mitte 53.5°C vs. Boiler 54.8°C -
+    # nur 1.3°C Unterschied) landeten auf fast entgegengesetzten Enden der
+    # Skala (kräftiges Blau vs. sattes Orange). Der Übergang ist jetzt auf
+    # den tatsächlichen Betriebsbereich (meist 40-60°C) verbreitert, damit
+    # nah beieinanderliegende Temperaturen auch optisch nah beieinander
+    # liegen, ohne die Endpunkte (35°C kalt / 75°C sehr heiß) zu verändern.
     TEMP_MIN = 35.0
-    TEMP_BLUE_MAX = 53.0
-    TEMP_ORANGE_FROM = 55.0
+    TEMP_BLUE_MAX = 46.0
+    TEMP_ORANGE_FROM = 62.0
     TEMP_MAX = 75.0
 
     @staticmethod

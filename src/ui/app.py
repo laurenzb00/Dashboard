@@ -1253,6 +1253,32 @@ class MainApp:
                 energy_view_h = max(180, row0_h - 52)
                 buffer_view_h = energy_view_h
 
+            # Pin the outer Card frames to the same budget as their inner
+            # views. Without this, body's grid_rowconfigure() weight/sticky
+            # still stretches the Card (sticky="nsew") to fill whatever the
+            # row ends up getting, overriding the smaller height the inner
+            # canvas/figure was just resized to - which was the real cause of
+            # the oversized Energiefluss panel in portrait mode. Mirrors the
+            # same pattern already used for sparkline_card above.
+            if hasattr(self, "energy_card"):
+                try:
+                    if portrait:
+                        self.energy_card.configure(height=energy_view_h + 52)
+                        self.energy_card.grid_propagate(False)
+                    else:
+                        self.energy_card.grid_propagate(True)
+                except Exception:
+                    pass
+            if hasattr(self, "buffer_card"):
+                try:
+                    if portrait:
+                        self.buffer_card.configure(height=buffer_view_h + 52)
+                        self.buffer_card.grid_propagate(False)
+                    else:
+                        self.buffer_card.grid_propagate(True)
+                except Exception:
+                    pass
+
             if hasattr(self, "energy_view") and hasattr(self.energy_view, "resize"):
                 try:
                     self.energy_view.resize(self.energy_view.width, energy_view_h)
@@ -1332,8 +1358,16 @@ class MainApp:
             if portrait:
                 self.body.grid_columnconfigure(0, weight=1, minsize=0)
                 self.body.grid_columnconfigure(1, weight=0, minsize=0)
-                self.body.grid_rowconfigure(0, weight=3, minsize=260)
-                self.body.grid_rowconfigure(1, weight=2, minsize=220)
+                # Diese Gewichte müssen zum 25%/75%-Split in
+                # _apply_compact_height_budget() passen (dort bekommt die
+                # Energiefluss-Karte bewusst nur ~25%, die Puffer/Boiler-Karte
+                # ~75% der Höhe). Vorher stand hier 3:2:1 - also das Gegenteil
+                # der Absicht - wodurch das äußere Grid die Energiefluss-Karte
+                # trotz kleinerem resize() wieder auf die größte Zeile
+                # aufgeblasen hat (sticky="nsew" + Zeilengewicht gewinnt gegen
+                # die intern gesetzte Canvas-Höhe).
+                self.body.grid_rowconfigure(0, weight=1, minsize=200)
+                self.body.grid_rowconfigure(1, weight=3, minsize=380)
                 self.body.grid_rowconfigure(2, weight=1, minsize=130)
                 self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
                 self.buffer_card.grid_configure(row=1, column=0, columnspan=1, sticky="nsew")

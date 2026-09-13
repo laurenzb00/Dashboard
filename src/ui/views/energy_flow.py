@@ -589,6 +589,15 @@ class EnergyFlowView(tk.Frame):
         right = (x1 - ux * size - uy * size * 0.6, y1 - uy * size + ux * size * 0.6)
         draw.polygon([left, right, (x1, y1)], fill=line_color)
 
+    def _draw_static_connector(self, draw: ImageDraw.ImageDraw, src, dst, gap: float = 0.0):
+        """Faint, non-animated line showing that two nodes are topologically
+        connected even though no measurable flow is currently happening."""
+        start, end = self._edge_points(src, dst, self.node_radius + gap)
+        x0, y0 = start
+        x1, y1 = end
+        line_color = self._with_alpha(COLOR_BORDER, 130)
+        draw.line((x0, y0, x1, y1), fill=line_color, width=2)
+
     def _draw_flow_dots(self, draw: ImageDraw.ImageDraw, src, dst, color: str, strength: float, gap: float = 0.0):
         start, end = self._edge_points(src, dst, self.node_radius + gap)
         x0, y0 = start
@@ -764,16 +773,22 @@ class EnergyFlowView(tk.Frame):
     def _draw_soc_ring(self, draw: ImageDraw.ImageDraw, center, soc: float):
         """Ring-style charge indicator around the battery node: a dim full
         track plus a colored arc for the actual state of charge, replacing
-        the previous bare arc that was hard to read as a percentage."""
+        the previous bare arc that was hard to read as a percentage.
+
+        At low SoC the colored arc is very short (e.g. 8% -> ~29°), and the
+        previous track alpha (160, width 4) was faint enough that only that
+        short colored sliver stood out - looking like a stray mark rather
+        than a ring. Track is now more opaque/slightly thicker so the full
+        ring is always legible, with the colored arc still popping on top."""
         x, y = center
         r = self.node_radius + self.ring_gap
         bbox = [x - r, y - r, x + r, y + r]
         extent = max(0, min(360, 360 * soc / 100))
         color = COLOR_BATTERY_LOW if soc < 20 else COLOR_BATTERY_OK
-        track_color = self._with_alpha(COLOR_BORDER, 160)
-        draw.arc(bbox, start=0, end=360, fill=track_color, width=4)
+        track_color = self._with_alpha(COLOR_BORDER, 210)
+        draw.arc(bbox, start=0, end=360, fill=track_color, width=5)
         if extent > 0:
-            draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=5)
+            draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=6)
 
     def render_frame(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float) -> Image.Image:
         img = self._base_img.copy()
@@ -829,6 +844,14 @@ class EnergyFlowView(tk.Frame):
             self._draw_arrow(draw, home, bat, COLOR_BATTERY_OK, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_dots(draw, home, bat, COLOR_BATTERY_OK, flow_strength(batt_w), gap=8)
             self._draw_flow_label(img, home, bat, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_BATTERY_OK, outside="below")
+        else:
+            # Kein nennenswerter Lade-/Entladefluss (Batterie im Ruhezustand,
+            # z.B. sehr niedriger SoC ohne Aktivität). Ohne diese Zeile fehlt
+            # jede Verbindung zwischen Haus und Batterie und der Knoten wirkt
+            # isoliert/losgelöst vom Rest des Diagramms. Eine dünne, gedimmte
+            # statische Linie (kein Pfeil, keine Punkte, kein Label) zeigt die
+            # Topologie, ohne einen aktiven Fluss vorzutäuschen.
+            self._draw_static_connector(draw, home, bat, gap=8)
 
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)
