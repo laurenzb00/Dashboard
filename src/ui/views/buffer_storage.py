@@ -362,10 +362,11 @@ class BufferStorageView(tk.Frame):
         # Flexible Skalierung ohne min_width Constraint für 50/50 Layout
         self.canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # Small mode timeline bar under the heatmap
+        # Mode timeline bar under the heatmap - tall enough to carry hour
+        # tick marks in addition to the start/end labels.
         self.mode_canvas = tk.Canvas(
             self.plot_frame,
-            height=38,
+            height=76,
             bg=COLOR_CARD,
             highlightthickness=0,
         )
@@ -383,21 +384,11 @@ class BufferStorageView(tk.Frame):
 
         self.norm = Normalize(vmin=self.TEMP_MIN, vmax=self.TEMP_MAX)
 
-        # Soft drop-shadows behind both vessels for a bit of depth. Faked via
-        # a same-sized, down-right-offset, low-alpha dark rounded rect drawn
-        # first (real Gaussian blur isn't available on this backend).
-        self.ax.add_patch(FancyBboxPatch(
-            (0.102, 0.042), 0.34, 0.88,
-            boxstyle="round,pad=0.02,rounding_size=0.10",
-            transform=self.ax.transAxes,
-            linewidth=0, edgecolor="none", facecolor="#000000", alpha=0.40, zorder=1,
-        ))
-        self.ax.add_patch(FancyBboxPatch(
-            (0.592, 0.042), 0.32, 0.50,
-            boxstyle="round,pad=0.02,rounding_size=0.10",
-            transform=self.ax.transAxes,
-            linewidth=0, edgecolor="none", facecolor="#000000", alpha=0.40, zorder=1,
-        ))
+        # Flat, modern vessel: thin outline only, no drop-shadow/glossy 3D
+        # treatment. Top capped below the title line so the "PUFFER" /
+        # "WARMWASSER" labels always keep a clear gap above the graphic.
+        PUFFER_TOP = 0.86
+        BOILER_TOP = 0.56
 
         self.im = self.ax.imshow(
             self.data,
@@ -406,14 +397,14 @@ class BufferStorageView(tk.Frame):
             cmap=self._build_cmap(),
             norm=self.norm,
             origin="lower",
-            extent=[0.06, 0.50, 0.06, 0.94],
+            extent=[0.06, 0.50, 0.06, PUFFER_TOP],
             zorder=2,
         )
 
         puffer_cyl = FancyBboxPatch(
             (0.09, 0.06),
             0.34,
-            0.88,
+            PUFFER_TOP - 0.06,
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
             linewidth=1.3,
@@ -424,18 +415,10 @@ class BufferStorageView(tk.Frame):
         )
         self.im.set_clip_path(puffer_cyl)
         self.ax.add_patch(puffer_cyl)
-        self.ax.add_patch(Ellipse((0.26, 0.94), 0.34, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.26, PUFFER_TOP), 0.34, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
         self.ax.add_patch(Ellipse((0.26, 0.06), 0.34, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
-        # Glossy highlight: a soft vertical white streak to suggest a cylindrical,
-        # reflective surface rather than a flat gradient rectangle.
-        self.ax.add_patch(FancyBboxPatch(
-            (0.135, 0.10), 0.06, 0.80,
-            boxstyle="round,pad=0.0,rounding_size=0.03",
-            transform=self.ax.transAxes,
-            linewidth=0, edgecolor="none", facecolor="#FFFFFF", alpha=0.10, zorder=3,
-        ))
         # Feste Schriftgröße und feste Ränder für optimalen Sitz
         self.fig.subplots_adjust(left=0.04, right=0.96, top=0.91, bottom=0.10)
         title_kw = dict(color=COLOR_TITLE, fontsize=14, va="top", ha="center", weight="bold")
@@ -449,18 +432,18 @@ class BufferStorageView(tk.Frame):
 
         # Temperatur-Textfelder links
         self.val_texts = [
-            self.ax.text(0.12, 0.85, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left",
+            self.ax.text(0.12, 0.78, "--°C", color=COLOR_TEXT, fontsize=16, va="center", ha="left",
                          transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
-            self.ax.text(0.12, 0.50, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left",
+            self.ax.text(0.12, 0.46, "--°C", color=COLOR_TEXT, fontsize=16, va="center", ha="left",
                          transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
-            self.ax.text(0.12, 0.15, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left",
+            self.ax.text(0.12, 0.14, "--°C", color=COLOR_TEXT, fontsize=16, va="center", ha="left",
                          transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
         ]
 
         self.boiler_rect = FancyBboxPatch(
             (0.58, 0.06),
             0.32,
-            0.50,
+            BOILER_TOP - 0.06,
             boxstyle="round,pad=0.02,rounding_size=0.10",
             transform=self.ax.transAxes,
             linewidth=1.1,
@@ -470,21 +453,14 @@ class BufferStorageView(tk.Frame):
             zorder=4,
         )
         self.ax.add_patch(self.boiler_rect)
-        self.ax.add_patch(Ellipse((0.74, 0.56), 0.32, 0.08, transform=self.ax.transAxes,
+        self.ax.add_patch(Ellipse((0.74, BOILER_TOP), 0.32, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
         self.ax.add_patch(Ellipse((0.74, 0.06), 0.32, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
-        # Matching glossy highlight on the boiler capsule.
-        self.ax.add_patch(FancyBboxPatch(
-            (0.615, 0.10), 0.05, 0.42,
-            boxstyle="round,pad=0.0,rounding_size=0.025",
-            transform=self.ax.transAxes,
-            linewidth=0, edgecolor="none", facecolor="#FFFFFF", alpha=0.12, zorder=4.5,
-        ))
         self.ax.text(0.74, 0.62, "Boiler", transform=self.ax.transAxes,
              color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold", zorder=5)
         # Boiler-Temperaturtext
-        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color="#FFFFFF", fontsize=23, va="center", ha="center",
+        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color=COLOR_TEXT, fontsize=23, va="center", ha="center",
                                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline)
         # Boiler-Modus-Text (Betriebsmodus)
         self.boiler_mode_text = self.ax.text(
@@ -710,8 +686,8 @@ class BufferStorageView(tk.Frame):
         try:
             height = int(c.winfo_height())
         except Exception:
-            height = 38
-        height = max(30, height)
+            height = 76
+        height = max(60, height)
 
         try:
             c.delete("all")
@@ -775,8 +751,8 @@ class BufferStorageView(tk.Frame):
         segments = list(self._mode_segments)
         segments.reverse()
 
-        bar_top = 16
-        bar_bottom = height - 8
+        bar_top = 18
+        bar_bottom = height - 24
         for start_dt, end_dt, mode in segments:
             seg_start = start_dt
             seg_end = end_dt or now
@@ -794,12 +770,24 @@ class BufferStorageView(tk.Frame):
             except Exception:
                 pass
 
-        # Time labels (minimal)
-        try:
-            c.create_text(6, height - 2, text=window_start.astimezone().strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="sw")
-            c.create_text(width - 6, height - 2, text=window_end.astimezone().strftime("%H:%M"), fill=COLOR_SUBTEXT, anchor="se")
-        except Exception:
-            pass
+        # Hour tick marks every 6h so the timeline reads as an actual time
+        # axis instead of a bare, unlabeled strip.
+        tick_step_h = 6
+        n_ticks = int(hours // tick_step_h)
+        for i in range(n_ticks + 1):
+            tick_dt = window_start + timedelta(hours=i * tick_step_h)
+            tx = x(tick_dt)
+            try:
+                c.create_line(tx, bar_bottom, tx, bar_bottom + 6, fill=COLOR_BORDER)
+                anchor = "s"
+                if i == 0:
+                    anchor = "sw"
+                elif i == n_ticks:
+                    anchor = "se"
+                c.create_text(tx, height - 2, text=tick_dt.astimezone().strftime("%H:%M"),
+                              fill=COLOR_SUBTEXT, anchor=anchor, font=("Segoe UI", 8))
+            except Exception:
+                pass
 
 
     def update_temperatures(self, top, mid, bot, boiler):

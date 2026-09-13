@@ -76,7 +76,7 @@ class PVSparklineView(tk.Frame):
         self._canvas_widget.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
         self.spark_ax.tick_params(axis='both', which='major', labelsize=9, colors=COLOR_SUBTEXT)
         self.spark_ax.set_axisbelow(True)
-        self.spark_ax.grid(True, alpha=0.12)
+        self.spark_ax.grid(True, alpha=0.08, linewidth=0.5)
         self.spark_fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.22)
 
         # On startup, render from persisted cache immediately so the sparkline
@@ -237,6 +237,10 @@ class PVSparklineView(tk.Frame):
             temp_series = self._history_to_series(self._spark_history_temp, hours=6, bin_minutes=5)
 
         self.spark_ax.clear()
+        # clear() also wipes grid/axisbelow set at construction time - reapply
+        # each redraw so the gridlines stay visible (and subtle) after refresh.
+        self.spark_ax.set_axisbelow(True)
+        self.spark_ax.grid(True, alpha=0.08, linewidth=0.5)
         now = datetime.now()
         # Keep the x-axis aligned to midnight boundaries, but anchor it to the
         # newest available datapoint's day (PV or temp). This avoids an empty
@@ -281,20 +285,34 @@ class PVSparklineView(tk.Frame):
 
         if pv_series:
             xs_pv, ys_pv = zip(*pv_series)
-            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
+            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9, label="PV-Leistung")
             self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
             self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
             # Fixed PV scale for readability.
             self.spark_ax.set_ylim(0.0, 10.0)
         if temp_series:
             xs_temp, ys_temp = zip(*temp_series)
-            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
+            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--", label="Außentemperatur")
             ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
             min_t = min(float(v) for v in ys_temp)
             max_t = max(float(v) for v in ys_temp)
             span = max_t - min_t
             pad = max(1.0, span * 0.15)
             ax2.set_ylim(min_t - pad, max_t + pad)
+
+        # Combined legend for the twin-axis chart - a single call on one axis
+        # can't see the other axis's lines, so gather both label sets.
+        handles1, labels1 = self.spark_ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        if handles1 or handles2:
+            self.spark_ax.legend(
+                handles1 + handles2,
+                labels1 + labels2,
+                loc="upper left",
+                fontsize=7,
+                frameon=False,
+                labelcolor=COLOR_SUBTEXT,
+            )
 
         self.spark_ax.spines['top'].set_visible(False)
         self.spark_ax.spines['right'].set_visible(False)

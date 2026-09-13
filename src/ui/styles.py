@@ -22,6 +22,15 @@ COLOR_TEXT = "#E6ECF5"
 COLOR_SUBTEXT = "#9AA3B2"
 COLOR_TITLE = "#B5C0D3"
 
+# Semantic energy-node colors: one fixed meaning per energy type, reused across
+# the energy-flow diagram, the buffer/boiler tanks and any future views so the
+# same color always means the same thing on screen.
+COLOR_PV = COLOR_WARNING          # PV-Erzeugung: Orange/Gelb
+COLOR_GRID = COLOR_INFO           # Netz: Blau
+COLOR_HOUSE = COLOR_TEXT          # Haus: neutral/weiß
+COLOR_BATTERY_OK = COLOR_SUCCESS  # Batterie: Grün (normal/laden)
+COLOR_BATTERY_LOW = COLOR_DANGER  # Batterie: Rot (kritisch niedrig)
+
 # Shared layout tokens for the 1920x1200 touch display.
 FONT_SIZE_TITLE = 18
 FONT_SIZE_SUBTITLE = 14
@@ -29,6 +38,7 @@ FONT_SIZE_BODY = 13
 FONT_SIZE_SMALL = 11
 PADDING_SECTION = 16
 PADDING_CARD = 16
+PADDING_TILE = 12
 BUTTON_HEIGHT_PRIMARY = 48
 BUTTON_HEIGHT_SECONDARY = 44
 

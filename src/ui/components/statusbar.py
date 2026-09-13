@@ -2,7 +2,7 @@ import tkinter as tk
 import time
 import customtkinter as ctk
 
-from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_DANGER, COLOR_SUBTEXT, COLOR_PRIMARY, COLOR_ROOT, get_safe_font
+from ui.styles import COLOR_CARD, COLOR_BORDER, COLOR_HEADER, COLOR_TEXT, COLOR_SUBTEXT, COLOR_PRIMARY, COLOR_ROOT, get_safe_font
 
 
 class StatusBar(ctk.CTkFrame):
@@ -11,7 +11,7 @@ class StatusBar(ctk.CTkFrame):
     """
 
     def set_status(self, text: str):
-        """Set the visible status message text."""
+        """Set the visible status message text, rendered as small badge chips."""
         new_text = text or ""
         try:
             if new_text == getattr(self, "_status_text", ""):
@@ -21,52 +21,47 @@ class StatusBar(ctk.CTkFrame):
         self._status_text = new_text
 
         # Highlight calendar part (e.g. "Heute: …") in a separate label.
-        base_text = self._status_text
+        parts = [p.strip() for p in new_text.split("•")]
+        parts = [p for p in parts if p]
+
         cal_text = ""
-        try:
-            parts = [p.strip() for p in base_text.split("•")]
-            parts = [p for p in parts if p]
-            for p in list(parts):
-                if p.startswith("Heute:"):
-                    cal_text = p
-                    parts.remove(p)
-                    break
-            base_text = " • ".join(parts)
-        except Exception:
-            base_text = self._status_text
-            cal_text = ""
+        for p in list(parts):
+            if p.startswith("Heute:"):
+                cal_text = p
+                parts.remove(p)
+                break
 
-        # Keep status text readable without wasting the wide touchscreen layout.
-        # If calendar exists, reserve space for it and shorten the base text first.
-        max_total = 260
-        base_max = 260
-        cal_max = 0
-        if cal_text:
-            cal_max = 84
-            base_max = max(40, max_total - (min(len(cal_text) + 2, cal_max) + 3))
-
-        shown_base = base_text
-        if len(shown_base) > base_max:
-            shown_base = shown_base[: max(0, base_max - 1)] + "…" if base_max > 1 else "…"
+        self._render_status_chips(parts)
 
         shown_cal = ""
         if cal_text:
             shown_cal = "📅 " + cal_text
-            if len(shown_cal) > cal_max:
-                shown_cal = shown_cal[: max(0, cal_max - 1)] + "…" if cal_max > 1 else "…"
-
-        for attr in ("message_label", "status_label"):
-            if hasattr(self, attr):
-                try:
-                    getattr(self, attr).configure(text=shown_base)
-                except Exception:
-                    pass
+            if len(shown_cal) > 84:
+                shown_cal = shown_cal[:83] + "…"
 
         if hasattr(self, "event_label"):
             try:
                 self.event_label.configure(text=shown_cal)
             except Exception:
                 pass
+
+    def _render_status_chips(self, parts: list[str]) -> None:
+        """Show up to 3 status values (Modus/Einheizen/PV heute) as separate
+        badge chips instead of one long '•'-joined line."""
+        max_chips = len(self._status_chip_frames)
+        chip_max_len = 42
+        try:
+            for i, frame in enumerate(self._status_chip_frames):
+                if i < len(parts) and i < max_chips:
+                    text = parts[i]
+                    if len(text) > chip_max_len:
+                        text = text[: chip_max_len - 1] + "…"
+                    self._status_chip_labels[i].configure(text=text)
+                    frame.pack(side=tk.LEFT, padx=(0, 6))
+                else:
+                    frame.pack_forget()
+        except Exception:
+            pass
 
     def set_auto_status(self, text: str) -> None:
         """Set status text only if no recent manual status is active."""
@@ -83,12 +78,12 @@ class StatusBar(ctk.CTkFrame):
             return
         try:
             self.configure(height=68)
-            self.message_label.configure(font=get_safe_font("Bahnschrift", 16))
-            self.status_label.configure(font=get_safe_font("Bahnschrift", 16))
+            for label in self._status_chip_labels:
+                label.configure(font=get_safe_font("Bahnschrift", 16))
             self.event_label.configure(font=get_safe_font("Bahnschrift", 16, "bold"))
             self.uptime_label.configure(font=get_safe_font("Bahnschrift", 14))
             self.window_btn.configure(width=72, height=46)
-            self.exit_btn.configure(width=72, height=46)
+            self.exit_btn.configure(width=104, height=46)
         except Exception:
             pass
 
@@ -110,18 +105,31 @@ class StatusBar(ctk.CTkFrame):
         inner.grid_columnconfigure(3, weight=0)
         inner.grid_columnconfigure(4, weight=0)
 
-        # Visible status message (left)
-        self.message_label = ctk.CTkLabel(
-            inner,
-            text="",
-            text_color=COLOR_TEXT,
-            font=get_safe_font("Bahnschrift", 15),
-            anchor="w",
-        )
-        self.message_label.grid(row=0, column=0, sticky="w", padx=(0, 10))
+        # Visible status message (left) - rendered as a row of badge chips,
+        # one per value (Modus/Einheizen/PV heute), instead of one long line.
+        self.chips_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        self.chips_frame.grid(row=0, column=0, sticky="w", padx=(0, 10))
 
-        # Optional (hidden) label to keep API-compatible state (some tabs call update_status)
-        self.status_label = ctk.CTkLabel(inner, text="", text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 15))
+        self._status_chip_frames: list[ctk.CTkFrame] = []
+        self._status_chip_labels: list[ctk.CTkLabel] = []
+        for _ in range(3):
+            chip = ctk.CTkFrame(
+                self.chips_frame,
+                fg_color=COLOR_CARD,
+                corner_radius=8,
+                border_width=1,
+                border_color=COLOR_BORDER,
+            )
+            chip_label = ctk.CTkLabel(
+                chip,
+                text="",
+                text_color=COLOR_TEXT,
+                font=get_safe_font("Bahnschrift", 13),
+                anchor="w",
+            )
+            chip_label.pack(padx=10, pady=3)
+            self._status_chip_frames.append(chip)
+            self._status_chip_labels.append(chip_label)
 
         # Highlighted calendar/event part (compact, bold)
         self.event_label = ctk.CTkLabel(
@@ -161,17 +169,18 @@ class StatusBar(ctk.CTkFrame):
         self.window_btn.grid(row=0, column=3, sticky="e", padx=(6, 4))
 
         self.exit_btn = ctk.CTkButton(
-            inner, 
-            text="✕",
+            inner,
+            text="✕ Beenden",
             command=on_exit,
-            fg_color=COLOR_DANGER,
-            text_color="#FFFFFF",
-            hover_color="#DC2626",
+            fg_color="transparent",
+            text_color=COLOR_SUBTEXT,
+            hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 14, "bold"),
-            width=64,
+            width=104,
             height=42,
-            border_width=0
+            border_width=1,
+            border_color=COLOR_BORDER
         )
         self.exit_btn.grid(row=0, column=4, sticky="e", padx=(4, 0))
 

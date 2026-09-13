@@ -11,11 +11,11 @@ from ui.styles import (
     COLOR_TEXT,
     COLOR_SUBTEXT,
     COLOR_ROOT,
-    COLOR_PRIMARY,
-    COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_INFO,
-    COLOR_DANGER,
+    COLOR_PV,
+    COLOR_GRID,
+    COLOR_HOUSE,
+    COLOR_BATTERY_OK,
+    COLOR_BATTERY_LOW,
 )
 
 DEBUG_LOG = False  # Enable for verbose energy-flow debugging
@@ -132,8 +132,8 @@ class EnergyFlowView(tk.Frame):
 
         self.width = width
         self.height = height
-        self.node_radius = _s(58)
-        self.ring_gap = _s(14)
+        self.node_radius = self._compute_node_radius()
+        self.ring_gap = max(_s(8), int(self.node_radius * 0.22))
         self._tk_img = None
         self._font_big = ImageFont.truetype("arial.ttf", _s(64)) if self._has_font("arial.ttf") else None
         self._font_small = ImageFont.truetype("arial.ttf", _s(38)) if self._has_font("arial.ttf") else None
@@ -206,6 +206,8 @@ class EnergyFlowView(tk.Frame):
         self._resize_pending = True
         self.width = new_w
         self.height = new_h
+        self.node_radius = self._compute_node_radius()
+        self.ring_gap = max(_s(8), int(self.node_radius * 0.22))
         self.nodes = self._define_nodes()
         self._base_img = self._render_background()
         self.canvas.config(width=new_w, height=new_h)
@@ -234,6 +236,8 @@ class EnergyFlowView(tk.Frame):
         self.canvas.config(width=width, height=height)
         self.width = width
         self.height = height
+        self.node_radius = self._compute_node_radius()
+        self.ring_gap = max(_s(8), int(self.node_radius * 0.22))
         self.nodes = self._define_nodes()
         
         # Only recreate background if size changed significantly (>20px)
@@ -244,6 +248,11 @@ class EnergyFlowView(tk.Frame):
         else:
             if DEBUG_LOG:
                 print(f"[ENERGY] Small change, skipping background recreate")
+
+    def _compute_node_radius(self) -> int:
+        """Scale node size with the available canvas height so a shorter
+        (compressed) diagram doesn't overflow, while keeping nodes legible."""
+        return max(_s(40), min(_s(58), int(self.height * 0.30)))
 
     def _has_font(self, name: str) -> bool:
         try:
@@ -314,16 +323,51 @@ class EnergyFlowView(tk.Frame):
 
     def _define_nodes(self):
         w, h = self.width, self.height
-        margin_x = int(w * 0.02)
-        margin_top = _s(32)
-        margin_bottom = _s(56)  # Space for SoC ring at the battery
-        usable_h = h - margin_top - margin_bottom
-        battery_dx = -int(min(220, max(120, w * 0.18)))
+        margin_x = int(w * 0.05)
+        margin_top = _s(20)
+        margin_bottom = _s(28)
+        usable_h = max(1, h - margin_top - margin_bottom)
+
+        # Compact diamond: PV/Grid top corners, Haus in the middle, Batterie
+        # directly below Haus. Positions are fixed fractions of the usable
+        # band (independent of node_radius), and node_radius is then capped
+        # to whatever fits without the Haus/Batterie circles (plus the SoC
+        # ring drawn just outside the battery circle) overlapping each other
+        # or spilling past the canvas edges — this stays correct at any
+        # compression level instead of relying on tuned magic fractions.
+        top_y = margin_top + int(usable_h * 0.18)
+        home_y = margin_top + int(usable_h * 0.52)
+        battery_y = margin_top + int(usable_h * 0.86)
+
+        min_gap = _s(10)
+        max_r_stack = int((battery_y - home_y - min_gap) / 2)
+        max_r_top = int((home_y - top_y - min_gap) / 2)
+        # The SoC ring extends node_radius by ring_gap, and the SoC percent
+        # text is centered on the battery node too; leave extra slack below
+        # the ring's outer edge (divisor > 1 + ring_ratio) so a centered
+        # label never touches the canvas's bottom edge.
+        max_r_bottom = int((h - margin_bottom - battery_y) / 1.6)
+
+        safe_r = min(max_r_stack, max_r_top, max_r_bottom)
+        r = min(self.node_radius, safe_r)
+        # Never let the legibility floor push the radius back past the
+        # collision-avoidance ceiling above - on a very short canvas that
+        # floor used to win outright and force Haus/Batterie labels to
+        # overlap.
+        r = max(min(_s(26), safe_r), r)
+        self.node_radius = r
+        self.ring_gap = max(_s(6), int(r * 0.22))
+        # Scale in-node text with the node itself so the load-value label
+        # under "Haus" and the SoC percentage stay inside their circle
+        # instead of overflowing into the Haus<->Batterie gap.
+        self._node_value_size = max(_s(16), int(r * 0.5))
+        self._node_unit_size = max(_s(9), int(r * 0.2))
+
         return {
-            "pv": (margin_x + int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.16)),
-            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.18), margin_top + int(usable_h * 0.16)),
-            "home": (w // 2, margin_top + int(usable_h * 0.54)),
-            "battery": (w // 2 + battery_dx, margin_top + int(usable_h * 0.80)),
+            "pv": (margin_x + int((w - 2 * margin_x) * 0.20), top_y),
+            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.20), top_y),
+            "home": (w // 2, home_y),
+            "battery": (w // 2, battery_y),
         }
 
     def _render_background(self) -> Image.Image:
@@ -349,18 +393,21 @@ class EnergyFlowView(tk.Frame):
         return img
 
     def _draw_battery_glyph(self, draw: ImageDraw.ImageDraw, center: tuple[int, int], soc: float) -> None:
-        """Draw a battery glyph with fill level based on SOC."""
+        """Draw a battery glyph with fill level based on SOC, sized to match
+        the other three node icons (PV/Grid/Haus) instead of looking smaller."""
         x, y = center
-        # Place glyph slightly above the % text.
-        y = int(y - 18)
 
         soc = max(0.0, min(100.0, float(soc)))
-        w = 34
-        h = 16
-        cap_w = 4
-        cap_h = 8
-        radius = 4
+        r = self.node_radius
+        w = int(r * 0.95)
+        h = int(r * 0.46)
+        cap_w = max(3, int(r * 0.09))
+        cap_h = int(r * 0.20)
+        radius = 6
         outline_w = 2
+
+        # Place glyph above the "NN%" text so both stay legible.
+        y = int(y - h / 2 - 12)
 
         left = int(x - (w / 2))
         top = int(y - (h / 2))
@@ -372,13 +419,8 @@ class EnergyFlowView(tk.Frame):
         cap_right = cap_left + cap_w
         cap_bottom = cap_top + cap_h
 
-        # Choose fill color by SOC.
-        if soc < 20:
-            fill_hex = COLOR_DANGER
-        elif soc < 35:
-            fill_hex = COLOR_WARNING
-        else:
-            fill_hex = COLOR_SUCCESS
+        # Two-state fill color: green while charging/normal, red only when critically low.
+        fill_hex = COLOR_BATTERY_LOW if soc < 20 else COLOR_BATTERY_OK
 
         outline = self._with_alpha(COLOR_TEXT, 210)
         body_bg = self._with_alpha(COLOR_ROOT, 90)
@@ -427,7 +469,7 @@ class EnergyFlowView(tk.Frame):
 
     def _draw_node_circle(self, draw: ImageDraw.ImageDraw, x: int, y: int, name: str):
         """Draw node circle background with effects (no text/icons)."""
-        r = self.node_radius + (6 if name == "home" else 0)
+        r = self.node_radius
         # Neutral glass-like nodes keep the data colors on the animated
         # arrows and battery ring, matching the reference dashboard style.
         fill = "#3A3F4D"
@@ -707,20 +749,18 @@ class EnergyFlowView(tk.Frame):
             draw.ellipse([x - i, y - i, x + i, y + i], fill=c)
 
     def _draw_soc_ring(self, draw: ImageDraw.ImageDraw, center, soc: float):
+        """Ring-style charge indicator around the battery node: a dim full
+        track plus a colored arc for the actual state of charge, replacing
+        the previous bare arc that was hard to read as a percentage."""
         x, y = center
         r = self.node_radius + self.ring_gap
         bbox = [x - r, y - r, x + r, y + r]
         extent = max(0, min(360, 360 * soc / 100))
-        # Neutral in normal range, warn only when low
-        if soc < 20:
-            color = COLOR_DANGER
-        elif soc < 35:
-            color = COLOR_WARNING
-        elif soc < 60:
-            color = COLOR_INFO
-        else:
-            color = COLOR_SUCCESS
-        draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=5)
+        color = COLOR_BATTERY_LOW if soc < 20 else COLOR_BATTERY_OK
+        track_color = self._with_alpha(COLOR_BORDER, 160)
+        draw.arc(bbox, start=0, end=360, fill=track_color, width=4)
+        if extent > 0:
+            draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=5)
 
     def render_frame(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float) -> Image.Image:
         img = self._base_img.copy()
@@ -745,35 +785,37 @@ class EnergyFlowView(tk.Frame):
         # PV -> Haus
         if pv_w > min_flow_w:
             pulse = self._anim_phase * flow_strength(pv_w)
-            self._draw_arrow(draw, pv, home, COLOR_WARNING, thickness(pv_w), pulse=pulse)
-            self._draw_flow_dots(draw, pv, home, COLOR_WARNING, flow_strength(pv_w))
-            self._draw_flow_label(img, pv, home, pv_w, offset=28, outside_pad=26, along=0, color=COLOR_WARNING, outside="above")
+            self._draw_arrow(draw, pv, home, COLOR_PV, thickness(pv_w), pulse=pulse)
+            self._draw_flow_dots(draw, pv, home, COLOR_PV, flow_strength(pv_w))
+            self._draw_flow_label(img, pv, home, pv_w, offset=28, outside_pad=26, along=0, color=COLOR_PV, outside="above")
 
         # Grid Import/Export
         if grid_w > min_flow_w:
             pulse = self._anim_phase * flow_strength(grid_w)
-            self._draw_arrow(draw, grid, home, COLOR_INFO, thickness(grid_w), pulse=pulse)
-            self._draw_flow_dots(draw, grid, home, COLOR_INFO, flow_strength(grid_w))
-            self._draw_flow_label(img, grid, home, grid_w, offset=28, along=0, color=COLOR_INFO)
+            self._draw_arrow(draw, grid, home, COLOR_GRID, thickness(grid_w), pulse=pulse)
+            self._draw_flow_dots(draw, grid, home, COLOR_GRID, flow_strength(grid_w))
+            self._draw_flow_label(img, grid, home, grid_w, offset=28, along=0, color=COLOR_GRID)
         elif grid_w < -min_flow_w:
             pulse = self._anim_phase * flow_strength(grid_w)
-            self._draw_arrow(draw, home, grid, COLOR_INFO, thickness(grid_w), pulse=pulse)
-            self._draw_flow_dots(draw, home, grid, COLOR_INFO, flow_strength(grid_w))
-            self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_INFO)
+            self._draw_arrow(draw, home, grid, COLOR_GRID, thickness(grid_w), pulse=pulse)
+            self._draw_flow_dots(draw, home, grid, COLOR_GRID, flow_strength(grid_w))
+            self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_GRID)
 
-        # Batterie Laden/Entladen (Richtung dynamisch nach Vorzeichen)
+        # Batterie Laden/Entladen (Richtung dynamisch nach Vorzeichen, Farbe
+        # bleibt Batteriegruen in beiden Richtungen - die Pfeilrichtung zeigt
+        # ob geladen oder entladen wird, analog zu den Netz-Pfeilen).
         if batt_w > min_flow_w:
             # Entladen: Batterie -> Haus
             pulse = self._anim_phase * flow_strength(batt_w)
-            self._draw_arrow(draw, bat, home, COLOR_SUCCESS, thickness(batt_w), pulse=pulse, gap=8)
-            self._draw_flow_dots(draw, bat, home, COLOR_SUCCESS, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, bat, home, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_SUCCESS, outside="below")
+            self._draw_arrow(draw, bat, home, COLOR_BATTERY_OK, thickness(batt_w), pulse=pulse, gap=8)
+            self._draw_flow_dots(draw, bat, home, COLOR_BATTERY_OK, flow_strength(batt_w), gap=8)
+            self._draw_flow_label(img, bat, home, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_BATTERY_OK, outside="below")
         elif batt_w < -min_flow_w:
             # Laden: Haus -> Batterie
             pulse = self._anim_phase * flow_strength(batt_w)
-            self._draw_arrow(draw, home, bat, COLOR_WARNING, thickness(batt_w), pulse=pulse, gap=8)
-            self._draw_flow_dots(draw, home, bat, COLOR_WARNING, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, home, bat, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_WARNING, outside="below")
+            self._draw_arrow(draw, home, bat, COLOR_BATTERY_OK, thickness(batt_w), pulse=pulse, gap=8)
+            self._draw_flow_dots(draw, home, bat, COLOR_BATTERY_OK, flow_strength(batt_w), gap=8)
+            self._draw_flow_label(img, home, bat, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_BATTERY_OK, outside="below")
 
         # SoC Ring um Batterie
         self._draw_soc_ring(draw, bat, soc)
@@ -781,23 +823,26 @@ class EnergyFlowView(tk.Frame):
         # Battery icon with SOC fill
         self._draw_battery_glyph(draw, bat, soc)
 
-        # Hausverbrauch: Zahl dominant, Einheit sekundär
+        # Hausverbrauch: Zahl dominant, Einheit sekundär. Offset scales with
+        # node_radius so the label stays inside the Haus circle instead of
+        # spilling into the gap toward Batterie at small sizes.
         load_val, load_unit = self._format_power_parts(load_w)
         self._draw_value_unit(
             draw,
             load_val,
             load_unit,
             home[0],
-            home[1] + 28,
+            home[1] + int(self.node_radius * 0.5),
             value_size=self._node_value_size,
             unit_size=self._node_unit_size,
-            value_color=COLOR_TEXT,
+            value_color=COLOR_HOUSE,
             unit_color=COLOR_SUBTEXT,
         )
 
-        # SoC inside battery with outline for readability - moved down to avoid emoji overlap
-        soc_color = COLOR_DANGER if soc < 20 else (COLOR_WARNING if soc < 35 else COLOR_TEXT)
-        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=26, color=soc_color, outline=True)
+        # SoC percentage next to/inside the ring - red only when critically low.
+        soc_color = COLOR_BATTERY_LOW if soc < 20 else COLOR_TEXT
+        soc_font_size = max(_s(16), int(self.node_radius * 0.45))
+        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=soc_font_size, color=soc_color, outline=True)
         return img
 
     def stop(self):

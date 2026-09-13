@@ -71,12 +71,17 @@ class HeaderBar(ctk.CTkFrame):
         center.grid_columnconfigure(2, weight=0)
         center.grid_columnconfigure(3, weight=0)
 
-        # Actions (zwischen Datum und Uhrzeit)
+        # Actions (zwischen Datum und Uhrzeit) - jeder Button traegt ein
+        # kurzes Text-Label, damit Lauf- und Dusche-Symbol nicht erraten
+        # werden muessen, und einen gleichmaessigen Abstand zueinander.
         actions = ctk.CTkFrame(center, fg_color="transparent")
-        actions.grid(row=0, column=0, sticky="w", padx=(0, 12))
+        actions.grid(row=0, column=0, sticky="w", padx=(0, 20))
+
+        leave_wrap = ctk.CTkFrame(actions, fg_color="transparent")
+        leave_wrap.pack(side=tk.LEFT, padx=(0, 12))
 
         self.leave_btn = ctk.CTkButton(
-            actions,
+            leave_wrap,
             text="🏃",
             command=self._on_leave_pressed,
             fg_color="transparent",
@@ -89,13 +94,20 @@ class HeaderBar(ctk.CTkFrame):
             border_width=1,
             border_color=COLOR_BORDER,
         )
-        self.leave_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self.leave_btn.pack()
+        self.leave_caption = ctk.CTkLabel(
+            leave_wrap, text="Weg", font=get_safe_font("Bahnschrift", 10), text_color=COLOR_SUBTEXT
+        )
+        self.leave_caption.pack(pady=(2, 0))
 
         self._leave_btn_text_inactive = "🏃"
         self._leave_btn_text_active = "🏃✓"
 
+        home_wrap = ctk.CTkFrame(actions, fg_color="transparent")
+        home_wrap.pack(side=tk.LEFT)
+
         self.home_btn = ctk.CTkButton(
-            actions,
+            home_wrap,
             text="🏠",
             command=self._on_home_pressed,
             fg_color="transparent",
@@ -108,18 +120,25 @@ class HeaderBar(ctk.CTkFrame):
             border_width=1,
             border_color=COLOR_BORDER,
         )
-        self.home_btn.pack(side=tk.LEFT)
+        self.home_btn.pack()
+        self.home_caption = ctk.CTkLabel(
+            home_wrap, text="Zuhause", font=get_safe_font("Bahnschrift", 10), text_color=COLOR_SUBTEXT
+        )
+        self.home_caption.pack(pady=(2, 0))
 
         self.clock_label = ctk.CTkLabel(
-            center, 
-            text="--:--", 
-            font=get_safe_font("Bahnschrift", 42, "bold"), 
+            center,
+            text="--:--",
+            font=get_safe_font("Bahnschrift", 42, "bold"),
             text_color=COLOR_PRIMARY
         )
-        self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 12))
+        self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 20))
+
+        shower_wrap = ctk.CTkFrame(center, fg_color="transparent")
+        shower_wrap.grid(row=0, column=2, sticky="e", padx=(0, 20))
 
         self.shower_btn = ctk.CTkButton(
-            center,
+            shower_wrap,
             text="🚿",
             command=self._on_shower_pressed,
             fg_color="transparent",
@@ -132,12 +151,16 @@ class HeaderBar(ctk.CTkFrame):
             border_width=1,
             border_color=COLOR_BORDER,
         )
-        self.shower_btn.grid(row=0, column=2, sticky="e", padx=(0, 12))
+        self.shower_btn.pack()
+        self.shower_caption = ctk.CTkLabel(
+            shower_wrap, text="Dusche", font=get_safe_font("Bahnschrift", 10), text_color=COLOR_SUBTEXT
+        )
+        self.shower_caption.pack(pady=(2, 0))
 
         # Light Control - Icon und Switch horizontal nebeneinander
         light_control = ctk.CTkFrame(center, fg_color="transparent")
-        light_control.grid(row=0, column=3, sticky="ns", padx=8)
-        
+        light_control.grid(row=0, column=3, sticky="ns", padx=(12, 0))
+
         ctk.CTkLabel(
             light_control,
             text="💡",
@@ -145,7 +168,7 @@ class HeaderBar(ctk.CTkFrame):
             text_color=COLOR_WARNING,
             width=24
         ).pack(side=tk.LEFT, padx=(0, 6))
-        
+
         self.light_switch = ctk.CTkSwitch(
             light_control,
             text="",
@@ -162,7 +185,7 @@ class HeaderBar(ctk.CTkFrame):
         self.light_switch.pack(side=tk.LEFT)
         self._suppress_light_switch_event = False
         self.light_switch.select()
-        
+
         # Callbacks speichern
         self._on_toggle_a = on_toggle_a
         self._on_toggle_b = on_toggle_b
@@ -227,6 +250,8 @@ class HeaderBar(ctk.CTkFrame):
             self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 11))
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
                 button.configure(width=82, height=56, font=get_safe_font("Bahnschrift", 23, "bold"))
+            for caption in (self.leave_caption, self.home_caption, self.shower_caption):
+                caption.configure(font=get_safe_font("Bahnschrift", 12))
             self.light_switch.configure(width=76, height=38, switch_width=76, switch_height=38)
         except Exception:
             pass

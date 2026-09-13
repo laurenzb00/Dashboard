@@ -749,8 +749,8 @@ class MainApp:
                 return
             segmented.configure(
                 font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
-                height=58 if getattr(self, "_portrait_screen", False) else 52,
-                corner_radius=16,
+                height=62 if getattr(self, "_portrait_screen", False) else 56,
+                corner_radius=20,
                 border_width=1,
                 border_color=COLOR_BORDER,
                 fg_color=COLOR_CARD,
@@ -1253,10 +1253,9 @@ class MainApp:
                 energy_view_h = max(180, row0_h - 52)
                 buffer_view_h = energy_view_h
 
-            if hasattr(self, "energy_view") and hasattr(self.energy_view, "canvas"):
+            if hasattr(self, "energy_view") and hasattr(self.energy_view, "resize"):
                 try:
-                    self.energy_view.canvas.config(height=energy_view_h)
-                    self.energy_view.height = energy_view_h
+                    self.energy_view.resize(self.energy_view.width, energy_view_h)
                 except Exception:
                     pass
 
@@ -1443,9 +1442,8 @@ class MainApp:
                     print(f"[RESIZE] Resizing energy_view to height {view_h}")
                 # DON'T use full resize - just update canvas size
                 current_energy_h = self.energy_view.canvas.winfo_height()
-                if abs(current_energy_h - view_h) >= 2:
-                    self.energy_view.canvas.config(height=view_h)
-                    self.energy_view.height = view_h
+                if abs(current_energy_h - view_h) >= 2 and hasattr(self.energy_view, "resize"):
+                    self.energy_view.resize(self.energy_view.width, view_h)
                 
             if hasattr(self, "buffer_view"):
                 if self._debug_log:
@@ -1564,7 +1562,7 @@ def run():
     root._set_appearance_mode("dark")  # Force dark mode
     # Setze root Hintergrund auf dunkel - behebt hellgraue Flächen
     try:
-        root.configure(fg_color="#0E0F12")
+        root.configure(fg_color=COLOR_ROOT)
     except:
         pass  # Falls fg_color nicht unterstützt wird
     app = MainApp(root)
