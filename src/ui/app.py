@@ -1217,83 +1217,80 @@ class MainApp:
             # Height available for the active tab content area
             tab_content_h = max(200, root_h - header_h - status_h - tab_sel_h)
 
-            # Sparkline soll nur etwa 20% der Tab-Hoehe einnehmen, mit einer
-            # Mindesthoehe fuer Lesbarkeit und einer Obergrenze, damit sie auf
-            # sehr grossen Bildschirmen nicht unnoetig gross wird.
-            sparkline_h = max(130, min(220, int(tab_content_h * 0.20)))
-
-            # Account for grid paddings in the dashboard body.
-            row0_h = max(160, tab_content_h - sparkline_h - 18)
-
-            # Apply sparkline sizing (also shrinks matplotlib figure inside)
-            try:
-                if hasattr(self, "sparkline_card"):
-                    self.sparkline_card.configure(height=sparkline_h)
-                    try:
-                        self.sparkline_card.grid_propagate(False)
-                    except Exception:
-                        pass
-                if hasattr(self, "sparkline_view") and hasattr(self.sparkline_view, "set_target_height"):
-                    self.sparkline_view.set_target_height(sparkline_h)
-            except Exception:
-                pass
-
             # In portrait mode the two cards are stacked and need separate
             # budgets; sharing the landscape height would make the second card
             # overflow the visible dashboard.
             portrait = bool(getattr(self, "_portrait_layout", False))
-            if portrait:
-                # The buffer needs enough vertical room for its temperature
-                # layers and boiler panel; keep it slightly larger than the
-                # energy-flow canvas in portrait mode.
-                # Portrait reference layout: keep the energy-flow canvas
-                # compact and give the temperature visualization more height.
-                energy_view_h = max(200, int(row0_h * 0.25) - 52)
-                buffer_view_h = max(430, int(row0_h * 0.75) - 52)
-            else:
+
+            # WICHTIG: Im Portrait-Modus haben body's drei Zeilen (Energie/
+            # Puffer/Sparkline) inzwischen ALLE ein weight>0 (Verhaeltnis
+            # 1:3:1 in _apply_dashboard_orientation) und teilen sich die
+            # komplette verfuegbare Hoehe robust untereinander auf. Die hier
+            # unten berechneten sparkline_h/energy_view_h/buffer_view_h
+            # basieren dagegen auf root_h/header_h/status_h-Messungen, die
+            # sich auf diesem Geraet als zu klein/veraltet herausgestellt
+            # haben (root_h wird offenbar nicht immer zum Zeitpunkt des
+            # Aufrufs schon korrekt gemeldet). Wenn wir diese Werte trotzdem
+            # per configure(height=...)/grid_propagate(False)/resize() auf
+            # die Karten und inneren Views draufpinnen, kollidiert das mit
+            # der Grid-Gewichtung: Am Ende bleiben Energiefluss-Icons und
+            # Puffer-Heatmap auf der alten, zu kleinen Groesse haengen,
+            # obwohl die Karten drumherum laengst per Gewicht groesser
+            # gezogen wurden - sichtbar als leerer schwarzer Rand um die
+            # Diagramme. Im Portrait-Modus ueberspringen wir das Pinning
+            # daher komplett und verlassen uns ausschliesslich auf die
+            # Grid-Gewichte plus die eigene <Configure>-Behandlung jeder
+            # Karte (Matplotlib macht das automatisch, energy_flow.py seit
+            # dem Scaling-Loop-Fix ebenfalls sauber). Im Landscape-Modus
+            # bleibt das bisherige Pinning unveraendert bestehen.
+            if not portrait:
+                # Sparkline soll nur etwa 20% der Tab-Hoehe einnehmen, mit
+                # einer Mindesthoehe fuer Lesbarkeit und einer Obergrenze,
+                # damit sie auf sehr grossen Bildschirmen nicht unnoetig
+                # gross wird.
+                sparkline_h = max(130, min(220, int(tab_content_h * 0.20)))
+                row0_h = max(160, tab_content_h - sparkline_h - 18)
+
+                try:
+                    if hasattr(self, "sparkline_card"):
+                        self.sparkline_card.configure(height=sparkline_h)
+                        try:
+                            self.sparkline_card.grid_propagate(False)
+                        except Exception:
+                            pass
+                    if hasattr(self, "sparkline_view") and hasattr(self.sparkline_view, "set_target_height"):
+                        self.sparkline_view.set_target_height(sparkline_h)
+                except Exception:
+                    pass
+
                 energy_view_h = max(180, row0_h - 52)
                 buffer_view_h = energy_view_h
 
-            # Pin the outer Card frames to the same budget as their inner
-            # views. Without this, body's grid_rowconfigure() weight/sticky
-            # still stretches the Card (sticky="nsew") to fill whatever the
-            # row ends up getting, overriding the smaller height the inner
-            # canvas/figure was just resized to - which was the real cause of
-            # the oversized Energiefluss panel in portrait mode. Mirrors the
-            # same pattern already used for sparkline_card above.
-            if hasattr(self, "energy_card"):
-                try:
-                    if portrait:
-                        self.energy_card.configure(height=energy_view_h + 52)
-                        self.energy_card.grid_propagate(False)
-                    else:
+                if hasattr(self, "energy_card"):
+                    try:
                         self.energy_card.grid_propagate(True)
-                except Exception:
-                    pass
-            if hasattr(self, "buffer_card"):
-                try:
-                    if portrait:
-                        self.buffer_card.configure(height=buffer_view_h + 52)
-                        self.buffer_card.grid_propagate(False)
-                    else:
+                    except Exception:
+                        pass
+                if hasattr(self, "buffer_card"):
+                    try:
                         self.buffer_card.grid_propagate(True)
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
 
-            if hasattr(self, "energy_view") and hasattr(self.energy_view, "resize"):
-                try:
-                    self.energy_view.resize(self.energy_view.width, energy_view_h)
-                except Exception:
-                    pass
+                if hasattr(self, "energy_view") and hasattr(self.energy_view, "resize"):
+                    try:
+                        self.energy_view.resize(self.energy_view.width, energy_view_h)
+                    except Exception:
+                        pass
 
-            if hasattr(self, "buffer_view"):
-                try:
-                    self.buffer_view.configure(height=buffer_view_h)
-                    self.buffer_view.height = buffer_view_h
-                    if hasattr(self.buffer_view, "resize"):
-                        self.buffer_view.resize(buffer_view_h)
-                except Exception:
-                    pass
+                if hasattr(self, "buffer_view"):
+                    try:
+                        self.buffer_view.configure(height=buffer_view_h)
+                        self.buffer_view.height = buffer_view_h
+                        if hasattr(self.buffer_view, "resize"):
+                            self.buffer_view.resize(buffer_view_h)
+                    except Exception:
+                        pass
 
             # If we're still in the very early init phase, some widgets report height=1.
             # Retry a few times so the budget is applied after the window is mapped.
@@ -1360,7 +1357,10 @@ class MainApp:
                 self.body.grid_columnconfigure(0, weight=1, minsize=0)
                 self.body.grid_columnconfigure(1, weight=0, minsize=0)
                 # Alle drei Zeilen bekommen ein festes Gewichts-Verhaeltnis
-                # 2:2:1 (= 40% / 40% / 20% der verfuegbaren Koerperhoehe).
+                # 1:3:1 (= 20% Energie / 60% Puffer / 20% Sparkline der
+                # verfuegbaren Koerperhoehe - entspricht dem urspruenglich in
+                # _apply_compact_height_budget() gemeinten Verhaeltnis
+                # energy:buffer = 25:75 vom Rest nach Abzug der Sparkline).
                 # minsize bleibt als Schutz-Untergrenze fuer sehr kleine
                 # Fenster erhalten, greift aber auf einem echten Bildschirm
                 # praktisch nie.
@@ -1378,6 +1378,16 @@ class MainApp:
                 #   zu einem fruehen/ungenauen Zeitpunkt) auf diesem Geraet
                 #   deutlich zu klein ausfaellt und dann NIEMAND den Rest der
                 #   Flaeche auffuellt.
+                # - weight=2:2:1 (Energie/Puffer gleich gross): fuehrte dazu,
+                #   dass _apply_compact_height_budget()'s Pinning-Versuch
+                #   (configure(height=...) + grid_propagate(False), fuer
+                #   veraltete/zu kleine Werte gedacht) mit der Gewichtung
+                #   kollidierte - die Karten wurden per Gewicht groesser
+                #   gezogen, aber Energiefluss-Icons/Puffer-Heatmap blieben
+                #   auf der alten kleinen Groesse haengen (schwarzer Rand um
+                #   die Diagramme). Das Pinning fuer Portrait wurde deshalb in
+                #   _apply_compact_height_budget() komplett entfernt - siehe
+                #   Kommentar dort.
                 # Ein festes Gewichts-Verhaeltnis ist robust gegen solche
                 # Messungenauigkeiten, weil es sich immer auf die tatsaechlich
                 # verfuegbare Hoehe bezieht statt auf eine vorab berechnete
@@ -1385,8 +1395,8 @@ class MainApp:
                 # (Matplotlib-Figures bzw. das Energiefluss-Canvas) ueber ihre
                 # eigene <Configure>-Behandlung automatisch an die tatsaechlich
                 # zugewiesene Groesse an.
-                self.body.grid_rowconfigure(0, weight=2, minsize=200)
-                self.body.grid_rowconfigure(1, weight=2, minsize=380)
+                self.body.grid_rowconfigure(0, weight=1, minsize=200)
+                self.body.grid_rowconfigure(1, weight=3, minsize=380)
                 self.body.grid_rowconfigure(2, weight=1, minsize=100)
                 self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
                 self.buffer_card.grid_configure(row=1, column=0, columnspan=1, sticky="nsew")
