@@ -649,6 +649,77 @@ class MainApp:
         except Exception:
             pass
 
+        # TEMPORAERE DIAGNOSE (bitte Konsolenausgabe nach dem Start hier
+        # kopieren/schicken): druckt einmalig die tatsaechlichen Pixelhoehen
+        # der Energie-Tab-Widgets aus, damit wir sehen koennen, wo die
+        # verfuegbare Hoehe tatsaechlich verschwindet, statt weiter zu raten.
+        try:
+            self.root.after(3000, self._debug_print_layout_heights)
+            self.root.after(8000, self._debug_print_layout_heights)
+        except Exception:
+            pass
+
+    def _debug_print_layout_heights(self) -> None:
+        # Schreibt in eine Datei statt (nur) auf die Konsole, weil die App
+        # nicht immer aus einem sichtbaren Konsolenfenster gestartet wird
+        # (z.B. Autostart auf dem Touchscreen-Geraet ueber VNC). Die Datei
+        # landet im selben Projektordner wie datenerfassung.log und kann so
+        # auch ohne Konsolenzugriff ausgelesen werden.
+        lines: list[str] = []
+
+        def rec(label: str, w) -> None:
+            try:
+                lines.append(f"{label}: {w.winfo_width()}x{w.winfo_height()}")
+            except Exception as e:
+                lines.append(f"{label}: ERROR {e}")
+
+        try:
+            self.root.update_idletasks()
+            lines.append(f"=== LAYOUT DEBUG {datetime.now().isoformat()} ===")
+            rec("root", self.root)
+            rec("body", self.body)
+            rec("energy_card", self.energy_card)
+            rec("buffer_card", self.buffer_card)
+            rec("sparkline_card", self.sparkline_card)
+            try:
+                lines.append(f"body.grid_size: {self.body.grid_size()}")
+                for row in (0, 1, 2):
+                    info = self.body.grid_rowconfigure(row)
+                    lines.append(f"body row {row} config: {info}")
+            except Exception as e:
+                lines.append(f"body grid info error: {e}")
+            try:
+                rec("buffer_view", self.buffer_view)
+                rec("buffer_view.layout", self.buffer_view.layout)
+                rec("buffer_view.plot_frame", self.buffer_view.plot_frame)
+                rec("buffer_view.canvas_widget", self.buffer_view.canvas_widget)
+                rec("buffer_view.mode_canvas_container", self.buffer_view.mode_canvas_container)
+                lines.append(f"buffer_card.grid_info: {self.buffer_card.grid_info()}")
+            except Exception as e:
+                lines.append(f"buffer_view sub-widget error: {e}")
+            try:
+                rec("energy_view", self.energy_view)
+                rec("energy_view.canvas", self.energy_view.canvas)
+                lines.append(f"energy_card.grid_info: {self.energy_card.grid_info()}")
+            except Exception as e:
+                lines.append(f"energy_view sub-widget error: {e}")
+            lines.append("=== END LAYOUT DEBUG ===")
+        except Exception as e:
+            lines.append(f"[LAYOUT DEBUG] failed: {e}")
+
+        text = "\n".join(lines) + "\n"
+        try:
+            print(text, flush=True)
+        except Exception:
+            pass
+        try:
+            debug_path = os.path.join(_PROJECT_ROOT, "data", "layout_debug.txt")
+            os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+            with open(debug_path, "a", encoding="utf-8") as f:
+                f.write(text)
+        except Exception:
+            pass
+
     def _start_hue_switch_sync(self) -> None:
         if getattr(self, "_hue_switch_sync_started", False):
             return
