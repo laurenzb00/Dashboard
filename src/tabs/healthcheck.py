@@ -411,12 +411,40 @@ class HealthTab:
                         continue
                 return None
 
-            def _run_pull_like_terminal(git_exe: str) -> tuple[int, str]:
-                """Run git pull in repo_root in a way similar to manual terminal usage."""
-                env = os.environ.copy()
-                env.setdefault("GIT_TERMINAL_PROMPT", "0")
-                env.setdefault("GCM_INTERACTIVE", "Never")
+            def _discard_local_changes(git_exe: str, files: list[str]) -> None:
+                """Discard local modifications to specific tracked files (e.g. runtime-generated caches)."""
+                for f in files:
+                    try:
+                        subprocess.run(
+                            [git_exe, "checkout", "--", f],
+                            cwd=str(repo_root),
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                    except Exception:
+                        pass
 
+            def _parse_overwrite_conflict_files(output: str) -> list[str]:
+                """Extract file paths from git's "local changes would be overwritten" error."""
+                if "would be overwritten by merge" not in output:
+                    return []
+                files: list[str] = []
+                capture = False
+                for line in output.splitlines():
+                    if "would be overwritten by merge" in line:
+                        capture = True
+                        continue
+                    if capture:
+                        stripped = line.strip()
+                        if not stripped:
+                            break
+                        if stripped.startswith(("Please commit", "Aborting")):
+                            break
+                        files.append(stripped)
+                return files
+
+            def _run_git_pull_once(git_exe: str, env: dict) -> tuple[int, str]:
                 # On Linux services, PATH might be minimal; bash -lc emulates a user terminal better.
                 if os.name != "nt":
                     bash = "/bin/bash"
@@ -447,6 +475,27 @@ class HealthTab:
                 )
                 out = ((p.stdout or "") + "\n" + (p.stderr or "")).strip()
                 return p.returncode, out
+
+            def _run_pull_like_terminal(git_exe: str) -> tuple[int, str]:
+                """Run git pull in repo_root in a way similar to manual terminal usage.
+
+                Locally-modified runtime files (e.g. data/sparkline_cache.json, which the
+                app itself rewrites continuously) would otherwise permanently block every
+                future pull with "local changes would be overwritten by merge". If that
+                specific error occurs, discard local changes to just those files and retry
+                once instead of leaving the update stuck forever.
+                """
+                env = os.environ.copy()
+                env.setdefault("GIT_TERMINAL_PROMPT", "0")
+                env.setdefault("GCM_INTERACTIVE", "Never")
+
+                code, out = _run_git_pull_once(git_exe, env)
+                if code != 0:
+                    conflict_files = _parse_overwrite_conflict_files(out)
+                    if conflict_files:
+                        _discard_local_changes(git_exe, conflict_files)
+                        code, out = _run_git_pull_once(git_exe, env)
+                return code, out
 
             try:
                 if not (repo_root / ".git").exists():
