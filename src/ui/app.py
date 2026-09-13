@@ -1428,13 +1428,10 @@ class MainApp:
                 self.body.grid_columnconfigure(0, weight=1, minsize=0)
                 self.body.grid_columnconfigure(1, weight=0, minsize=0)
                 # Alle drei Zeilen bekommen ein festes Gewichts-Verhaeltnis
-                # 1:3:1 (= 20% Energie / 60% Puffer / 20% Sparkline der
-                # verfuegbaren Koerperhoehe - entspricht dem urspruenglich in
-                # _apply_compact_height_budget() gemeinten Verhaeltnis
-                # energy:buffer = 25:75 vom Rest nach Abzug der Sparkline).
-                # minsize bleibt als Schutz-Untergrenze fuer sehr kleine
-                # Fenster erhalten, greift aber auf einem echten Bildschirm
-                # praktisch nie.
+                # 2:2:1 (= 40% Energie / 40% Puffer / 20% Sparkline der
+                # verfuegbaren Koerperhoehe). minsize bleibt als
+                # Schutz-Untergrenze fuer sehr kleine Fenster erhalten, greift
+                # aber auf einem echten Bildschirm praktisch nie.
                 #
                 # Vorherige Versuche:
                 # - weight=1 NUR fuer die Sparkline-Zeile (Energie/Puffer
@@ -1449,8 +1446,8 @@ class MainApp:
                 #   zu einem fruehen/ungenauen Zeitpunkt) auf diesem Geraet
                 #   deutlich zu klein ausfaellt und dann NIEMAND den Rest der
                 #   Flaeche auffuellt.
-                # - weight=2:2:1 (Energie/Puffer gleich gross): fuehrte dazu,
-                #   dass _apply_compact_height_budget()'s Pinning-Versuch
+                # - weight=2:2:1, ERSTER Versuch: fuehrte dazu, dass
+                #   _apply_compact_height_budget()'s Pinning-Versuch
                 #   (configure(height=...) + grid_propagate(False), fuer
                 #   veraltete/zu kleine Werte gedacht) mit der Gewichtung
                 #   kollidierte - die Karten wurden per Gewicht groesser
@@ -1459,15 +1456,22 @@ class MainApp:
                 #   die Diagramme). Das Pinning fuer Portrait wurde deshalb in
                 #   _apply_compact_height_budget() komplett entfernt - siehe
                 #   Kommentar dort.
-                # Ein festes Gewichts-Verhaeltnis ist robust gegen solche
+                # - weight=1:3:1 (20%/60%/20%): nachdem das Pinning-Problem
+                #   behoben war, fuellte der Inhalt sein Feld korrekt, aber
+                #   die Puffer-Heatmap wirkte optisch viel zu dominant/lang
+                #   gegenueber dem kleinen Energiefluss-Bereich.
+                # Zurueck auf 2:2:1, jetzt OHNE das Pinning-Problem von oben
+                # (das ist bereits behoben) - damit teilen sich Energiefluss
+                # und Puffer/Warmwasser die Flaeche gleichmaessig.
+                # Ein festes Gewichts-Verhaeltnis ist robust gegen
                 # Messungenauigkeiten, weil es sich immer auf die tatsaechlich
                 # verfuegbare Hoehe bezieht statt auf eine vorab berechnete
                 # Pixelzahl - und jede der drei Karten passt ihren Inhalt
                 # (Matplotlib-Figures bzw. das Energiefluss-Canvas) ueber ihre
                 # eigene <Configure>-Behandlung automatisch an die tatsaechlich
                 # zugewiesene Groesse an.
-                self.body.grid_rowconfigure(0, weight=1, minsize=200)
-                self.body.grid_rowconfigure(1, weight=3, minsize=380)
+                self.body.grid_rowconfigure(0, weight=2, minsize=200)
+                self.body.grid_rowconfigure(1, weight=2, minsize=380)
                 self.body.grid_rowconfigure(2, weight=1, minsize=100)
                 self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
                 self.buffer_card.grid_configure(row=1, column=0, columnspan=1, sticky="nsew")
