@@ -1217,9 +1217,10 @@ class MainApp:
             # Height available for the active tab content area
             tab_content_h = max(200, root_h - header_h - status_h - tab_sel_h)
 
-            # Give the chart more room on the 1200px display while retaining a
-            # useful minimum on smaller windowed screens.
-            sparkline_h = max(130, min(230, int(tab_content_h * 0.24)))
+            # Sparkline soll nur etwa 20% der Tab-Hoehe einnehmen, mit einer
+            # Mindesthoehe fuer Lesbarkeit und einer Obergrenze, damit sie auf
+            # sehr grossen Bildschirmen nicht unnoetig gross wird.
+            sparkline_h = max(130, min(220, int(tab_content_h * 0.20)))
 
             # Account for grid paddings in the dashboard body.
             row0_h = max(160, tab_content_h - sparkline_h - 18)
@@ -1358,21 +1359,25 @@ class MainApp:
             if portrait:
                 self.body.grid_columnconfigure(0, weight=1, minsize=0)
                 self.body.grid_columnconfigure(1, weight=0, minsize=0)
-                # WICHTIG: weight=0 für die Energie- und Puffer-Zeile, nicht
-                # nur ein kleineres Gewicht. Jedes Gewicht >0 lässt Tkinter
-                # den Rest der verfügbaren Höhe proportional verteilen und
-                # zieht die Karte per sticky="nsew" trotzdem über ihre in
-                # energy_card/buffer_card.configure(height=...) gesetzte
-                # Wunschgröße hinaus (grid_propagate(False) verhindert nur,
-                # dass die Karte sich an IHRE EIGENEN Kinder anpasst - es
-                # schützt nicht davor, vom äußeren Grid gestreckt zu werden).
-                # Mit weight=0 übernimmt die Zeile exakt die Wunschhöhe der
-                # Karte; die Sparkline-Zeile bekommt das gesamte übrige
-                # Gewicht und wächst bei viel Platz - das war ohnehin schon
-                # so beabsichtigt ("Give the chart more room").
+                # WICHTIG: weight=0 fuer ALLE DREI Zeilen (Energie, Puffer UND
+                # Sparkline), nicht nur fuer die ersten beiden. Jedes weight>0
+                # laesst Tkinter den Rest der verfuegbaren Hoehe proportional
+                # verteilen und zieht die Karte per sticky="nsew" trotzdem
+                # ueber ihre per .configure(height=...) gesetzte Wunschgroesse
+                # hinaus (grid_propagate(False) schuetzt nur davor, dass sich
+                # die Karte an IHRE EIGENEN Kinder anpasst - nicht davor, vom
+                # aeusseren Grid gestreckt zu werden). _apply_compact_height_
+                # budget() berechnet weiter unten bereits praezise Pixelhoehen
+                # fuer alle drei Karten (u.a. sparkline_h fuer ca. 20% der
+                # Tab-Hoehe) und pinnt sie per configure(height=...) - das
+                # setzt aber voraus, dass die jeweilige Zeile weight=0 hat.
+                # Die Sparkline-Zeile hatte bisher weight=1 und bekam dadurch
+                # JEDEN zusaetzlichen Pixel, wodurch sie den berechneten
+                # sparkline_h komplett ignorierte und weit mehr als die
+                # gewuenschten ~20% einnahm.
                 self.body.grid_rowconfigure(0, weight=0, minsize=200)
                 self.body.grid_rowconfigure(1, weight=0, minsize=380)
-                self.body.grid_rowconfigure(2, weight=1, minsize=130)
+                self.body.grid_rowconfigure(2, weight=0, minsize=100)
                 self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
                 self.buffer_card.grid_configure(row=1, column=0, columnspan=1, sticky="nsew")
                 self.sparkline_card.grid_configure(row=2, column=0, columnspan=1, sticky="nsew", padx=6, pady=(0, 6))
