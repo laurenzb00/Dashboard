@@ -355,6 +355,12 @@ class EnergyFlowView(tk.Frame):
         # floor used to win outright and force Haus/Batterie labels to
         # overlap.
         r = max(min(_s(26), safe_r), r)
+        # On a pathologically small/degenerate canvas (e.g. a mid-resize
+        # transient before Tkinter settles on the real size) safe_r itself
+        # can go to zero or negative, which would make every node/battery
+        # draw call below build an inverted box and raise. Nodes may overlap
+        # for that one transient frame, but the diagram must not crash.
+        r = max(_s(8), r)
         self.node_radius = r
         self.ring_gap = max(_s(6), int(r * 0.22))
         # Scale in-node text with the node itself so the load-value label
@@ -426,10 +432,17 @@ class EnergyFlowView(tk.Frame):
         body_bg = self._with_alpha(COLOR_ROOT, 90)
         fill_col = self._with_alpha(fill_hex, 220)
 
+        # On a very small/degenerate canvas (e.g. a mid-resize transient or a
+        # cramped portrait layout) node_radius can shrink enough that these
+        # boxes invert (bottom < top); PIL's rounded_rectangle raises on that
+        # instead of clipping, so clamp every box to at least 1px before use.
+        def _safe_box(l, t, r_, b):
+            return [l, t, max(r_, l + 1), max(b, t + 1)]
+
         # Body
-        draw.rounded_rectangle([left, top, right, bottom], radius=radius, fill=body_bg, outline=outline, width=outline_w)
+        draw.rounded_rectangle(_safe_box(left, top, right, bottom), radius=radius, fill=body_bg, outline=outline, width=outline_w)
         # Cap
-        draw.rounded_rectangle([cap_left, cap_top, cap_right, cap_bottom], radius=2, fill=outline, outline=None)
+        draw.rounded_rectangle(_safe_box(cap_left, cap_top, cap_right, cap_bottom), radius=2, fill=outline, outline=None)
 
         # Inner fill
         inner_pad = 3
@@ -441,7 +454,7 @@ class EnergyFlowView(tk.Frame):
         fill_w = int((inner_right - inner_left) * (soc / 100.0))
         if fill_w > 0:
             draw.rounded_rectangle(
-                [inner_left, inner_top, inner_left + fill_w, inner_bottom],
+                _safe_box(inner_left, inner_top, inner_left + fill_w, inner_bottom),
                 radius=2,
                 fill=fill_col,
                 outline=None,
