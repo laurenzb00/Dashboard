@@ -325,6 +325,22 @@ class BufferStorageView(tk.Frame):
         # mode_canvas_container) skalieren automatisch mit.
         self.plot_frame.grid(row=0, column=0, sticky="nsew")
         self.plot_frame.grid_propagate(False)
+        # WICHTIG: plot_frame's eigene Kinder (mode_label, canvas_widget,
+        # mode_canvas_container) werden per PACK verwaltet, nicht per grid.
+        # grid_propagate(False) schuetzt nur gegen GRID-Kinder - es hat also
+        # NICHT verhindert, dass das Matplotlib-Canvas (das sich bei jedem
+        # <Configure>-Event selbst per config(width=,height=) vergroessert,
+        # siehe FigureCanvasTkAgg) seine gewachsene Groesse als "natuerliche"
+        # Anforderung nach oben durchreicht: plot_frame -> self (BufferStorage-
+        # View, dessen pack_propagate frueher bewusst entfernt wurde) ->
+        # buffer_card. Das erzeugte eine Rueckkopplungsschleife: buffer_card
+        # bekam dadurch immer mehr vom Grid-Gewicht in app.py "gestohlen",
+        # egal welches Verhaeltnis dort eingestellt war (Energiefluss blieb
+        # bei minsize haengen, Puffer wucherte auf fast die volle Hoehe).
+        # pack_propagate(False) hier unterbindet genau dieses Hochreichen:
+        # plot_frame bekommt seine Groesse weiterhin ausschliesslich von
+        # aussen (self.layout Zeile 0, weight=1, sticky=nsew) vorgegeben.
+        self.plot_frame.pack_propagate(False)
 
         self.val_texts = []
 
