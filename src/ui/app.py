@@ -1359,25 +1359,35 @@ class MainApp:
             if portrait:
                 self.body.grid_columnconfigure(0, weight=1, minsize=0)
                 self.body.grid_columnconfigure(1, weight=0, minsize=0)
-                # WICHTIG: weight=0 fuer ALLE DREI Zeilen (Energie, Puffer UND
-                # Sparkline), nicht nur fuer die ersten beiden. Jedes weight>0
-                # laesst Tkinter den Rest der verfuegbaren Hoehe proportional
-                # verteilen und zieht die Karte per sticky="nsew" trotzdem
-                # ueber ihre per .configure(height=...) gesetzte Wunschgroesse
-                # hinaus (grid_propagate(False) schuetzt nur davor, dass sich
-                # die Karte an IHRE EIGENEN Kinder anpasst - nicht davor, vom
-                # aeusseren Grid gestreckt zu werden). _apply_compact_height_
-                # budget() berechnet weiter unten bereits praezise Pixelhoehen
-                # fuer alle drei Karten (u.a. sparkline_h fuer ca. 20% der
-                # Tab-Hoehe) und pinnt sie per configure(height=...) - das
-                # setzt aber voraus, dass die jeweilige Zeile weight=0 hat.
-                # Die Sparkline-Zeile hatte bisher weight=1 und bekam dadurch
-                # JEDEN zusaetzlichen Pixel, wodurch sie den berechneten
-                # sparkline_h komplett ignorierte und weit mehr als die
-                # gewuenschten ~20% einnahm.
-                self.body.grid_rowconfigure(0, weight=0, minsize=200)
-                self.body.grid_rowconfigure(1, weight=0, minsize=380)
-                self.body.grid_rowconfigure(2, weight=0, minsize=100)
+                # Alle drei Zeilen bekommen ein festes Gewichts-Verhaeltnis
+                # 2:2:1 (= 40% / 40% / 20% der verfuegbaren Koerperhoehe).
+                # minsize bleibt als Schutz-Untergrenze fuer sehr kleine
+                # Fenster erhalten, greift aber auf einem echten Bildschirm
+                # praktisch nie.
+                #
+                # Vorherige Versuche:
+                # - weight=1 NUR fuer die Sparkline-Zeile (Energie/Puffer
+                #   weight=0): die Sparkline bekam JEDEN uebrigen Pixel und
+                #   wurde dadurch viel groesser als gewuenscht.
+                # - weight=0 fuer ALLE drei Zeilen (in der Annahme,
+                #   _apply_compact_height_budget() wuerde per configure(
+                #   height=...) exakte Pixelhoehen vorgeben, was nur bei
+                #   weight=0 respektiert wird): das fuehrte zu einer riesigen
+                #   schwarzen Luecke unter der Sparkline, weil diese
+                #   Pixel-Berechnung (basierend auf root_h/header_h/status_h
+                #   zu einem fruehen/ungenauen Zeitpunkt) auf diesem Geraet
+                #   deutlich zu klein ausfaellt und dann NIEMAND den Rest der
+                #   Flaeche auffuellt.
+                # Ein festes Gewichts-Verhaeltnis ist robust gegen solche
+                # Messungenauigkeiten, weil es sich immer auf die tatsaechlich
+                # verfuegbare Hoehe bezieht statt auf eine vorab berechnete
+                # Pixelzahl - und jede der drei Karten passt ihren Inhalt
+                # (Matplotlib-Figures bzw. das Energiefluss-Canvas) ueber ihre
+                # eigene <Configure>-Behandlung automatisch an die tatsaechlich
+                # zugewiesene Groesse an.
+                self.body.grid_rowconfigure(0, weight=2, minsize=200)
+                self.body.grid_rowconfigure(1, weight=2, minsize=380)
+                self.body.grid_rowconfigure(2, weight=1, minsize=100)
                 self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
                 self.buffer_card.grid_configure(row=1, column=0, columnspan=1, sticky="nsew")
                 self.sparkline_card.grid_configure(row=2, column=0, columnspan=1, sticky="nsew", padx=6, pady=(0, 6))
