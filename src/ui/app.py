@@ -506,7 +506,7 @@ class MainApp:
         }
 
         # Touch targets are deliberately generous for the 14-inch touchscreen.
-        self._base_header_h = 118
+        self._base_header_h = 132
         self._base_status_h = 68
 
         # Start weekly Ertrag validation in background
@@ -748,8 +748,8 @@ class MainApp:
             if segmented is None:
                 return
             segmented.configure(
-                font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
-                height=62 if getattr(self, "_portrait_screen", False) else 56,
+                font=get_safe_font("Bahnschrift", 17 if getattr(self, "_portrait_screen", False) else 16, "bold"),
+                height=70 if getattr(self, "_portrait_screen", False) else 64,
                 corner_radius=20,
                 border_width=1,
                 border_color=COLOR_BORDER,

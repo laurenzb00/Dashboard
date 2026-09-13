@@ -29,7 +29,7 @@ class HeaderBar(ctk.CTkFrame):
         on_shower=None,
         on_exit=None,
     ):
-        super().__init__(parent, height=88, fg_color=COLOR_HEADER, corner_radius=16)
+        super().__init__(parent, height=98, fg_color=COLOR_HEADER, corner_radius=16)
         self.pack_propagate(False)
         self.datastore = datastore
 
@@ -129,7 +129,7 @@ class HeaderBar(ctk.CTkFrame):
         self.clock_label = ctk.CTkLabel(
             center,
             text="--:--",
-            font=get_safe_font("Bahnschrift", 42, "bold"),
+            font=get_safe_font("Bahnschrift", 46, "bold"),
             text_color=COLOR_PRIMARY
         )
         self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 20))
@@ -242,12 +242,12 @@ class HeaderBar(ctk.CTkFrame):
         if not portrait:
             return
         try:
-            self.configure(height=118)
-            self.date_label.configure(font=get_safe_font("Bahnschrift", 21, "bold"))
-            self.weekday_label.configure(font=get_safe_font("Bahnschrift", 14))
-            self.clock_label.configure(font=get_safe_font("Bahnschrift", 50, "bold"))
-            self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 19, "bold"))
-            self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 11))
+            self.configure(height=132)
+            self.date_label.configure(font=get_safe_font("Bahnschrift", 22, "bold"))
+            self.weekday_label.configure(font=get_safe_font("Bahnschrift", 15))
+            self.clock_label.configure(font=get_safe_font("Bahnschrift", 56, "bold"))
+            self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 20, "bold"))
+            self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 12))
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
                 button.configure(width=82, height=56, font=get_safe_font("Bahnschrift", 23, "bold"))
             for caption in (self.leave_caption, self.home_caption, self.shower_caption):
