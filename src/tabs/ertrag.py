@@ -181,6 +181,11 @@ class ErtragTab:
         self._last_key = None
         self.store = get_shared_datastore()
         self._update_task_id = self.root.after(100, self._update_plot)
+        # Note: energy_chart now runs its own self-healing resize watchdog
+        # (see EnergyChart._watchdog_tick in energy_chart.py), which covers
+        # the "stuck at default figsize" / "briefly correct, then warped
+        # again" cases that used to need belt-and-suspenders forced passes
+        # here.
 
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
@@ -201,6 +206,12 @@ class ErtragTab:
             if hasattr(self, "stats_frame"):
                 self.stats_frame.grid(row=3, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
                 self.tab_frame.grid_rowconfigure(3, minsize=40, weight=0)
+        # Row 1/3 changing size changes how tall row 2 (the chart) ends up.
+        # The chart's own resize watchdog picks this up within ~300ms
+        # regardless, but fire one quick extra pass so it doesn't visibly
+        # sit at the old size for a full tick after switching orientation.
+        if hasattr(self, "energy_chart"):
+            self.root.after(50, self.energy_chart.refresh_size)
 
     def _set_tile(self, key: str, text: str) -> None:
         tile = getattr(self, "_metric_tiles", {}).get(key)
@@ -214,6 +225,12 @@ class ErtragTab:
                 self.root.after_cancel(self._update_task_id)
             except Exception:
                 pass
+        # Stop the chart's self-healing resize watchdog loop.
+        try:
+            if getattr(self, "energy_chart", None) is not None:
+                self.energy_chart.stop()
+        except Exception:
+            pass
         # Explicitly close matplotlib figure to prevent memory leaks
         try:
             import matplotlib.pyplot as plt

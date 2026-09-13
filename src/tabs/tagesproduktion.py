@@ -79,16 +79,21 @@ class TagesproduktionTab(tk.Frame):
             self.tkraise()
 
         self._resize_job = None
+        self._last_synced_wh = (0, 0)
+        self._watchdog_active = True
         self._build_ui()
         self.after(180, self._update_plot)
-        # Belt-and-suspenders: the figure has been observed stuck at its
-        # figsize=(10.0, 4.8) default (1000x480px) even though chart_frame
-        # ends up much bigger, i.e. the passive <Configure>/<Map> bindings
-        # on canvas_widget don't reliably fire a real resize during the
-        # CTkTabview build/first-show dance. A couple of extra delayed
-        # forced passes after startup catch that case.
-        self.after(500, self._resize_canvas_now)
-        self.after(1200, self._resize_canvas_now)
+        # Self-healing resize loop instead of one-shot forced passes: the
+        # figure has been observed stuck at its figsize=(10.0, 4.8) default
+        # (1000x480px), or briefly correct and then visibly warped again,
+        # because CTkTabview's grid_forget()/grid() dance on tab build/
+        # switch can fire <Configure>/<Map> with a transitional/stale widget
+        # size before Tk has actually finished recomputing the real
+        # geometry. _watchdog_tick() polls the real current size on a short
+        # interval and only re-syncs when it changed since the last
+        # successful sync, so any bad one-shot resize corrects itself within
+        # one tick instead of sticking around looking distorted.
+        self.after(300, self._watchdog_tick)
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(0, minsize=56)
@@ -219,10 +224,11 @@ class TagesproduktionTab(tk.Frame):
             self.metrics_frame.grid_remove()
             self.grid_rowconfigure(1, minsize=0, weight=0)
         # Row 1 (metrics panel) changing size changes how tall row 2 (the
-        # chart) ends up - force a resize pass instead of hoping a
-        # <Configure> event cascades down reliably.
+        # chart) ends up. The watchdog loop above picks this up within
+        # ~300ms regardless, but fire one quick extra pass so the chart
+        # doesn't visibly sit at the old size for a full tick after
+        # switching orientation.
         self.after(50, self._resize_canvas_now)
-        self.after(300, self._resize_canvas_now)
 
     def _update_metric_tiles(
         self,
@@ -294,15 +300,46 @@ class TagesproduktionTab(tk.Frame):
 
         CTk/Tk layouts can briefly report 1x1 during relayouts. Resizing the
         renderer to that can leave a tiny re-render on top of an older buffer.
+        Records the size actually applied so _watchdog_tick() can tell a
+        stale apply from a real one.
         """
         try:
             if w < 50 or h < 50:
                 return False
             dpi = float(self.fig.get_dpi() or 100.0)
             self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
+            self._last_synced_wh = (w, h)
             return True
         except Exception:
             return False
+
+    def _watchdog_tick(self) -> None:
+        """Self-healing backstop for the event-driven resize above.
+
+        CTkTabview's grid_forget()/grid() dance on tab build/switch can fire
+        <Configure>/<Map> with a transitional/stale widget size before Tk
+        has actually finished recomputing the real geometry - applying that
+        stale size to the figure then leaves the chart visibly warped even
+        though the widget itself already has its real, correct size. Rather
+        than chasing the exact right event, poll the real current size every
+        300ms and only re-sync when it differs from what was last actually
+        applied - a bad one-shot resize then corrects itself within one tick
+        instead of sticking around.
+        """
+        if not self._watchdog_active:
+            return
+        try:
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
+            if w >= 50 and h >= 50 and (w, h) != self._last_synced_wh:
+                self._resize_canvas_now()
+        except Exception:
+            pass
+        if self._watchdog_active:
+            try:
+                self.after(300, self._watchdog_tick)
+            except Exception:
+                pass
 
     def _clear_tk_canvas(self) -> None:
         """Ensure the underlying Tk canvas is configured for clean redraws."""

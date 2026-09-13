@@ -74,6 +74,19 @@ class EnergyChart:
         self.canvas_widget.pack(fill="both", expand=True)
         self.canvas_widget.bind("<Configure>", self._on_resize)
 
+        self._last_synced_wh: tuple[int, int] = (0, 0)
+        self._watchdog_active = True
+        # Self-healing backstop: CTkTabview's grid_forget()/grid() dance on
+        # tab build/switch can fire <Configure>/<Map> with a transitional/
+        # stale widget size before Tk has actually finished recomputing the
+        # real geometry - applying that stale size then leaves the chart
+        # visibly warped even after the widget itself already has its real,
+        # correct size. _watchdog_tick() polls the real current size every
+        # 300ms and only re-syncs when it differs from what was last
+        # actually applied, so a bad one-shot resize corrects itself within
+        # one tick instead of sticking around.
+        self.canvas_widget.after(300, self._watchdog_tick)
+
         self._pv_line = None
         self._cons_line = None
         self._now_vline = None
@@ -101,9 +114,40 @@ class EnergyChart:
                 return False
             dpi = float(self.fig.get_dpi() or 100.0)
             self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
+            self._last_synced_wh = (w, h)
             return True
         except Exception:
             return False
+
+    def _watchdog_tick(self) -> None:
+        """See _sync_size()'s docstring / __init__ comment for the rationale.
+
+        Polls the real current widget size every 300ms and only re-syncs
+        when it differs from what was last actually applied, so a resize
+        applied from a stale event self-heals within one tick instead of
+        leaving the chart visibly distorted.
+        """
+        if not self._watchdog_active:
+            return
+        try:
+            if not self.canvas_widget.winfo_exists():
+                self._watchdog_active = False
+                return
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
+            if w >= 50 and h >= 50 and (w, h) != self._last_synced_wh:
+                self.refresh_size()
+        except Exception:
+            pass
+        if self._watchdog_active:
+            try:
+                self.canvas_widget.after(300, self._watchdog_tick)
+            except Exception:
+                pass
+
+    def stop(self) -> None:
+        """Stop the self-healing resize watchdog (call when the tab is torn down)."""
+        self._watchdog_active = False
 
     def _clear_tk_canvas(self) -> None:
         """Clear the underlying Tk canvas to avoid stale pixels.
