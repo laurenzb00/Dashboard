@@ -349,6 +349,32 @@ class MainApp:
         validator_thread = threading.Thread(target=validate_loop, daemon=True)
         validator_thread.start()
 
+    def _resize_tab_charts(self) -> None:
+        """Force a geometry settle + resize pass for chart-bearing tabs.
+
+        Called from update_tick() whenever the active CTkTabview tab has
+        just changed (see the comment there for why this is necessary):
+        the tab is now actually mapped for the first time since becoming
+        visible, so this is the first moment its matplotlib canvases can
+        see their real, final widget size instead of the 0/1 they report
+        while grid_forget()'d/hidden.
+        """
+        try:
+            self.root.update_idletasks()
+        except Exception:
+            pass
+        portrait = bool(getattr(self, "_portrait_layout", getattr(self, "_portrait_screen", False)))
+        for attr in ("historical_tab", "ertrag_tab", "tagesproduktion_tab"):
+            tab = getattr(self, attr, None)
+            if tab is None:
+                continue
+            setter = getattr(tab, "set_portrait_layout", None)
+            if callable(setter):
+                try:
+                    setter(portrait)
+                except Exception:
+                    logger.debug("_resize_tab_charts: set_portrait_layout failed for %s", attr, exc_info=True)
+
     def update_tick(self):
         """Zentrale UI-Update-Schleife: aktualisiert Status mit gecachten Daten."""
         self._tick_count += 1
@@ -365,6 +391,22 @@ class MainApp:
                     self.energy_view._start_animation()
                 elif not is_dashboard and self.energy_view._anim_enabled:
                     self.energy_view._anim_enabled = False
+
+            # CTkTabview grid_forget()s every inactive tab and only grid()s
+            # the selected one back in. A chart-bearing tab that is hidden
+            # this way never has a real size (winfo_width/height report 0/1
+            # while unmapped), so any resize pass that ran before the user
+            # ever switched to it - most notably the very first
+            # set_portrait_layout() call right after startup, while
+            # "Energie" is still the active tab - necessarily saw a too-
+            # small size and bailed out, leaving that tab's chart stuck
+            # small even once it becomes visible. Detect the active tab
+            # actually changing and force one resize pass now that it is
+            # really mapped, instead of only hoping <Configure>/<Map>
+            # (or the per-tab watchdog) catch it on their own.
+            if current_tab != getattr(self, "_last_tick_tab_name", None):
+                self._last_tick_tab_name = current_tab
+                self._resize_tab_charts()
         except Exception:
             pass
         
@@ -1358,16 +1400,20 @@ class MainApp:
             if portrait:
                 self.body.grid_columnconfigure(0, weight=1, minsize=0)
                 self.body.grid_columnconfigure(1, weight=0, minsize=0)
-                # Diese Gewichte müssen zum 25%/75%-Split in
-                # _apply_compact_height_budget() passen (dort bekommt die
-                # Energiefluss-Karte bewusst nur ~25%, die Puffer/Boiler-Karte
-                # ~75% der Höhe). Vorher stand hier 3:2:1 - also das Gegenteil
-                # der Absicht - wodurch das äußere Grid die Energiefluss-Karte
-                # trotz kleinerem resize() wieder auf die größte Zeile
-                # aufgeblasen hat (sticky="nsew" + Zeilengewicht gewinnt gegen
-                # die intern gesetzte Canvas-Höhe).
-                self.body.grid_rowconfigure(0, weight=1, minsize=200)
-                self.body.grid_rowconfigure(1, weight=3, minsize=380)
+                # WICHTIG: weight=0 für die Energie- und Puffer-Zeile, nicht
+                # nur ein kleineres Gewicht. Jedes Gewicht >0 lässt Tkinter
+                # den Rest der verfügbaren Höhe proportional verteilen und
+                # zieht die Karte per sticky="nsew" trotzdem über ihre in
+                # energy_card/buffer_card.configure(height=...) gesetzte
+                # Wunschgröße hinaus (grid_propagate(False) verhindert nur,
+                # dass die Karte sich an IHRE EIGENEN Kinder anpasst - es
+                # schützt nicht davor, vom äußeren Grid gestreckt zu werden).
+                # Mit weight=0 übernimmt die Zeile exakt die Wunschhöhe der
+                # Karte; die Sparkline-Zeile bekommt das gesamte übrige
+                # Gewicht und wächst bei viel Platz - das war ohnehin schon
+                # so beabsichtigt ("Give the chart more room").
+                self.body.grid_rowconfigure(0, weight=0, minsize=200)
+                self.body.grid_rowconfigure(1, weight=0, minsize=380)
                 self.body.grid_rowconfigure(2, weight=1, minsize=130)
                 self.energy_card.grid_configure(row=0, column=0, columnspan=1, sticky="nsew")
                 self.buffer_card.grid_configure(row=1, column=0, columnspan=1, sticky="nsew")
