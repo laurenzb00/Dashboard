@@ -349,32 +349,6 @@ class MainApp:
         validator_thread = threading.Thread(target=validate_loop, daemon=True)
         validator_thread.start()
 
-    def _resize_tab_charts(self) -> None:
-        """Force a geometry settle + resize pass for chart-bearing tabs.
-
-        Called from update_tick() whenever the active CTkTabview tab has
-        just changed (see the comment there for why this is necessary):
-        the tab is now actually mapped for the first time since becoming
-        visible, so this is the first moment its matplotlib canvases can
-        see their real, final widget size instead of the 0/1 they report
-        while grid_forget()'d/hidden.
-        """
-        try:
-            self.root.update_idletasks()
-        except Exception:
-            pass
-        portrait = bool(getattr(self, "_portrait_layout", getattr(self, "_portrait_screen", False)))
-        for attr in ("historical_tab", "ertrag_tab", "tagesproduktion_tab"):
-            tab = getattr(self, attr, None)
-            if tab is None:
-                continue
-            setter = getattr(tab, "set_portrait_layout", None)
-            if callable(setter):
-                try:
-                    setter(portrait)
-                except Exception:
-                    logger.debug("_resize_tab_charts: set_portrait_layout failed for %s", attr, exc_info=True)
-
     def update_tick(self):
         """Zentrale UI-Update-Schleife: aktualisiert Status mit gecachten Daten."""
         self._tick_count += 1
@@ -391,22 +365,6 @@ class MainApp:
                     self.energy_view._start_animation()
                 elif not is_dashboard and self.energy_view._anim_enabled:
                     self.energy_view._anim_enabled = False
-
-            # CTkTabview grid_forget()s every inactive tab and only grid()s
-            # the selected one back in. A chart-bearing tab that is hidden
-            # this way never has a real size (winfo_width/height report 0/1
-            # while unmapped), so any resize pass that ran before the user
-            # ever switched to it - most notably the very first
-            # set_portrait_layout() call right after startup, while
-            # "Energie" is still the active tab - necessarily saw a too-
-            # small size and bailed out, leaving that tab's chart stuck
-            # small even once it becomes visible. Detect the active tab
-            # actually changing and force one resize pass now that it is
-            # really mapped, instead of only hoping <Configure>/<Map>
-            # (or the per-tab watchdog) catch it on their own.
-            if current_tab != getattr(self, "_last_tick_tab_name", None):
-                self._last_tick_tab_name = current_tab
-                self._resize_tab_charts()
         except Exception:
             pass
         
@@ -680,11 +638,6 @@ class MainApp:
         self.status.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         self._apply_fullscreen()
         self.build_tabs()
-        # Re-style the tab bar now that every tab actually exists - the
-        # earlier call (right after tabview creation, before any tab but
-        # "Energie" was added) had no way to know the real, final tab
-        # count, so it couldn't size the font to actually fit all of them.
-        self._style_tabview_buttons()
         # Keep the header Hue switch in sync with the bridge state.
         self._start_hue_switch_sync()
         # Initial update_tick delayed, then runs every 2000ms
@@ -789,43 +742,14 @@ class MainApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _style_tabview_buttons(self) -> None:
-        """Make the active tab more readable and improve contrast.
-
-        Called once early (before any tab besides "Energie" exists, so the
-        segmented button just gets these as its defaults for segments added
-        later) and again from __init__ once build_tabs() has actually added
-        every tab (Licht/HomeA/Spotify/Raumtemperatur/Kalender/Historie/
-        Ertrag/Tagesproduktion/Health/...). On a narrow portrait screen, up
-        to ~10 segments sharing that width at a fixed larger font simply
-        clip their neighbors ("Raumtemperatur", "Tagesproduktion" and
-        others were visibly cut off) instead of wrapping - CTkSegmentedButton
-        doesn't wrap text, so the only fix is a smaller font once there are
-        enough tabs to actually be tight on space.
-        """
+        """Make the active tab more readable and improve contrast."""
         try:
             segmented = getattr(self.tabview, "_segmented_button", None)
             if segmented is None:
                 return
-            tab_count = 1
-            try:
-                name_list = getattr(self.tabview, "_name_list", None)
-                if name_list:
-                    tab_count = max(1, len(name_list))
-            except Exception:
-                pass
-            portrait = bool(getattr(self, "_portrait_screen", False))
-            if portrait:
-                if tab_count >= 9:
-                    font_size, height = 12, 58
-                elif tab_count >= 7:
-                    font_size, height = 14, 62
-                else:
-                    font_size, height = 17, 70
-            else:
-                font_size, height = 16, 64
             segmented.configure(
-                font=get_safe_font("Bahnschrift", font_size, "bold"),
-                height=height,
+                font=get_safe_font("Bahnschrift", 17 if getattr(self, "_portrait_screen", False) else 16, "bold"),
+                height=70 if getattr(self, "_portrait_screen", False) else 64,
                 corner_radius=20,
                 border_width=1,
                 border_color=COLOR_BORDER,
