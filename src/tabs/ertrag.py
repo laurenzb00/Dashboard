@@ -111,6 +111,11 @@ class ErtragTab:
 
         self.chart_frame = tk.Frame(self.card, bg=COLOR_CARD)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        # Without this, the matplotlib canvas widget's self-configured size
+        # (set via fig.set_size_inches(..., forward=True)) can make Tk grow
+        # chart_frame to fit it instead of the other way around, which then
+        # cascades up and clips the tab against the window edge.
+        self.chart_frame.grid_propagate(False)
 
         # Modernes Energiefluss-Diagramm (PV area + Verbrauch line + Überschuss/Defizit).
         self.energy_chart = build_energy_chart(self.chart_frame, [])
@@ -433,6 +438,13 @@ class ErtragTab:
         )
 
         if key == self._last_key:
+            # Data unchanged, but still re-sync the figure size every tick.
+            # render() would normally do this, but it's skipped below when
+            # the key matches - without this, a chart first drawn at a
+            # stale/small size (e.g. tab built hidden behind another
+            # CTkTabview tab) would never get resized again once the PV
+            # data stops changing between polls.
+            self.energy_chart.refresh_size()
             self._update_task_id = self.root.after(60 * 1000, self._update_plot)
             return
         self._last_key = key

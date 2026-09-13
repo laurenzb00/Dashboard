@@ -133,6 +133,11 @@ class TagesproduktionTab(tk.Frame):
 
         self.chart_frame = tk.Frame(self.card, bg=COLOR_CARD)
         self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        # Without this, the matplotlib canvas widget's self-configured size
+        # (set via fig.set_size_inches(..., forward=True)) can make Tk grow
+        # chart_frame to fit it instead of the other way around, which then
+        # cascades up and clips the tab against the window edge.
+        self.chart_frame.grid_propagate(False)
         self.chart_frame.bind("<Configure>", lambda _event: self._schedule_canvas_resize())
 
         self.fig = Figure(figsize=(10.0, 4.8), dpi=100)
