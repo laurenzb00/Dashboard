@@ -83,6 +83,14 @@ class HistoricalTab(tk.Frame):
         self._resize_job = None
         self._build_ui()
         self.after(180, self._update_plot)
+        # Belt-and-suspenders: the figure has been observed stuck at its
+        # figsize=(10.0, 4.8) default (1000x480px) even though chart_frame
+        # ends up much bigger, i.e. the passive <Configure>/<Map> bindings
+        # on canvas_widget don't reliably fire a real resize during the
+        # CTkTabview build/first-show dance. A couple of extra delayed
+        # forced passes after startup catch that case.
+        self.after(500, self._resize_canvas_now)
+        self.after(1200, self._resize_canvas_now)
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(0, minsize=56)
@@ -224,6 +232,11 @@ class HistoricalTab(tk.Frame):
         else:
             self.metrics_frame.grid_remove()
             self.grid_rowconfigure(1, minsize=0, weight=0)
+        # Row 1 (metrics panel) changing size changes how tall row 2 (the
+        # chart) ends up - force a resize pass instead of hoping a
+        # <Configure> event cascades down reliably.
+        self.after(50, self._resize_canvas_now)
+        self.after(300, self._resize_canvas_now)
 
     @staticmethod
     def _parse_ts(value) -> datetime | None:

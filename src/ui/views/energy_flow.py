@@ -251,8 +251,15 @@ class EnergyFlowView(tk.Frame):
 
     def _compute_node_radius(self) -> int:
         """Scale node size with the available canvas height so a shorter
-        (compressed) diagram doesn't overflow, while keeping nodes legible."""
-        return max(_s(40), min(_s(58), int(self.height * 0.30)))
+        (compressed) diagram doesn't overflow, while keeping nodes legible.
+
+        The cap was 58px, sized for when the card was badly oversized and
+        node positions were stretched thin across a lot of empty vertical
+        space. Now that the card gets a correctly-budgeted height, the
+        diagram has more headroom to use - a slightly bigger cap makes the
+        nodes read as bolder, more deliberate shapes instead of small icons
+        adrift in the frame."""
+        return max(_s(40), min(_s(66), int(self.height * 0.30)))
 
     def _has_font(self, name: str) -> bool:
         try:
@@ -277,7 +284,7 @@ class EnergyFlowView(tk.Frame):
             "battery": "battery.png",
         }
         
-        icon_size = int(self.node_radius * 1.15)  # Dynamic sizing based on node radius
+        icon_size = int(self.node_radius * 1.25)  # Dynamic sizing based on node radius
         
         for icon_name, filename in icon_files.items():
             try:
@@ -405,11 +412,14 @@ class EnergyFlowView(tk.Frame):
 
         soc = max(0.0, min(100.0, float(soc)))
         r = self.node_radius
-        w = int(r * 0.95)
-        h = int(r * 0.46)
-        cap_w = max(3, int(r * 0.09))
-        cap_h = int(r * 0.20)
-        radius = 6
+        # Was 0.95 x 0.46 - visibly flatter/smaller than the PV/Grid/Haus
+        # icons (which fill ~1.25x the radius). Bumped closer to those so
+        # the battery doesn't read as the "odd one out" among the four nodes.
+        w = int(r * 1.05)
+        h = int(r * 0.58)
+        cap_w = max(3, int(r * 0.10))
+        cap_h = int(r * 0.24)
+        radius = 7
         outline_w = 2
 
         # Place glyph above the "NN%" text so both stay legible.
@@ -480,15 +490,33 @@ class EnergyFlowView(tk.Frame):
                 d.point((x, y), fill=(color[0], color[1], color[2], alpha_val))
         return img.resize((self.width, self.height), Image.Resampling.BILINEAR)
 
+    # Per-node glow tint: the circle body itself stays the same neutral
+    # glass color for every node (icons need a consistent, readable
+    # backdrop), but the soft glow around it now picks up each node's own
+    # data color - a warm PV glow, a cool Grid glow, a green Battery glow -
+    # instead of one generic gray halo everywhere. Small touch, but it's
+    # what makes each node feel intentionally "its own thing" rather than
+    # four identical circles with different icons pasted on top.
+    def _node_tint(self, name: str) -> str:
+        return {
+            "pv": COLOR_PV,
+            "grid": COLOR_GRID,
+            "home": COLOR_HOUSE,
+            "battery": COLOR_BATTERY_OK,
+        }.get(name, COLOR_TEXT)
+
     def _draw_node_circle(self, draw: ImageDraw.ImageDraw, x: int, y: int, name: str):
         """Draw node circle background with effects (no text/icons)."""
         r = self.node_radius
         # Neutral glass-like nodes keep the data colors on the animated
         # arrows and battery ring, matching the reference dashboard style.
         fill = "#3A3F4D"
-        # Beautiful soft shadow + subtle glow
+        tint = self._node_tint(name)
+        # Beautiful soft shadow + subtle glow (glow tinted per node, shadow
+        # stays neutral so it still reads as a drop shadow, not a colored
+        # halo doubling up on the glow beneath it)
         self._draw_soft_shadow(draw, x, y, r, fill)
-        self._draw_subtle_glow(draw, x, y, r, fill)
+        self._draw_subtle_glow(draw, x, y, r, tint)
         # Radial gradient (subtle)
         self._draw_radial(draw, x, y, r, fill)
         draw.ellipse([x - r, y - r, x + r, y + r], fill=fill, outline=None, width=0)
@@ -675,22 +703,28 @@ class EnergyFlowView(tk.Frame):
         h = max(vh, uh)
         w = vw + 4 + uw
 
-        pad = 8
-        txt_img = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
+        # Soft rounded "chip" behind the value instead of a bare outlined
+        # number floating on the arrow - reads as a small badge/card, in
+        # line with the glass-node look elsewhere in this diagram, and is
+        # legible on any part of the gradient background without needing
+        # the old 8-direction dark-pixel stroke around every glyph.
+        pad_x = 10
+        pad_y = 6
+        txt_img = Image.new("RGBA", (w + pad_x * 2, h + pad_y * 2), (0, 0, 0, 0))
         tdraw = ImageDraw.Draw(txt_img)
-        # No background panel (keep labels floating above arrows)
+        chip_box = [0, 0, w + pad_x * 2 - 1, h + pad_y * 2 - 1]
+        chip_radius = min(14, (h + pad_y * 2) // 2)
+        tdraw.rounded_rectangle(
+            chip_box,
+            radius=chip_radius,
+            fill=self._with_alpha(COLOR_ROOT, 195),
+            outline=self._with_alpha(color, 130),
+            width=1,
+        )
         unit_color = self._tint(color, 0.45)
-        text_x = pad
-        value_y = pad + (h - vh) / 2
-        unit_y = pad + (h - uh) / 2
-        # Dark outline for value/unit
-        outline_color = "#0a0a0a"
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if dx == 0 and dy == 0:
-                    continue
-                tdraw.text((text_x + dx, value_y + dy), value_text, font=font_val, fill=outline_color)
-                tdraw.text((text_x + vw + 4 + dx, unit_y + dy), unit_text, font=font_unit, fill=outline_color)
+        text_x = pad_x
+        value_y = pad_y + (h - vh) / 2
+        unit_y = pad_y + (h - uh) / 2
         tdraw.text((text_x, value_y), value_text, font=font_val, fill=color)
         tdraw.text((text_x + vw + 4, unit_y), unit_text, font=font_unit, fill=unit_color)
         rotated = txt_img.rotate(angle, resample=Image.BICUBIC, expand=True)
