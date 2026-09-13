@@ -7,6 +7,7 @@ from typing import Optional
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.patheffects as path_effects
 import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -381,6 +382,23 @@ class BufferStorageView(tk.Frame):
         self.ax.set_facecolor(COLOR_CARD)
 
         self.norm = Normalize(vmin=self.TEMP_MIN, vmax=self.TEMP_MAX)
+
+        # Soft drop-shadows behind both vessels for a bit of depth. Faked via
+        # a same-sized, down-right-offset, low-alpha dark rounded rect drawn
+        # first (real Gaussian blur isn't available on this backend).
+        self.ax.add_patch(FancyBboxPatch(
+            (0.102, 0.042), 0.34, 0.88,
+            boxstyle="round,pad=0.02,rounding_size=0.10",
+            transform=self.ax.transAxes,
+            linewidth=0, edgecolor="none", facecolor="#000000", alpha=0.40, zorder=1,
+        ))
+        self.ax.add_patch(FancyBboxPatch(
+            (0.592, 0.042), 0.32, 0.50,
+            boxstyle="round,pad=0.02,rounding_size=0.10",
+            transform=self.ax.transAxes,
+            linewidth=0, edgecolor="none", facecolor="#000000", alpha=0.40, zorder=1,
+        ))
+
         self.im = self.ax.imshow(
             self.data,
             aspect="auto",
@@ -389,6 +407,7 @@ class BufferStorageView(tk.Frame):
             norm=self.norm,
             origin="lower",
             extent=[0.06, 0.50, 0.06, 0.94],
+            zorder=2,
         )
 
         puffer_cyl = FancyBboxPatch(
@@ -401,26 +420,41 @@ class BufferStorageView(tk.Frame):
             edgecolor=COLOR_ROOT,
             facecolor="none",
             alpha=0.75,
+            zorder=4,
         )
         self.im.set_clip_path(puffer_cyl)
         self.ax.add_patch(puffer_cyl)
         self.ax.add_patch(Ellipse((0.26, 0.94), 0.34, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
         self.ax.add_patch(Ellipse((0.26, 0.06), 0.34, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
-        # Entfernt: Helles weißes Overlay-Rectangle
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
+        # Glossy highlight: a soft vertical white streak to suggest a cylindrical,
+        # reflective surface rather than a flat gradient rectangle.
+        self.ax.add_patch(FancyBboxPatch(
+            (0.135, 0.10), 0.06, 0.80,
+            boxstyle="round,pad=0.0,rounding_size=0.03",
+            transform=self.ax.transAxes,
+            linewidth=0, edgecolor="none", facecolor="#FFFFFF", alpha=0.10, zorder=3,
+        ))
         # Feste Schriftgröße und feste Ränder für optimalen Sitz
         self.fig.subplots_adjust(left=0.04, right=0.96, top=0.91, bottom=0.10)
-        self.ax.text(0.26, 0.985, "PUFFER", transform=self.ax.transAxes,
-                     color=COLOR_TITLE, fontsize=14, va="top", ha="center", weight="bold")
-        self.ax.text(0.74, 0.985, "WARMWASSER", transform=self.ax.transAxes,
-                     color=COLOR_TITLE, fontsize=14, va="top", ha="center", weight="bold")
+        title_kw = dict(color=COLOR_TITLE, fontsize=14, va="top", ha="center", weight="bold")
+        self.ax.text(0.26, 0.985, "PUFFER", transform=self.ax.transAxes, **title_kw)
+        self.ax.text(0.74, 0.985, "WARMWASSER", transform=self.ax.transAxes, **title_kw)
+
+        # Subtle dark outline behind the white value text keeps it legible no
+        # matter which part of the gradient (pale ice-blue, bright orange) sits
+        # behind it.
+        text_outline = [path_effects.withStroke(linewidth=3, foreground=COLOR_ROOT, alpha=0.85)]
 
         # Temperatur-Textfelder links
         self.val_texts = [
-            self.ax.text(0.12, 0.85, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.12, 0.50, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
-            self.ax.text(0.12, 0.15, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left", transform=self.ax.transAxes, weight="bold"),
+            self.ax.text(0.12, 0.85, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left",
+                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
+            self.ax.text(0.12, 0.50, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left",
+                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
+            self.ax.text(0.12, 0.15, "--°C", color="#FFFFFF", fontsize=16, va="center", ha="left",
+                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
         ]
 
         self.boiler_rect = FancyBboxPatch(
@@ -433,17 +467,25 @@ class BufferStorageView(tk.Frame):
             edgecolor=COLOR_ROOT,
             facecolor=self._temp_color(60),
             alpha=0.95,
+            zorder=4,
         )
         self.ax.add_patch(self.boiler_rect)
         self.ax.add_patch(Ellipse((0.74, 0.56), 0.32, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
         self.ax.add_patch(Ellipse((0.74, 0.06), 0.32, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7))
-        # Entfernt: Helles weißes Overlay-Rectangle
+                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
+        # Matching glossy highlight on the boiler capsule.
+        self.ax.add_patch(FancyBboxPatch(
+            (0.615, 0.10), 0.05, 0.42,
+            boxstyle="round,pad=0.0,rounding_size=0.025",
+            transform=self.ax.transAxes,
+            linewidth=0, edgecolor="none", facecolor="#FFFFFF", alpha=0.12, zorder=4.5,
+        ))
         self.ax.text(0.74, 0.62, "Boiler", transform=self.ax.transAxes,
-             color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
+             color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold", zorder=5)
         # Boiler-Temperaturtext
-        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color="#FFFFFF", fontsize=23, va="center", ha="center", transform=self.ax.transAxes, weight="bold")
+        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color="#FFFFFF", fontsize=23, va="center", ha="center",
+                                        transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline)
         # Boiler-Modus-Text (Betriebsmodus)
         self.boiler_mode_text = self.ax.text(
             0.74,
@@ -455,12 +497,21 @@ class BufferStorageView(tk.Frame):
             ha="center",
             transform=self.ax.transAxes,
             weight="bold",
+            zorder=5,
         )
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)
         cbar = self.fig.colorbar(self.im, cax=cax, orientation="vertical")
         cbar.set_label("°C", rotation=0, labelpad=10, color=COLOR_TEXT, fontsize=11)
+        # Mark cold/knee/hot instead of only the auto ticks, so the gradient
+        # reads as "cold -> lauwarm -> heiß" at a glance. The blue/orange knee
+        # (53-55°C) is only 2°C wide, too narrow to label both ends without
+        # overlapping text, so a single midpoint tick stands in for it.
+        knee_mid = (self.TEMP_BLUE_MAX + self.TEMP_ORANGE_FROM) / 2.0
+        threshold_ticks = sorted({self.TEMP_MIN, knee_mid, self.TEMP_MAX})
+        cbar.set_ticks(threshold_ticks)
+        cbar.set_ticklabels([f"{t:.0f}" for t in threshold_ticks])
         cbar.ax.tick_params(labelsize=10, colors=COLOR_TEXT)
         cbar.outline.set_edgecolor(COLOR_BORDER)
         cbar.outline.set_linewidth(0.8)

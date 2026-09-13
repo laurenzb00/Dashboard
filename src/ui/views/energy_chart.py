@@ -124,6 +124,23 @@ class EnergyChart:
         except Exception:
             pass
 
+    def refresh_size(self) -> None:
+        """Force a resize-sync using the canvas widget's current geometry.
+
+        Backstop for cases where the canvas widget's own <Configure> event
+        fires with a stale/too-small size before the parent tab is actually
+        mapped (e.g. a CTkTabview tab built while hidden behind another tab).
+        """
+        try:
+            w = int(self.canvas_widget.winfo_width() or 0)
+            h = int(self.canvas_widget.winfo_height() or 0)
+            if not self._sync_size(w, h):
+                return
+            self._apply_layout(w, h)
+            self.canvas.draw_idle()
+        except Exception:
+            pass
+
     def _on_resize(self, event) -> None:
         try:
             w = max(1, int(getattr(event, "width", 1)))

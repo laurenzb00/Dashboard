@@ -14,6 +14,7 @@ import numpy as np
 
 from ui.styles import (
     COLOR_BORDER,
+    COLOR_CARD,
     COLOR_PRIMARY,
     COLOR_ROOT,
     COLOR_SUBTEXT,

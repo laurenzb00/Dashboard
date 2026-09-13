@@ -114,6 +114,9 @@ class ErtragTab:
 
         # Modernes Energiefluss-Diagramm (PV area + Verbrauch line + Überschuss/Defizit).
         self.energy_chart = build_energy_chart(self.chart_frame, [])
+        # Backstop resize: the canvas widget's own <Configure> can fire with a
+        # stale size when this tab is built while hidden behind another tab.
+        self.chart_frame.bind("<Configure>", lambda _event: self.energy_chart.refresh_size())
 
         stats_frame = tk.Frame(self.tab_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
         stats_frame.grid(row=2, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
@@ -151,23 +154,6 @@ class ErtragTab:
             fig = getattr(getattr(self, "energy_chart", None), "fig", None)
             if fig is not None:
                 plt.close(fig)
-        except Exception:
-            pass
-
-    def _sync_figure_to_canvas(self) -> None:
-        """Ensure the figure render buffer matches the widget size.
-
-        Otherwise, an older larger render can remain visible and look like a second plot.
-        """
-        try:
-            if not hasattr(self, "canvas_widget"):
-                return
-            w = int(self.canvas_widget.winfo_width() or 0)
-            h = int(self.canvas_widget.winfo_height() or 0)
-            if w <= 2 or h <= 2:
-                return
-            dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
         except Exception:
             pass
 
@@ -294,78 +280,6 @@ class ErtragTab:
 
         return xs, np.array(ys, dtype=float)
 
-    def _on_canvas_resize(self, event) -> None:
-        try:
-            w = max(1, int(getattr(event, "width", 1)))
-            h = max(1, int(getattr(event, "height", 1)))
-            if w < 50 or h < 50:
-                return
-            dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
-            self._apply_layout()
-            self.canvas.draw_idle()
-        except Exception:
-            pass
-
-    def _apply_layout(self) -> None:
-        # Stable layout with DPI-aware right margin.
-        # Avoid tight_layout() here: it can shift the axes to the right depending
-        # on renderer/tick extents (and makes the "clipped on the right" issue worse).
-        try:
-            # Derive UI scale from actual pixels-per-point.
-            # This is more reliable across Windows/macOS/Linux (incl. Raspberry Pi)
-            # than relying only on tk scaling.
-            px_per_point = None
-            try:
-                px_per_point = float(self.root.winfo_fpixels("1p"))  # 1 point = 1/72 inch
-            except Exception:
-                px_per_point = None
-
-            if px_per_point is None or not (0.5 <= px_per_point <= 6.0):
-                # Fallback: tk scaling is roughly px/point on many Tk builds.
-                try:
-                    px_per_point = float(self.root.tk.call("tk", "scaling"))
-                except Exception:
-                    # Reasonable default for 96 DPI.
-                    px_per_point = 96.0 / 72.0
-
-            canvas_w = 0
-            try:
-                canvas_w = int(self.canvas_widget.winfo_width() or 0)
-            except Exception:
-                canvas_w = 0
-
-            canvas_h = 0
-            try:
-                canvas_h = int(self.canvas_widget.winfo_height() or 0)
-            except Exception:
-                canvas_h = 0
-
-            # Use pixel-based margins so Windows DPI scaling can't clip labels.
-            # This also avoids the "plot shifts right" effect.
-            if canvas_w > 0 and canvas_h > 0:
-                # Margins are specified in points (scale with UI/font DPI), then converted to pixels.
-                left_px = int(52 * px_per_point)
-                right_px = int(72 * px_per_point)
-                top_px = int(24 * px_per_point)
-                bottom_px = int(44 * px_per_point)
-
-                left = max(0.02, min(0.20, left_px / canvas_w))
-                right = max(0.70, min(0.99, 1.0 - (right_px / canvas_w)))
-                bottom = max(0.05, min(0.30, bottom_px / canvas_h))
-                top = max(0.75, min(0.97, 1.0 - (top_px / canvas_h)))
-
-                # Ensure a sane minimum plot area.
-                if right - left < 0.60:
-                    right = min(0.99, left + 0.60)
-
-                self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
-            else:
-                # Fallback
-                self.fig.subplots_adjust(left=0.07, right=0.94, top=0.90, bottom=0.16)
-        except Exception:
-            pass
-
     def _load_pv_monthly(self, months: int = 12):
         """Lade und aggregiere PV-Ertrag nach Monaten."""
         series = []
@@ -382,21 +296,6 @@ class ErtragTab:
                 continue
             series.append((ts, float(pv_kwh)))
         return series
-
-    def _style_axes(self):
-        self.ax.set_facecolor(COLOR_ROOT)
-        for spine in ["top", "right"]:
-            self.ax.spines[spine].set_visible(False)
-        for spine in ["left", "bottom"]:
-            self.ax.spines[spine].set_color(COLOR_BORDER)
-            self.ax.spines[spine].set_linewidth(0.5)
-
-        self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        # Slightly smaller x label size helps on high DPI.
-        self.ax.tick_params(axis="y", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=3, width=0.5)
-        self.ax.tick_params(axis="x", which="major", labelsize=10, colors=COLOR_SUBTEXT, length=3, width=0.5)
-        # Padding so the last x tick label doesn't get clipped.
-        self.ax.tick_params(axis="x", pad=5)
 
     def _select_period(self, period: str) -> None:
         """Wechselt Zeitraum und aktualisiert Button-Farben."""
