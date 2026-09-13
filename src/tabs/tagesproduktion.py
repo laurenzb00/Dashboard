@@ -189,8 +189,17 @@ class TagesproduktionTab(tk.Frame):
             fg=COLOR_SUBTEXT,
             font=("Segoe UI", 11),
             anchor="w",
+            justify=tk.LEFT,
         )
         self.statusbar.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 10))
+        # Same fix as HistoricalTab: this line ("Zeitraum: ... Gesamt: ...
+        # Ø Tag: ... Maximum: ... Letzter Tag: ...") is long and a bare Label
+        # doesn't wrap on its own - it just overflows the window on a narrow
+        # portrait width. Keep wraplength synced to the real available width.
+        self.statusbar.bind(
+            "<Configure>",
+            lambda e: self.statusbar.configure(wraplength=max(100, e.width - 4)),
+        )
 
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):

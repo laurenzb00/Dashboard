@@ -155,7 +155,15 @@ class ErtragTab:
         # <Configure> alone isn't a reliable signal for that transition.
         self.energy_chart.canvas_widget.bind("<Map>", lambda _event: self.energy_chart.refresh_size())
 
+        # Six labels packed side=LEFT/RIGHT in one row with no wrapping: on a
+        # narrow portrait width they simply overflow past the window edge
+        # instead of shrinking, which looks like the UI is "abgeschnitten".
+        # The portrait metrics_frame above already shows the same numbers as
+        # tiles, so this row is redundant there anyway - hide it in portrait
+        # (see set_portrait_layout) instead of trying to make six
+        # side-by-side labels wrap.
         stats_frame = tk.Frame(self.tab_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
+        self.stats_frame = stats_frame
         stats_frame.grid(row=3, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
         self.var_sum = tk.StringVar(value="PV: -- kWh")
         self.var_avg = tk.StringVar(value="Verbrauch: -- kWh")
@@ -180,9 +188,19 @@ class ErtragTab:
         if portrait:
             self.tab_frame.grid_rowconfigure(1, minsize=150, weight=0)
             self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
+            # stats_frame duplicates these same numbers as plain packed
+            # labels that don't wrap on a narrow width - hide it in portrait
+            # (metrics_frame already covers it) and give that row back to
+            # the chart instead of leaving an overflowing/clipped row.
+            if hasattr(self, "stats_frame"):
+                self.stats_frame.grid_remove()
+                self.tab_frame.grid_rowconfigure(3, minsize=0, weight=0)
         else:
             self.metrics_frame.grid_remove()
             self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
+            if hasattr(self, "stats_frame"):
+                self.stats_frame.grid(row=3, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
+                self.tab_frame.grid_rowconfigure(3, minsize=40, weight=0)
 
     def _set_tile(self, key: str, text: str) -> None:
         tile = getattr(self, "_metric_tiles", {}).get(key)

@@ -203,8 +203,17 @@ class HistoricalTab(tk.Frame):
             fg=COLOR_SUBTEXT,
             font=("Segoe UI", 11),
             anchor="w",
+            justify=tk.LEFT,
         )
         self.statusbar.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 10))
+        # A single-line Label with no wraplength doesn't shrink - on a narrow
+        # portrait width the "Datenpunkte: ... | Temperaturbereich: ..." text
+        # just overflows past the window edge and looks cut off. Keep
+        # wraplength in sync with the actual available width instead.
+        self.statusbar.bind(
+            "<Configure>",
+            lambda e: self.statusbar.configure(wraplength=max(100, e.width - 4)),
+        )
 
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
