@@ -312,8 +312,18 @@ class BufferStorageView(tk.Frame):
         self.layout.grid_rowconfigure(0, weight=1)
 
         self.plot_frame = tk.Frame(self.layout, bg=COLOR_CARD)
-        # Keep the heatmap compact inside the much taller energy card.
-        self.plot_frame.grid(row=0, column=0, sticky="new")
+        # sticky="nsew" (nicht "new"!): self.layout gibt Zeile 0 weight=1, sie
+        # bekommt also die komplette verfuegbare Hoehe der Puffer-Karte (die
+        # per Grid-Gewicht in app.py bewusst groesszuegig bemessen ist). Mit
+        # nur "new" bleibt plot_frame auf seiner natuerlichen (kleinen)
+        # Groesse stehen und der ganze zusaetzliche Platz bleibt darunter als
+        # leere schwarze Flaeche stehen - das war zwischenzeitlich hier so
+        # eingestellt ("Keep the heatmap compact"), hat aber genau die
+        # gemeldete grosse Luecke unter der Puffer-Karte verursacht. Mit
+        # "nsew" streckt sich plot_frame ueber die komplette Zeile; die
+        # Heatmap (FigureCanvasTkAgg) und die Mode-Timeline (fixe 80px durch
+        # mode_canvas_container) skalieren automatisch mit.
+        self.plot_frame.grid(row=0, column=0, sticky="nsew")
         self.plot_frame.grid_propagate(False)
 
         self.val_texts = []
