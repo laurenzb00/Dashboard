@@ -182,6 +182,11 @@ class HistoricalTab(tk.Frame):
         # chart_frame to fit it instead of the other way around, which then
         # cascades up and clips the tab against the window edge.
         self.chart_frame.grid_propagate(False)
+        # Analog zur Puffer-Karte im Energie-Tab: canvas_widget haengt hier
+        # per PACK (nicht grid) in chart_frame - grid_propagate(False)
+        # allein schuetzt nicht zuverlaessig gegen ein pack-verwaltetes
+        # Kind, das seine gewachsene Groesse nach oben durchreicht.
+        self.chart_frame.pack_propagate(False)
         self.chart_frame.bind("<Configure>", lambda _event: self._schedule_canvas_resize())
 
         # Figur groß genug für vollständige Darstellung ohne Abschneiden

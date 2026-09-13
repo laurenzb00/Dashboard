@@ -643,6 +643,29 @@ class MainApp:
         # Initial update_tick delayed, then runs every 2000ms
         self.root.after(1000, self.update_tick)
 
+        # Historie/Tagesproduktion/Ertrag bauen ihr Matplotlib-Diagramm schon
+        # beim App-Start, waehrend der Tab noch unsichtbar ist. Ihre eigenen
+        # zeitgesteuerten Resize-Versuche (after 180/500/1200ms) laufen alle
+        # ab, WAEHREND die aeussere Layout-Berechnung hier (siehe
+        # _apply_compact_height_budget, deren Retries teils mehrere Sekunden
+        # dauern) noch gar nicht fertig ist - das Diagramm bleibt dadurch
+        # dauerhaft auf seiner kleinen Ausgangsgroesse (Figure-Default)
+        # haengen, weil beim SPAETEREN manuellen Tab-Wechsel weder
+        # <Configure> noch <Map> erneut feuern (das Canvas-Widget war ja
+        # schon "gemappt", seine Groesse aendert sich zu dem Zeitpunkt
+        # nicht mehr). Ein echter CTkTabview "command="-Hook waere die
+        # sauberere Loesung, ist aber je nach customtkinter-Version nicht
+        # garantiert vorhanden. Stattdessen: periodischer Sicherheitscheck,
+        # der NUR bei tatsaechlicher Groessen-Abweichung einmal
+        # nachsynchronisiert (kein Dauerlauf/Endlos-Schleife wie der
+        # fruehere, entfernte Scaling-Loop - nach dem Sync stimmt
+        # _last_synced_wh wieder mit der echten Groesse ueberein, der
+        # naechste Check findet dann keine Abweichung mehr).
+        try:
+            self.root.after(2000, self._watch_lazy_tab_charts)
+        except Exception:
+            pass
+
         # Apply a height budget once after initial layout settles.
         try:
             self.root.after(350, self._apply_compact_height_budget)
@@ -1270,6 +1293,57 @@ class MainApp:
         except Exception:
             return 36
 
+    def _watch_lazy_tab_charts(self) -> None:
+        """Sicherheitsnetz gegen dauerhaft zu klein gerenderte Matplotlib-
+        Charts in Historie/Tagesproduktion/Ertrag (siehe Kommentar bei der
+        ersten Terminierung dieser Methode weiter oben). Prueft periodisch,
+        ob eines dieser Charts sichtbar ist UND seine tatsaechliche Canvas-
+        Groesse von der zuletzt synchronisierten Figure-Groesse abweicht -
+        nur dann wird einmalig resynchronisiert.
+        """
+        try:
+            for tab_attr in ("historical_tab", "tagesproduktion_tab"):
+                tab = getattr(self, tab_attr, None)
+                if tab is None:
+                    continue
+                canvas_widget = getattr(tab, "canvas_widget", None)
+                resize_fn = getattr(tab, "_resize_canvas_now", None)
+                if canvas_widget is None or not callable(resize_fn):
+                    continue
+                try:
+                    if not canvas_widget.winfo_ismapped():
+                        continue
+                    w = int(canvas_widget.winfo_width() or 0)
+                    h = int(canvas_widget.winfo_height() or 0)
+                    last_w, last_h = getattr(tab, "_last_synced_wh", (0, 0))
+                    if w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
+                        resize_fn()
+                except Exception:
+                    pass
+
+            ertrag_tab = getattr(self, "ertrag_tab", None)
+            energy_chart = getattr(ertrag_tab, "energy_chart", None) if ertrag_tab else None
+            if energy_chart is not None:
+                canvas_widget = getattr(energy_chart, "canvas_widget", None)
+                refresh_fn = getattr(energy_chart, "refresh_size", None)
+                if canvas_widget is not None and callable(refresh_fn):
+                    try:
+                        if canvas_widget.winfo_ismapped():
+                            w = int(canvas_widget.winfo_width() or 0)
+                            h = int(canvas_widget.winfo_height() or 0)
+                            last_w, last_h = getattr(energy_chart, "_last_synced_wh", (0, 0))
+                            if w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
+                                refresh_fn()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        finally:
+            try:
+                self.root.after(1000, self._watch_lazy_tab_charts)
+            except Exception:
+                pass
+
     def _apply_compact_height_budget(self) -> None:
         """Compute available height by subtracting fixed chrome from the root."""
         try:
@@ -1699,6 +1773,28 @@ class MainApp:
 
 
 def run():
+    # Zentrales File-Logging fuer die ganze App: der Nutzer startet nicht
+    # ueber eine Konsole, kann also weder stdout noch das Standard-
+    # "handler of last resort" (nur WARNING+ auf stderr, ohne Datei) sehen.
+    # Ohne diesen Handler landen z.B. alle logging.info(...)-Aufrufe in
+    # tabs/tado.py (Geraete-URL, Button-Klicks, Browser-Oeffnen-Versuche)
+    # nirgendwo, wo sie abrufbar waeren. Schreibt bei jedem Start frisch
+    # (mode="w"), damit der Log genau die aktuelle Session zeigt.
+    try:
+        log_path = os.path.join(_PROJECT_ROOT, "data", "app_debug.log")
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        ))
+        root_logger.addHandler(file_handler)
+        logging.info("=== App-Start, File-Logging aktiv: %s ===", log_path)
+    except Exception:
+        pass
+
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
     root = ctk.CTk()
