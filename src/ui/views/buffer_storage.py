@@ -343,6 +343,11 @@ class BufferStorageView(tk.Frame):
                 self.mode_canvas.destroy()
             except Exception:
                 pass
+        if hasattr(self, "mode_canvas_container") and self.mode_canvas_container.winfo_exists():
+            try:
+                self.mode_canvas_container.destroy()
+            except Exception:
+                pass
         if hasattr(self, "mode_label") and self.mode_label.winfo_exists():
             try:
                 self.mode_label.destroy()
@@ -371,13 +376,25 @@ class BufferStorageView(tk.Frame):
 
         # Mode timeline bar under the heatmap - tall enough to carry hour
         # tick marks in addition to the start/end labels.
+        #
+        # WICHTIG: mode_canvas selbst nur mit height=76 zu konfigurieren hat
+        # nicht ausgereicht, um es klein zu halten, seit plot_frame durch die
+        # Grid-Gewichtung (body-Zeile fuer die Puffer-Karte) viel groesser
+        # geworden ist - die Zeitleiste wurde dadurch zu einer grossen,
+        # groesstenteils leeren Flaeche ("der Platz wo der Betriebsmodus
+        # angezeigt wird ist sehr gross"). Ein eigener Container mit
+        # pack_propagate(False) UND fill=X (kein expand) erzwingt eine feste
+        # Hoehe garantiert, unabhaengig davon, wie gross plot_frame wird.
+        self.mode_canvas_container = tk.Frame(self.plot_frame, height=80, bg=COLOR_CARD)
+        self.mode_canvas_container.pack(side=tk.BOTTOM, fill=tk.X)
+        self.mode_canvas_container.pack_propagate(False)
+
         self.mode_canvas = tk.Canvas(
-            self.plot_frame,
-            height=76,
+            self.mode_canvas_container,
             bg=COLOR_CARD,
             highlightthickness=0,
         )
-        self.mode_canvas.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 2))
+        self.mode_canvas.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 2))
         try:
             self.mode_canvas.bind("<Configure>", lambda _evt: self._draw_mode_timeline())
         except Exception:
