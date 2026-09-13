@@ -24,6 +24,7 @@ from ui.styles import (
 )
 from ui.views.energy_chart import build_energy_chart
 from ui.components.tab_shell import TabShell
+from ui.components.metric_tile import MetricTile
 
 # Austrian energy price defaults (EUR/kWh)
 _STROMPREIS_EUR_KWH = 0.25
@@ -60,10 +61,12 @@ class ErtragTab:
         self._period_var = tk.StringVar(value="7 Tage")
         self._period_map: dict[str, int] = {"7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
 
-        # Layout like HistoricalTab: topbar + plot card + status line
+        # Layout like HistoricalTab: topbar + portrait metrics panel + plot card + status line
         self.tab_frame.grid_rowconfigure(0, minsize=56)
-        self.tab_frame.grid_rowconfigure(1, weight=1)
-        self.tab_frame.grid_rowconfigure(2, minsize=40)
+        # Portrait-only metrics panel; hidden (minsize=0) until set_portrait_layout(True).
+        self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
+        self.tab_frame.grid_rowconfigure(2, weight=1)
+        self.tab_frame.grid_rowconfigure(3, minsize=40)
         self.tab_frame.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self.tab_frame, bg=COLOR_CARD)
@@ -98,8 +101,29 @@ class ErtragTab:
         self.topbar_status = tk.Label(topbar, text="", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE, "bold"))
         self.topbar_status.pack(side=tk.RIGHT)
 
+        # Portrait-only metrics panel: mirrors the stats_frame values below so
+        # the extra vertical height in portrait mode isn't left empty. Built
+        # eagerly but not gridded until set_portrait_layout(True) grids it.
+        self.metrics_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
+        for col in range(3):
+            self.metrics_frame.grid_columnconfigure(col, weight=1)
+        for row in range(2):
+            self.metrics_frame.grid_rowconfigure(row, weight=1)
+        self._metric_tiles: dict[str, MetricTile] = {}
+        tile_specs = [
+            ("pv", "PV-Ertrag", COLOR_TEXT),
+            ("verbrauch", "Verbrauch", COLOR_SUBTEXT),
+            ("diff", "Differenz", COLOR_SUBTEXT),
+            ("autarkie", "Autarkie", COLOR_SUCCESS),
+            ("ersparnis", "Ersparnis", COLOR_PRIMARY),
+        ]
+        for idx, (key, caption, color) in enumerate(tile_specs):
+            tile = MetricTile(self.metrics_frame, caption, value_color=color)
+            tile.grid(row=idx // 3, column=idx % 3, sticky="nsew", padx=4, pady=4)
+            self._metric_tiles[key] = tile
+
         plot_container = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        plot_container.grid(row=1, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
+        plot_container.grid(row=2, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 
@@ -128,7 +152,7 @@ class ErtragTab:
         self.energy_chart.canvas_widget.bind("<Map>", lambda _event: self.energy_chart.refresh_size())
 
         stats_frame = tk.Frame(self.tab_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
-        stats_frame.grid(row=2, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
+        stats_frame.grid(row=3, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
         self.var_sum = tk.StringVar(value="PV: -- kWh")
         self.var_avg = tk.StringVar(value="Verbrauch: -- kWh")
         self.var_last = tk.StringVar(value="Δ: -- kWh")
@@ -149,6 +173,17 @@ class ErtragTab:
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
             self._shell.set_portrait_layout(portrait)
+        if portrait:
+            self.tab_frame.grid_rowconfigure(1, minsize=150, weight=0)
+            self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
+        else:
+            self.metrics_frame.grid_remove()
+            self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
+
+    def _set_tile(self, key: str, text: str) -> None:
+        tile = getattr(self, "_metric_tiles", {}).get(key)
+        if tile is not None:
+            tile.set_value(text)
 
     def stop(self):
         self.alive = False
@@ -493,21 +528,28 @@ class ErtragTab:
         self.var_sum.set(f"PV ({label}): {pv_kwh:.1f} kWh")
         self.var_avg.set(f"Verbrauch: {load_kwh:.1f} kWh")
         self.var_last.set(f"Δ: {diff_kwh:+.1f} kWh")
+        self._set_tile("pv", f"{pv_kwh:.1f} kWh")
+        self._set_tile("verbrauch", f"{load_kwh:.1f} kWh")
+        self._set_tile("diff", f"{diff_kwh:+.1f} kWh")
 
         # Autarkiegrad: 1 - (Netzbezug / Gesamtverbrauch)
         if load_kwh > 0.1:
             autarkie_pct = max(0.0, min(100.0, (1.0 - grid_import_kwh / load_kwh) * 100.0))
             self.var_autarkie.set(f"Autarkie: {autarkie_pct:.0f}%")
+            self._set_tile("autarkie", f"{autarkie_pct:.0f}%")
         else:
             self.var_autarkie.set("Autarkie: --%")
+            self._set_tile("autarkie", "--%")
 
         # Kostenersparnis: Eigenverbrauch × Strompreis + Einspeisung × Einspeisetarif
         eigenverbrauch_kwh = max(0.0, pv_kwh - grid_export_kwh)
         ersparnis_eur = eigenverbrauch_kwh * _STROMPREIS_EUR_KWH + grid_export_kwh * _EINSPEISETARIF_EUR_KWH
         if pv_kwh > 0.1:
             self.var_ersparnis.set(f"Ersparnis: {ersparnis_eur:.2f} €")
+            self._set_tile("ersparnis", f"{ersparnis_eur:.2f} €")
         else:
             self.var_ersparnis.set("Ersparnis: -- €")
+            self._set_tile("ersparnis", "-- €")
 
         # Monatsvergleich (last 3 months)
         try:

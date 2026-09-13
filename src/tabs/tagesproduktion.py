@@ -29,6 +29,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.tab_shell import TabShell
+from ui.components.metric_tile import MetricTile
 
 
 class TagesproduktionTab(tk.Frame):
@@ -83,8 +84,10 @@ class TagesproduktionTab(tk.Frame):
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(0, minsize=56)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, minsize=40)
+        # Portrait-only metrics panel; hidden (minsize=0) until set_portrait_layout(True).
+        self.grid_rowconfigure(1, minsize=0, weight=0)
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, minsize=40)
         self.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self, bg=COLOR_ROOT)
@@ -116,8 +119,28 @@ class TagesproduktionTab(tk.Frame):
             self._period_buttons[period] = btn
         self._update_period_button_colors()
 
+        # Portrait-only metrics panel: summary numbers already computed in
+        # _update_plot(), shown so the extra vertical height in portrait mode
+        # isn't left empty. Built eagerly but not gridded until
+        # set_portrait_layout(True) grids it.
+        self.metrics_frame = tk.Frame(self, bg=COLOR_ROOT)
+        for col in range(4):
+            self.metrics_frame.grid_columnconfigure(col, weight=1)
+        self.metrics_frame.grid_rowconfigure(0, weight=1)
+        self._metric_tiles: dict[str, MetricTile] = {}
+        tile_specs = [
+            ("total", "Gesamt"),
+            ("average", "Ø Tag"),
+            ("peak", "Maximum"),
+            ("last", "Letzter Tag"),
+        ]
+        for idx, (key, caption) in enumerate(tile_specs):
+            tile = MetricTile(self.metrics_frame, caption)
+            tile.grid(row=0, column=idx, sticky="nsew", padx=4, pady=4)
+            self._metric_tiles[key] = tile
+
         plot_container = tk.Frame(self, bg=COLOR_ROOT)
-        plot_container.grid(row=1, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
+        plot_container.grid(row=2, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 
@@ -167,11 +190,35 @@ class TagesproduktionTab(tk.Frame):
             font=("Segoe UI", 11),
             anchor="w",
         )
-        self.statusbar.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
+        self.statusbar.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 10))
 
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
             self._shell.set_portrait_layout(portrait)
+        if portrait:
+            self.grid_rowconfigure(1, minsize=100, weight=0)
+            self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
+        else:
+            self.metrics_frame.grid_remove()
+            self.grid_rowconfigure(1, minsize=0, weight=0)
+
+    def _update_metric_tiles(
+        self,
+        total: float | None = None,
+        average: float | None = None,
+        peak: float | None = None,
+        last_val: float | None = None,
+    ) -> None:
+        if not hasattr(self, "_metric_tiles"):
+            return
+
+        def _fmt(v: float | None) -> str:
+            return f"{v:.1f} kWh" if v is not None and np.isfinite(v) else "--"
+
+        self._metric_tiles["total"].set_value(_fmt(total))
+        self._metric_tiles["average"].set_value(_fmt(average))
+        self._metric_tiles["peak"].set_value(_fmt(peak))
+        self._metric_tiles["last"].set_value(_fmt(last_val))
 
     def _select_period(self, period: str) -> None:
         self._period_var.set(period)
@@ -354,6 +401,7 @@ class TagesproduktionTab(tk.Frame):
                 fontsize=10,
             )
             self.statusbar.configure(text="Keine Daten im Zeitraum")
+            self._update_metric_tiles()
             self._apply_layout()
             self.canvas.draw_idle()
             self._schedule_update()
@@ -413,6 +461,7 @@ class TagesproduktionTab(tk.Frame):
         valid_values = ys[np.isfinite(ys)]
         if valid_values.size == 0:
             self.statusbar.configure(text=f"Zeitraum: {self._period_var.get()}")
+            self._update_metric_tiles()
         else:
             total = float(np.sum(valid_values))
             average = float(np.mean(valid_values))
@@ -424,6 +473,7 @@ class TagesproduktionTab(tk.Frame):
                     f"  •  Ø Tag: {average:.1f} kWh  •  Maximum: {peak:.1f} kWh{last_text}"
                 )
             )
+            self._update_metric_tiles(total, average, peak, last_val)
 
         self._apply_layout()
         # Full draw (not draw_idle) to avoid ghost pixels / overlays.

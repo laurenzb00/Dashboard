@@ -32,6 +32,7 @@ from ui.styles import (
     emoji,
 )
 from ui.components.tab_shell import TabShell
+from ui.components.metric_tile import MetricTile
 
 
 class HistoricalTab(tk.Frame):
@@ -85,8 +86,10 @@ class HistoricalTab(tk.Frame):
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(0, minsize=56)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, minsize=40)
+        # Portrait-only metrics panel; hidden (minsize=0) until set_portrait_layout(True).
+        self.grid_rowconfigure(1, minsize=0, weight=0)
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, minsize=40)
         self.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self, bg=COLOR_ROOT)
@@ -129,8 +132,30 @@ class HistoricalTab(tk.Frame):
             self._period_buttons[period] = btn
         self._update_period_button_colors()
 
+        # Portrait-only metrics panel: latest value per series, shown so the
+        # extra vertical height in portrait mode isn't left empty. Built
+        # eagerly but not gridded until set_portrait_layout(True) grids it.
+        self.metrics_frame = tk.Frame(self, bg=COLOR_ROOT)
+        for col in range(3):
+            self.metrics_frame.grid_columnconfigure(col, weight=1)
+        for row in range(2):
+            self.metrics_frame.grid_rowconfigure(row, weight=1)
+        self._metric_tiles: dict[str, MetricTile] = {}
+        tile_specs = [
+            ("top", "Puffer oben", COLOR_PRIMARY),
+            ("mid", "Puffer mitte", COLOR_INFO),
+            ("bot", "Puffer unten", COLOR_WARNING),
+            ("kessel", "Kessel", COLOR_DANGER),
+            ("warm", "Warmwasser", COLOR_SUCCESS),
+            ("outdoor", "Außen", COLOR_SUBTEXT),
+        ]
+        for idx, (key, caption, color) in enumerate(tile_specs):
+            tile = MetricTile(self.metrics_frame, caption, value_color=color)
+            tile.grid(row=idx // 3, column=idx % 3, sticky="nsew", padx=4, pady=4)
+            self._metric_tiles[key] = tile
+
         plot_container = tk.Frame(self, bg=COLOR_ROOT)
-        plot_container.grid(row=1, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
+        plot_container.grid(row=2, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
         plot_container.grid_rowconfigure(0, weight=1)
         plot_container.grid_columnconfigure(0, weight=1)
 
@@ -179,11 +204,17 @@ class HistoricalTab(tk.Frame):
             font=("Segoe UI", 11),
             anchor="w",
         )
-        self.statusbar.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 10))
+        self.statusbar.grid(row=3, column=0, sticky="ew", padx=10, pady=(6, 10))
 
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
             self._shell.set_portrait_layout(portrait)
+        if portrait:
+            self.grid_rowconfigure(1, minsize=150, weight=0)
+            self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
+        else:
+            self.metrics_frame.grid_remove()
+            self.grid_rowconfigure(1, minsize=0, weight=0)
 
     @staticmethod
     def _parse_ts(value) -> datetime | None:
@@ -468,6 +499,7 @@ class HistoricalTab(tk.Frame):
                 self.ax.xaxis.get_offset_text().set_visible(False)
             except Exception:
                 pass
+            self._update_metric_tiles(None)
             self._render_status(hours, 0, archive=using_archive)
             self._apply_layout()
             self.canvas.draw_idle()
@@ -493,6 +525,8 @@ class HistoricalTab(tk.Frame):
 
         if bin_hours:
             times_sorted, ordered_series = self._downsample_timeseries(times_sorted, ordered_series, bin_hours)
+
+        self._update_metric_tiles(ordered_series)
 
         plot_defs = [
             ("top", "Puffer oben", COLOR_PRIMARY, "-"),
@@ -543,6 +577,20 @@ class HistoricalTab(tk.Frame):
         self._render_status(hours, len(times_sorted), valid_values, archive=using_archive)
         self.canvas.draw_idle()
         self._schedule_update()
+
+    def _update_metric_tiles(self, ordered_series: dict[str, np.ndarray] | None) -> None:
+        if not hasattr(self, "_metric_tiles"):
+            return
+        for key, tile in self._metric_tiles.items():
+            value = None
+            if ordered_series is not None:
+                arr = ordered_series.get(key)
+                if arr is not None:
+                    for v in reversed(arr):
+                        if np.isfinite(v):
+                            value = float(v)
+                            break
+            tile.set_value(f"{value:.1f} °C" if value is not None else "--")
 
     def _render_status(self, hours: int, points: int, valid_values: list[float] | None = None, archive: bool = False) -> None:
         # Show the selected period label instead of huge hour numbers.
