@@ -680,6 +680,11 @@ class MainApp:
         self.status.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         self._apply_fullscreen()
         self.build_tabs()
+        # Re-style the tab bar now that every tab actually exists - the
+        # earlier call (right after tabview creation, before any tab but
+        # "Energie" was added) had no way to know the real, final tab
+        # count, so it couldn't size the font to actually fit all of them.
+        self._style_tabview_buttons()
         # Keep the header Hue switch in sync with the bridge state.
         self._start_hue_switch_sync()
         # Initial update_tick delayed, then runs every 2000ms
@@ -784,14 +789,43 @@ class MainApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _style_tabview_buttons(self) -> None:
-        """Make the active tab more readable and improve contrast."""
+        """Make the active tab more readable and improve contrast.
+
+        Called once early (before any tab besides "Energie" exists, so the
+        segmented button just gets these as its defaults for segments added
+        later) and again from __init__ once build_tabs() has actually added
+        every tab (Licht/HomeA/Spotify/Raumtemperatur/Kalender/Historie/
+        Ertrag/Tagesproduktion/Health/...). On a narrow portrait screen, up
+        to ~10 segments sharing that width at a fixed larger font simply
+        clip their neighbors ("Raumtemperatur", "Tagesproduktion" and
+        others were visibly cut off) instead of wrapping - CTkSegmentedButton
+        doesn't wrap text, so the only fix is a smaller font once there are
+        enough tabs to actually be tight on space.
+        """
         try:
             segmented = getattr(self.tabview, "_segmented_button", None)
             if segmented is None:
                 return
+            tab_count = 1
+            try:
+                name_list = getattr(self.tabview, "_name_list", None)
+                if name_list:
+                    tab_count = max(1, len(name_list))
+            except Exception:
+                pass
+            portrait = bool(getattr(self, "_portrait_screen", False))
+            if portrait:
+                if tab_count >= 9:
+                    font_size, height = 12, 58
+                elif tab_count >= 7:
+                    font_size, height = 14, 62
+                else:
+                    font_size, height = 17, 70
+            else:
+                font_size, height = 16, 64
             segmented.configure(
-                font=get_safe_font("Bahnschrift", 17 if getattr(self, "_portrait_screen", False) else 16, "bold"),
-                height=70 if getattr(self, "_portrait_screen", False) else 64,
+                font=get_safe_font("Bahnschrift", font_size, "bold"),
+                height=height,
                 corner_radius=20,
                 border_width=1,
                 border_color=COLOR_BORDER,
