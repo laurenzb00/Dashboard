@@ -62,7 +62,11 @@ class ErtragTab:
         self._period_map: dict[str, int] = {"7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
 
         # Layout like HistoricalTab: topbar + portrait metrics panel + plot card + status line
-        self.tab_frame.grid_rowconfigure(0, minsize=56)
+        # self.tab_frame is TabShell.body, whose own __init__ sets row 0 to
+        # weight=1 (for its original single-child layout) - reset it here or
+        # the topbar row competes with the chart row for extra height and
+        # ends up vertically centered with blank space above/below it.
+        self.tab_frame.grid_rowconfigure(0, minsize=56, weight=0)
         # Portrait-only metrics panel; hidden (minsize=0) until set_portrait_layout(True).
         self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
         self.tab_frame.grid_rowconfigure(2, weight=1)

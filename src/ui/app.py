@@ -1322,7 +1322,12 @@ class MainApp:
                 tab = getattr(self, tab_name, None)
                 setter = getattr(tab, "set_portrait_layout", None) if tab else None
                 if callable(setter):
-                    setter(portrait)
+                    try:
+                        setter(portrait)
+                    except Exception:
+                        # Don't let one tab's failure abort the loop and
+                        # silently skip every tab listed after it.
+                        logger.debug("set_portrait_layout failed for %s", tab_name, exc_info=True)
 
             if portrait:
                 self.body.grid_columnconfigure(0, weight=1, minsize=0)
