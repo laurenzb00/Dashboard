@@ -210,7 +210,15 @@ class EnergyFlowView(tk.Frame):
         self.ring_gap = max(_s(8), int(self.node_radius * 0.22))
         self.nodes = self._define_nodes()
         self._base_img = self._render_background()
-        self.canvas.config(width=new_w, height=new_h)
+        # NICHT self.canvas.config(width=..., height=...) aufrufen: das Canvas
+        # wird bereits per pack(fill=BOTH, expand=True) korrekt auf new_w/new_h
+        # gross gehalten. Es hier zusaetzlich per config() auf genau dieselbe
+        # Groesse zu setzen, kollidiert mit dem Geometry-Manager und loest bei
+        # jedem Aufruf ein neues <Configure>-Event fuer dieses Canvas aus -
+        # das war die Endlos-Skalier-Schleife beim Start (dieser Handler ist
+        # direkt an <Configure> gebunden, konfiguriert das Canvas neu, was
+        # wiederum <Configure> erneut ausloest, in einer Schleife, die nie zur
+        # Ruhe kommt).
 
         if self._last_flows:
             pv, load, grid, batt, soc = self._last_flows
@@ -231,9 +239,13 @@ class EnergyFlowView(tk.Frame):
         old_w, old_h = self.width, self.height
         width = max(240, int(width))
         height = max(200, int(height))
-        
-        # Only update canvas config and internal dimensions
-        self.canvas.config(width=width, height=height)
+
+        # Only update internal dimensions. Do NOT call self.canvas.config(
+        # width=..., height=...) here - the canvas is already sized by
+        # pack(fill=BOTH, expand=True), and re-configuring it to the same
+        # size fights the geometry manager and re-triggers <Configure> on
+        # the canvas, which is what caused the endless resize loop (see
+        # _on_canvas_resize for the full explanation).
         self.width = width
         self.height = height
         self.node_radius = self._compute_node_radius()
