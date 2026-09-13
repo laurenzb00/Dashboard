@@ -71,6 +71,11 @@ class TagesproduktionTab(tk.Frame):
             self._shell = TabShell(tab_frame, "Tagesproduktion", "PV-Ertrag pro Tag")
             self._shell.pack(fill=tk.BOTH, expand=True)
             self.pack(in_=self._shell.body, fill=tk.BOTH, expand=True)
+            # self is a sibling of _shell under tab_frame (packed "in" the
+            # shell's body region), so it must be explicitly raised above
+            # _shell or the shell's body frame paints over it and hides
+            # everything (topbar, chart, statusbar).
+            self.tkraise()
 
         self._resize_job = None
         self._build_ui()
