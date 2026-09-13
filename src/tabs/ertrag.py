@@ -122,6 +122,10 @@ class ErtragTab:
         # Backstop resize: the canvas widget's own <Configure> can fire with a
         # stale size when this tab is built while hidden behind another tab.
         self.chart_frame.bind("<Configure>", lambda _event: self.energy_chart.refresh_size())
+        # <Map> fires reliably when this tab (previously grid_forgotten by
+        # CTkTabview while another tab was active) becomes visible again -
+        # <Configure> alone isn't a reliable signal for that transition.
+        self.energy_chart.canvas_widget.bind("<Map>", lambda _event: self.energy_chart.refresh_size())
 
         stats_frame = tk.Frame(self.tab_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
         stats_frame.grid(row=2, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))

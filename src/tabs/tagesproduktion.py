@@ -154,6 +154,10 @@ class TagesproduktionTab(tk.Frame):
             pass
         self.canvas_widget.pack(fill=tk.BOTH, expand=True)
         self.canvas_widget.bind("<Configure>", self._on_canvas_resize)
+        # <Map> fires reliably when this tab (previously grid_forgotten by
+        # CTkTabview while another tab was active) becomes visible again -
+        # <Configure> alone isn't a reliable signal for that transition.
+        self.canvas_widget.bind("<Map>", self._on_canvas_resize)
 
         self.statusbar = tk.Label(
             self,
