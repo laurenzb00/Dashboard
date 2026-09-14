@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Optional
@@ -141,6 +142,14 @@ class EnergyChart:
         try:
             w = int(self.canvas_widget.winfo_width() or 0)
             h = int(self.canvas_widget.winfo_height() or 0)
+            try:
+                mapped = bool(self.canvas_widget.winfo_ismapped())
+                logging.info(
+                    "[ERTRAG-RESIZE] refresh_size canvas=%sx%s mapped=%s last_synced=%s",
+                    w, h, mapped, self._last_synced_wh,
+                )
+            except Exception:
+                pass
             if not self._sync_size(w, h):
                 return
             self._apply_layout(w, h)
@@ -152,6 +161,13 @@ class EnergyChart:
         try:
             w = max(1, int(getattr(event, "width", 1)))
             h = max(1, int(getattr(event, "height", 1)))
+            try:
+                logging.info(
+                    "[ERTRAG-RESIZE] on_resize event w=%s h=%s last_synced=%s",
+                    w, h, self._last_synced_wh,
+                )
+            except Exception:
+                pass
             if not self._sync_size(w, h):
                 return
             self._apply_layout(w, h)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
@@ -324,6 +325,16 @@ class HistoricalTab(tk.Frame):
         try:
             w = int(self.canvas_widget.winfo_width() or 0)
             h = int(self.canvas_widget.winfo_height() or 0)
+            try:
+                cf_w = int(self.chart_frame.winfo_width() or 0)
+                cf_h = int(self.chart_frame.winfo_height() or 0)
+                mapped = bool(self.canvas_widget.winfo_ismapped())
+                logging.info(
+                    "[HIST-RESIZE] canvas=%sx%s chart_frame=%sx%s mapped=%s last_synced=%s",
+                    w, h, cf_w, cf_h, mapped, self._last_synced_wh,
+                )
+            except Exception:
+                pass
             if not self._sync_size(w, h):
                 return
             self._apply_layout()

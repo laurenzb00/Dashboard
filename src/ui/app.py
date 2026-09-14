@@ -1301,6 +1301,9 @@ class MainApp:
         Groesse von der zuletzt synchronisierten Figure-Groesse abweicht -
         nur dann wird einmalig resynchronisiert.
         """
+        tick = int(getattr(self, "_watch_lazy_tab_charts_tick", 0)) + 1
+        self._watch_lazy_tab_charts_tick = tick
+        log_this_tick = (tick % 5 == 0)  # ca. alle 5s eine Debug-Zeile pro Tab
         try:
             for tab_attr in ("historical_tab", "tagesproduktion_tab"):
                 tab = getattr(self, tab_attr, None)
@@ -1311,15 +1314,22 @@ class MainApp:
                 if canvas_widget is None or not callable(resize_fn):
                     continue
                 try:
-                    if not canvas_widget.winfo_ismapped():
-                        continue
+                    mapped = canvas_widget.winfo_ismapped()
                     w = int(canvas_widget.winfo_width() or 0)
                     h = int(canvas_widget.winfo_height() or 0)
                     last_w, last_h = getattr(tab, "_last_synced_wh", (0, 0))
+                    if log_this_tick:
+                        logging.info(
+                            "[WATCHDOG] %s mapped=%s canvas=%sx%s last_synced=%sx%s",
+                            tab_attr, mapped, w, h, last_w, last_h,
+                        )
+                    if not mapped:
+                        continue
                     if w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
+                        logging.info("[WATCHDOG] %s Groessenabweichung erkannt -> resize_fn()", tab_attr)
                         resize_fn()
                 except Exception:
-                    pass
+                    logging.exception("[WATCHDOG] Fehler bei %s", tab_attr)
 
             ertrag_tab = getattr(self, "ertrag_tab", None)
             energy_chart = getattr(ertrag_tab, "energy_chart", None) if ertrag_tab else None
@@ -1328,16 +1338,22 @@ class MainApp:
                 refresh_fn = getattr(energy_chart, "refresh_size", None)
                 if canvas_widget is not None and callable(refresh_fn):
                     try:
-                        if canvas_widget.winfo_ismapped():
-                            w = int(canvas_widget.winfo_width() or 0)
-                            h = int(canvas_widget.winfo_height() or 0)
-                            last_w, last_h = getattr(energy_chart, "_last_synced_wh", (0, 0))
-                            if w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
-                                refresh_fn()
+                        mapped = canvas_widget.winfo_ismapped()
+                        w = int(canvas_widget.winfo_width() or 0)
+                        h = int(canvas_widget.winfo_height() or 0)
+                        last_w, last_h = getattr(energy_chart, "_last_synced_wh", (0, 0))
+                        if log_this_tick:
+                            logging.info(
+                                "[WATCHDOG] ertrag_tab mapped=%s canvas=%sx%s last_synced=%sx%s",
+                                mapped, w, h, last_w, last_h,
+                            )
+                        if mapped and w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
+                            logging.info("[WATCHDOG] ertrag_tab Groessenabweichung erkannt -> refresh_fn()")
+                            refresh_fn()
                     except Exception:
-                        pass
+                        logging.exception("[WATCHDOG] Fehler bei ertrag_tab")
         except Exception:
-            pass
+            logging.exception("[WATCHDOG] Fehler im Haupt-Loop")
         finally:
             try:
                 self.root.after(1000, self._watch_lazy_tab_charts)
