@@ -821,17 +821,28 @@ class TadoTab:
                 status = self.api.device_activation_status()
                 logging.debug("[TADO] device_activation_status: %s", status)
                 if status != "COMPLETED":
+                    # WICHTIG: Laut PyTado-Doku liefert device_verification_url()
+                    # erst ab Status PENDING eine echte URL - waehrend
+                    # NOT_STARTED ist sie None (der Device-Code-Flow ist auf
+                    # Tado's Servern noch gar nicht registriert). Der Code hier
+                    # hat die URL bisher VOR dieser Wartezeit abgerufen und sie
+                    # danach nie neu geholt - "url" blieb dadurch dauerhaft
+                    # None, der Aktivierungs-Hinweis/Button im UI blieb leer
+                    # ("Tado Aktivierung fehlgeschlagen. URL: None"), obwohl
+                    # nach dem Warten auf PENDING eine echte URL verfuegbar
+                    # gewesen waere. Fix: erst warten, DANN die URL holen.
+                    start = time.time()
+                    while status == "NOT_STARTED" and (time.time() - start) < 10:
+                        time.sleep(1)
+                        status = self.api.device_activation_status()
+
                     url = self._normalize_device_url(self.api.device_verification_url())
                     if url:
                         logging.info("[TADO] Device activation URL: %s", url)
                         self._ui_set(self.var_status, "Tado: Bitte Gerät im Browser aktivieren")
                         self._set_hint(f"Aktivierung erforderlich: {url}", device_url=url)
-
-                    # Wait until flow is pending before activation
-                    start = time.time()
-                    while status == "NOT_STARTED" and (time.time() - start) < 10:
-                        time.sleep(1)
-                        status = self.api.device_activation_status()
+                    else:
+                        logging.warning("[TADO] Keine Verification-URL erhalten (status=%s)", status)
 
                     if status == "PENDING":
                         self.api.device_activation()
@@ -839,6 +850,8 @@ class TadoTab:
                         logging.debug("[TADO] Status nach Aktivierung: %s", status)
 
                     if status != "COMPLETED":
+                        # Nochmal versuchen, falls sich seit oben etwas geaendert hat.
+                        url = self._normalize_device_url(self.api.device_verification_url()) or url
                         self._ui_set(self.var_status, "Tado Aktivierung fehlgeschlagen")
                         # Keep URL available for manual activation
                         self._set_hint(f"Aktivierung nicht abgeschlossen. URL: {url}", device_url=url)
