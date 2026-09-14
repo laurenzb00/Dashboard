@@ -202,7 +202,17 @@ class HeaderBar(ctk.CTkFrame):
         top_row.pack(anchor="ne", side=tk.TOP, fill=tk.X)
         top_row.grid_columnconfigure(0, weight=1)
         top_row.grid_columnconfigure(1, weight=0)
-        top_row.grid_columnconfigure(2, weight=0)
+
+        # Kleines Thermometer-Icon vor dem Wert - passend zum Rest des
+        # Headers, wo jede Aktion/jeder Wert (Weg/Zuhause/Dusche, Licht)
+        # bereits ein eigenes Icon hat statt nur nacktem Text.
+        self.out_temp_icon = ctk.CTkLabel(
+            top_row,
+            text="🌡️",
+            font=get_safe_font("Bahnschrift", 14),
+            text_color=COLOR_WARNING,
+        )
+        self.out_temp_icon.grid(row=0, column=0, sticky="e", padx=(0, 6))
 
         self.out_temp_label = ctk.CTkLabel(
             top_row,
@@ -211,7 +221,7 @@ class HeaderBar(ctk.CTkFrame):
             text_color=COLOR_WARNING,
             anchor="e",
         )
-        self.out_temp_label.grid(row=0, column=0, sticky="e")
+        self.out_temp_label.grid(row=0, column=1, sticky="e")
         
         self.out_temp_time = ctk.CTkLabel(
             right, 
@@ -247,6 +257,7 @@ class HeaderBar(ctk.CTkFrame):
             self.weekday_label.configure(font=get_safe_font("Bahnschrift", 15))
             self.clock_label.configure(font=get_safe_font("Bahnschrift", 56, "bold"))
             self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 20, "bold"))
+            self.out_temp_icon.configure(font=get_safe_font("Bahnschrift", 17))
             self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 12))
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
                 button.configure(width=82, height=56, font=get_safe_font("Bahnschrift", 23, "bold"))

@@ -796,10 +796,17 @@ class MainApp:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    # strftime("%A") haengt vom System-Locale ab, das auf dem Pi nicht auf
+    # Deutsch gesetzt ist - deshalb stand im Header bisher "Monday" statt
+    # "Montag", obwohl der Rest der App komplett deutsch ist. Eine feste
+    # Liste statt locale.setlocale(), weil ein fehlendes de_DE-Locale-Paket
+    # auf dem Pi sonst beim Start eine Exception werfen wuerde.
+    _WEEKDAYS_DE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+
     def _update_header_datetime(self):
         now = datetime.now()
         date_text = now.strftime("%d.%m.%Y")
-        weekday = now.strftime("%A")
+        weekday = self._WEEKDAYS_DE[now.weekday()]
         time_text = now.strftime("%H:%M")
         # Use cached outdoor temp (updated asynchronously)
         if not hasattr(self, '_cached_out_temp'):
@@ -841,10 +848,17 @@ class MainApp:
             segmented = getattr(self.tabview, "_segmented_button", None)
             if segmented is None:
                 return
+            # Etwas kompakter als vorher (17/16pt, 70/64px hoch, corner_radius
+            # 20): bei 10-11 Tabs (Energie/Licht/HomeA/Spotify/Raum/Kalender/
+            # Historie/Ertrag/Tagesprod./Status/Health) lief die Tab-Leiste
+            # sonst rechts (und teils auch links) über den Bildschirmrand
+            # hinaus, sodass die äußeren Tabs abgeschnitten wurden. Kleinere
+            # Schrift/Höhe/Eckenradius sparen an jedem Tab ein paar Pixel -
+            # zusammen mit den gekürzten Tab-Namen sollte das jetzt reichen.
             segmented.configure(
-                font=get_safe_font("Bahnschrift", 17 if getattr(self, "_portrait_screen", False) else 16, "bold"),
-                height=70 if getattr(self, "_portrait_screen", False) else 64,
-                corner_radius=20,
+                font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
+                height=60 if getattr(self, "_portrait_screen", False) else 54,
+                corner_radius=14,
                 border_width=1,
                 border_color=COLOR_BORDER,
                 fg_color=COLOR_CARD,
@@ -922,8 +936,13 @@ class MainApp:
         if TadoTab:
             try:
                 _dbg_print("[TABS] TadoTab wird erstellt...")
-                self.tabview.add(emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
-                tado_frame = self.tabview.tab(emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
+                # Gekuerzt ("Raumtemperatur" -> "Raum"): der volle Name war
+                # einer der Hauptgruende, warum die Tab-Leiste bei 10 Tabs
+                # rechts/links ueber den Bildschirmrand hinaus lief und Tabs
+                # abgeschnitten wurden. Der volle Titel steht weiterhin oben
+                # im Tab selbst (TabShell in tado.py).
+                self.tabview.add(emoji("🌡️ Raum", "Raum"))
+                tado_frame = self.tabview.tab(emoji("🌡️ Raum", "Raum"))
                 try:
                     tado_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -984,8 +1003,9 @@ class MainApp:
         if TagesproduktionTab:
             try:
                 _dbg_print("[TABS] TagesproduktionTab wird erstellt...")
-                self.tabview.add(emoji("📊 Tagesproduktion", "Tagesproduktion"))
-                prod_frame = self.tabview.tab(emoji("📊 Tagesproduktion", "Tagesproduktion"))
+                # Gekuerzt, gleicher Grund wie beim Raum-Tab oben.
+                self.tabview.add(emoji("📊 Tagesprod.", "Tagesprod."))
+                prod_frame = self.tabview.tab(emoji("📊 Tagesprod.", "Tagesprod."))
                 try:
                     prod_frame.configure(fg_color=COLOR_ROOT)
                 except:

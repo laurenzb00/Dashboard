@@ -531,7 +531,17 @@ class EnergyFlowView(tk.Frame):
         self._draw_subtle_glow(draw, x, y, r, tint)
         # Radial gradient (subtle)
         self._draw_radial(draw, x, y, r, fill)
-        draw.ellipse([x - r, y - r, x + r, y + r], fill=fill, outline=None, width=0)
+        # Feinschliff: duenner, pro Knoten eingefaerbter Ring statt kantenlosem
+        # Kreis - macht jeden Knoten optisch zu einer klar umrissenen "Karte"
+        # in seiner eigenen Kategorie-Farbe (analog zu den farbigen Badges im
+        # ueberarbeiteten Dashboard-Stil), statt vier gleichfoermigen grauen
+        # Blobs, die sich nur durch das Icon unterscheiden.
+        draw.ellipse(
+            [x - r, y - r, x + r, y + r],
+            fill=fill,
+            outline=self._with_alpha(tint, 150),
+            width=max(2, int(r * 0.035)),
+        )
 
     def _text_center(self, draw: ImageDraw.ImageDraw, text: str, x: int, y: int, size: int, color: str = COLOR_TEXT, fontweight: str = "normal", outline: bool = False):
         # Use emoji font for emoji characters, otherwise use bold font
@@ -720,17 +730,22 @@ class EnergyFlowView(tk.Frame):
         # line with the glass-node look elsewhere in this diagram, and is
         # legible on any part of the gradient background without needing
         # the old 8-direction dark-pixel stroke around every glyph.
-        pad_x = 10
-        pad_y = 6
+        # Feinschliff: etwas mehr Innenabstand ("Pille" statt enger Box) und
+        # ein kraeftigerer, zweizeiliger Rand - passend zum jetzt sichtbaren
+        # Farbring an den Knoten, damit Chip und Knoten wie ein zusammen-
+        # gehoeriges Farbsystem wirken statt zwei unterschiedlich kraeftig
+        # gestalteten Elementen.
+        pad_x = 12
+        pad_y = 7
         txt_img = Image.new("RGBA", (w + pad_x * 2, h + pad_y * 2), (0, 0, 0, 0))
         tdraw = ImageDraw.Draw(txt_img)
         chip_box = [0, 0, w + pad_x * 2 - 1, h + pad_y * 2 - 1]
-        chip_radius = min(14, (h + pad_y * 2) // 2)
+        chip_radius = min(16, (h + pad_y * 2) // 2)
         tdraw.rounded_rectangle(
             chip_box,
             radius=chip_radius,
-            fill=self._with_alpha(COLOR_ROOT, 195),
-            outline=self._with_alpha(color, 130),
+            fill=self._with_alpha(COLOR_ROOT, 200),
+            outline=self._with_alpha(color, 170),
             width=1,
         )
         unit_color = self._tint(color, 0.45)
