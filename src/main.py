@@ -119,6 +119,39 @@ for noisy in [
 
 logger = logging.getLogger(__name__)
 
+# --- Zusaetzliches Debug-File-Logging in data/app_debug.log ---
+# WICHTIG: src/ui/app.py hat ein eigenes run()/if __name__=="__main__" mit
+# eigenem File-Logging-Setup - das wird aber NIE ausgefuehrt, weil start.sh
+# / start.bat tatsaechlich "python src/main.py" starten, welches MainApp
+# direkt instanziert und NIE app.run() aufruft. Ein dort eingebauter
+# FileHandler haette also nie funktioniert (daher fehlte data/app_debug.log
+# trotz Neustart). Hier, im tatsaechlich ausgefuehrten Einstiegspunkt, ist
+# es die richtige Stelle dafuer. Ziel-Ordner "data/" wurde bereits in
+# diesem Projekt erfolgreich fuer Debug-Dateien genutzt (layout_debug.txt),
+# die zuverlaessig zwischen diesem Rechner und dem Windows-Ordner
+# synchronisiert werden - im Gegensatz zu Dateien im Code-Verzeichnis
+# selbst, die nur per manuellem Pull aktualisiert werden.
+#
+# Root-Logger-Level wird auf INFO abgesenkt, damit z.B. tabs/tado.py's
+# logging.info(...)-Aufrufe (Button-Klicks, Geraete-URL, Browser-Oeffnen-
+# Versuche) ueberhaupt erst durchkommen - vorher wurden sie schon auf
+# Root-Logger-Ebene wegen WARNING gefiltert, bevor sie irgendeinen Handler
+# erreichten. Die Konsole (siehe "console" oben) bleibt bewusst bei
+# WARNING, damit dort nicht ploetzlich viel mehr Text erscheint.
+try:
+    _debug_log_path = Path(__file__).resolve().parent.parent / "data" / "app_debug.log"
+    _debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+    _debug_file_handler = logging.FileHandler(str(_debug_log_path), mode="w", encoding="utf-8")
+    _debug_file_handler.setLevel(logging.INFO)
+    _debug_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    _root_logger = logging.getLogger()
+    _root_logger.addHandler(_debug_file_handler)
+    if _root_logger.level > logging.INFO:
+        _root_logger.setLevel(logging.INFO)
+    logging.info("=== App-Start (main.py), Debug-File-Logging aktiv: %s ===", _debug_log_path)
+except Exception as _exc:
+    print(f"[DEBUG-LOG] Konnte data/app_debug.log nicht einrichten: {_exc}")
+
 shutdown_event = threading.Event()
 _CRASH_LOG_FILE = None
 CRASH_LOG_PATH = Path(__file__).resolve().with_name("crash.log")
