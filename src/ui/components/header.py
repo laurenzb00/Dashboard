@@ -29,56 +29,78 @@ class HeaderBar(ctk.CTkFrame):
         on_shower=None,
         on_exit=None,
     ):
-        super().__init__(parent, height=98, fg_color=COLOR_HEADER, corner_radius=16)
+        # Kompletter Umbau: statt einer durchgehenden Leiste (ein einziges
+        # abgerundetes Rechteck über die volle Breite) jetzt einzelne
+        # Karten-Segmente mit kleinen Lücken dazwischen (Datum | Uhrzeit,
+        # hervorgehoben | Aktionen | Licht+Temperatur), die direkt auf dem
+        # App-Hintergrund sitzen - passt zum Karten-Look, den der Rest des
+        # Dashboards (Card-Komponente) schon hat, statt einer eigenen,
+        # separaten "Balken"-Optik nur für den Header.
+        super().__init__(parent, height=98, fg_color=COLOR_ROOT, corner_radius=0)
         self.pack_propagate(False)
         self.datastore = datastore
 
-        # Innerer Container mit Grid-Layout
         inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill=tk.BOTH, expand=True, padx=18, pady=10)
+        inner.pack(fill=tk.BOTH, expand=True, padx=4, pady=6)
+        inner.grid_rowconfigure(0, weight=1)
+        inner.grid_columnconfigure(0, weight=0)  # Datum
+        inner.grid_columnconfigure(1, weight=0)  # Uhrzeit
+        inner.grid_columnconfigure(2, weight=0)  # Aktionen
+        inner.grid_columnconfigure(3, weight=1)  # Spacer
+        inner.grid_columnconfigure(4, weight=0)  # Licht + Temp
 
-        inner.grid_columnconfigure(0, weight=1, minsize=160, uniform="hdr")
-        inner.grid_columnconfigure(1, weight=2, uniform="hdr")
-        inner.grid_columnconfigure(2, weight=1, minsize=160, uniform="hdr")
+        def _seg_card(col: int, border_color: str = COLOR_BORDER, padx=(0, 10)) -> ctk.CTkFrame:
+            card = ctk.CTkFrame(
+                inner,
+                fg_color=COLOR_CARD,
+                corner_radius=14,
+                border_width=1,
+                border_color=border_color,
+            )
+            card.grid(row=0, column=col, sticky="ns", padx=padx)
+            return card
 
-        # Links: Datum mit modernem Style
-        left = ctk.CTkFrame(inner, fg_color="transparent")
-        left.grid(row=0, column=0, sticky="nsew")
-        
+        # --- Segment: Datum ---
+        date_card = _seg_card(0)
+        date_inner = ctk.CTkFrame(date_card, fg_color="transparent")
+        date_inner.pack(fill=tk.BOTH, expand=True, padx=16, pady=10)
+
         self.date_label = ctk.CTkLabel(
-            left, 
-            text="--", 
-            font=get_safe_font("Bahnschrift", 18, "bold"), 
+            date_inner,
+            text="--",
+            font=get_safe_font("Bahnschrift", 18, "bold"),
             text_color=COLOR_TEXT,
-            anchor="w"
+            anchor="w",
         )
         self.date_label.pack(anchor="w", side=tk.TOP)
-        
+
         self.weekday_label = ctk.CTkLabel(
-            left, 
-            text="", 
-            font=get_safe_font("Bahnschrift", 12), 
+            date_inner,
+            text="",
+            font=get_safe_font("Bahnschrift", 12),
             text_color=COLOR_SUBTEXT,
-            anchor="w"
+            anchor="w",
         )
         self.weekday_label.pack(anchor="w", side=tk.TOP, pady=(2, 0))
 
-        # Mitte: Uhrzeit + Light Switch - horizontal, vertikal zentriert
-        center = ctk.CTkFrame(inner, fg_color="transparent")
-        center.grid(row=0, column=1, sticky="nsew")
-        center.grid_columnconfigure(0, weight=0)
-        center.grid_columnconfigure(1, weight=1)
-        center.grid_columnconfigure(2, weight=0)
-        center.grid_columnconfigure(3, weight=0)
+        # --- Segment: Uhrzeit (hervorgehoben durch farbigen Rand statt
+        # neutralem Rahmen, damit sie als "wichtigstes" Segment auffaellt) ---
+        clock_card = _seg_card(1, border_color=COLOR_PRIMARY)
+        self.clock_label = ctk.CTkLabel(
+            clock_card,
+            text="--:--",
+            font=get_safe_font("Bahnschrift", 40, "bold"),
+            text_color=COLOR_PRIMARY,
+        )
+        self.clock_label.pack(padx=24, pady=8)
 
-        # Actions (zwischen Datum und Uhrzeit) - jeder Button traegt ein
-        # kurzes Text-Label, damit Lauf- und Dusche-Symbol nicht erraten
-        # werden muessen, und einen gleichmaessigen Abstand zueinander.
-        actions = ctk.CTkFrame(center, fg_color="transparent")
-        actions.grid(row=0, column=0, sticky="w", padx=(0, 20))
+        # --- Segment: Aktionen (Weg/Zuhause/Dusche) ---
+        actions_card = _seg_card(2)
+        actions_inner = ctk.CTkFrame(actions_card, fg_color="transparent")
+        actions_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
 
-        leave_wrap = ctk.CTkFrame(actions, fg_color="transparent")
-        leave_wrap.pack(side=tk.LEFT, padx=(0, 12))
+        leave_wrap = ctk.CTkFrame(actions_inner, fg_color="transparent")
+        leave_wrap.pack(side=tk.LEFT, padx=(0, 10))
 
         self.leave_btn = ctk.CTkButton(
             leave_wrap,
@@ -89,8 +111,8 @@ class HeaderBar(ctk.CTkFrame):
             hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=72,
-            height=48,
+            width=64,
+            height=44,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -103,8 +125,8 @@ class HeaderBar(ctk.CTkFrame):
         self._leave_btn_text_inactive = "🏃"
         self._leave_btn_text_active = "🏃✓"
 
-        home_wrap = ctk.CTkFrame(actions, fg_color="transparent")
-        home_wrap.pack(side=tk.LEFT)
+        home_wrap = ctk.CTkFrame(actions_inner, fg_color="transparent")
+        home_wrap.pack(side=tk.LEFT, padx=(0, 10))
 
         self.home_btn = ctk.CTkButton(
             home_wrap,
@@ -115,8 +137,8 @@ class HeaderBar(ctk.CTkFrame):
             hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=72,
-            height=48,
+            width=64,
+            height=44,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -126,16 +148,8 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.home_caption.pack(pady=(2, 0))
 
-        self.clock_label = ctk.CTkLabel(
-            center,
-            text="--:--",
-            font=get_safe_font("Bahnschrift", 46, "bold"),
-            text_color=COLOR_PRIMARY
-        )
-        self.clock_label.grid(row=0, column=1, sticky="ew", padx=(0, 20))
-
-        shower_wrap = ctk.CTkFrame(center, fg_color="transparent")
-        shower_wrap.grid(row=0, column=2, sticky="e", padx=(0, 20))
+        shower_wrap = ctk.CTkFrame(actions_inner, fg_color="transparent")
+        shower_wrap.pack(side=tk.LEFT)
 
         self.shower_btn = ctk.CTkButton(
             shower_wrap,
@@ -146,8 +160,8 @@ class HeaderBar(ctk.CTkFrame):
             hover_color=COLOR_BORDER,
             corner_radius=10,
             font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=72,
-            height=48,
+            width=64,
+            height=44,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -157,16 +171,22 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.shower_caption.pack(pady=(2, 0))
 
-        # Light Control - Icon und Switch horizontal nebeneinander
-        light_control = ctk.CTkFrame(center, fg_color="transparent")
-        light_control.grid(row=0, column=3, sticky="ns", padx=(12, 0))
+        # --- Segment: Licht-Schalter + Außentemperatur ---
+        right_card = _seg_card(4, padx=(0, 0))
+        right_inner = ctk.CTkFrame(right_card, fg_color="transparent")
+        right_inner.pack(fill=tk.BOTH, expand=True, padx=14, pady=10)
+
+        # Licht: Icon bleibt direkt am Schalter (wie zuvor) - nur jetzt Teil
+        # dieses gemeinsamen Segments statt einer eigenen Spalte in der Mitte.
+        light_control = ctk.CTkFrame(right_inner, fg_color="transparent")
+        light_control.pack(side=tk.LEFT, padx=(0, 16))
 
         ctk.CTkLabel(
             light_control,
             text="💡",
             font=get_safe_font("Bahnschrift", 20),
             text_color=COLOR_WARNING,
-            width=24
+            width=24,
         ).pack(side=tk.LEFT, padx=(0, 6))
 
         self.light_switch = ctk.CTkSwitch(
@@ -180,7 +200,7 @@ class HeaderBar(ctk.CTkFrame):
             progress_color=COLOR_WARNING,
             button_color="#FFFFFF",
             button_hover_color="#E0E0E0",
-            command=self._on_light_switch_toggle
+            command=self._on_light_switch_toggle,
         )
         self.light_switch.pack(side=tk.LEFT)
         self._suppress_light_switch_event = False
@@ -194,14 +214,11 @@ class HeaderBar(ctk.CTkFrame):
         self._on_shower = on_shower
         self._on_exit = on_exit  # fallback only
 
-        # Rechts: Außentemp mit modernem Style
-        right = ctk.CTkFrame(inner, fg_color="transparent")
-        right.grid(row=0, column=2, sticky="ne")
+        temp_block = ctk.CTkFrame(right_inner, fg_color="transparent")
+        temp_block.pack(side=tk.LEFT)
 
-        top_row = ctk.CTkFrame(right, fg_color="transparent")
-        top_row.pack(anchor="ne", side=tk.TOP, fill=tk.X)
-        top_row.grid_columnconfigure(0, weight=1)
-        top_row.grid_columnconfigure(1, weight=0)
+        top_row = ctk.CTkFrame(temp_block, fg_color="transparent")
+        top_row.pack(anchor="e", side=tk.TOP)
 
         # Kleines Thermometer-Icon vor dem Wert - passend zum Rest des
         # Headers, wo jede Aktion/jeder Wert (Weg/Zuhause/Dusche, Licht)
@@ -212,7 +229,7 @@ class HeaderBar(ctk.CTkFrame):
             font=get_safe_font("Bahnschrift", 14),
             text_color=COLOR_WARNING,
         )
-        self.out_temp_icon.grid(row=0, column=0, sticky="e", padx=(0, 6))
+        self.out_temp_icon.pack(side=tk.LEFT, padx=(0, 6))
 
         self.out_temp_label = ctk.CTkLabel(
             top_row,
@@ -221,16 +238,18 @@ class HeaderBar(ctk.CTkFrame):
             text_color=COLOR_WARNING,
             anchor="e",
         )
-        self.out_temp_label.grid(row=0, column=1, sticky="e")
-        
+        self.out_temp_label.pack(side=tk.LEFT)
+
+        # Ungenutztes Sub-Label (Zeitstempel) beibehalten fuer Kompatibilitaet
+        # mit update_header(), aber nicht mehr sichtbar gepackt - stand immer
+        # leer da und hat im neuen kompakten Segment nur Platz verschwendet.
         self.out_temp_time = ctk.CTkLabel(
-            right, 
-            text="", 
-            font=get_safe_font("Bahnschrift", 9), 
+            temp_block,
+            text="",
+            font=get_safe_font("Bahnschrift", 9),
             text_color=COLOR_SUBTEXT,
-            anchor="e"
+            anchor="e",
         )
-        self.out_temp_time.pack(anchor="ne", side=tk.TOP, pady=(2, 0))
 
         # Outdoor temp is updated via MainApp.update_header(...), single source of truth.
 

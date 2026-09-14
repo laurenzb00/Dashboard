@@ -25,6 +25,12 @@ from ui.styles import (
 
 DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
+# Sparkline-Akzentfarben ("Vibrant Amber/Magenta" - Nutzer-Feedback zur
+# Farbwahl der PV/Außentemperatur-Sparkline im Energie-Tab). Eigene,
+# kraeftige Farben statt der generischen Success/Info-Theme-Farben.
+SPARK_PV_COLOR = "#ffb01a"
+SPARK_TEMP_COLOR = "#ff4fd8"
+
 
 def _sparkline_db_limit() -> int:
     """Safety cap for DB reads.
@@ -285,15 +291,15 @@ class PVSparklineView(tk.Frame):
 
         if pv_series:
             xs_pv, ys_pv = zip(*pv_series)
-            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9, label="PV-Leistung")
-            self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
-            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+            self.spark_ax.plot(xs_pv, ys_pv, color=SPARK_PV_COLOR, linewidth=2.0, alpha=0.95, label="PV-Leistung")
+            self.spark_ax.fill_between(xs_pv, ys_pv, color=SPARK_PV_COLOR, alpha=0.18)
+            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=SPARK_PV_COLOR, s=12, zorder=10)
             # Fixed PV scale for readability.
             self.spark_ax.set_ylim(0.0, 10.0)
         if temp_series:
             xs_temp, ys_temp = zip(*temp_series)
-            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--", label="Außentemperatur")
-            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
+            ax2.plot(xs_temp, ys_temp, color=SPARK_TEMP_COLOR, linewidth=2.0, alpha=0.9, linestyle="--", label="Außentemperatur")
+            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=SPARK_TEMP_COLOR, s=12, zorder=10)
             min_t = min(float(v) for v in ys_temp)
             max_t = max(float(v) for v in ys_temp)
             span = max_t - min_t
@@ -328,8 +334,8 @@ class PVSparklineView(tk.Frame):
         ax2.spines['bottom'].set_linewidth(0.5)
         self.spark_ax.tick_params(axis='both', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
         ax2.tick_params(axis='y', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        self.spark_ax.set_ylabel('kW', fontsize=8, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
-        ax2.set_ylabel('°C', fontsize=8, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
+        self.spark_ax.set_ylabel('kW', fontsize=8, color=SPARK_PV_COLOR, rotation=0, labelpad=10, va='center')
+        ax2.set_ylabel('°C', fontsize=8, color=SPARK_TEMP_COLOR, rotation=0, labelpad=10, va='center')
         tick_hours = list(range(0, 49, 6))
         tick_times = [cutoff + timedelta(hours=h) for h in tick_hours]
         self.spark_ax.xaxis.set_major_locator(FixedLocator(mdates.date2num(tick_times)))
