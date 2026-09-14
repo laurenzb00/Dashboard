@@ -82,7 +82,14 @@ class CalendarTab:
             text_color=COLOR_TEXT
         ).pack(side=tk.LEFT, padx=8)
         
-        tk.Label(header, text="Kalender", font=("Segoe UI", 15, "bold"), bg=COLOR_ROOT, fg=COLOR_TITLE).pack(side=tk.LEFT, padx=20, expand=True)
+        # War zuvor ein zweites, statisches "Kalender"-Label - redundant zum
+        # TabShell-Titel direkt darueber (der bereits "Kalender" zeigt) UND
+        # ohne echten Zusatznutzen, da der tatsaechliche Monat/Jahr schon
+        # weiter unten dynamisch als eigene Ueberschrift angezeigt wird
+        # (siehe month_name/title_label). Nur noch ein unsichtbarer
+        # Platzhalter, der die Zurueck-/Weiter-Buttons wie zuvor auseinander
+        # haelt.
+        tk.Frame(header, bg=COLOR_ROOT).pack(side=tk.LEFT, padx=20, expand=True)
         tk.Label(header, textvariable=self.status_var, font=("Segoe UI", 10), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(side=tk.RIGHT, padx=4)
         
         ctk.CTkButton(

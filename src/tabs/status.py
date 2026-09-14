@@ -6,7 +6,6 @@ from collections import deque
 import math
 import traceback
 import logging
-from types import SimpleNamespace
 import customtkinter as ctk
 
 from core.datastore import get_shared_datastore
@@ -26,7 +25,6 @@ from ui.styles import (
     emoji,
 )
 from ui.components.card import Card
-from ui.components.rounded import RoundedFrame
 
 class StatusTab(ctk.CTkFrame):
     def _get_ha_client(self):
@@ -278,27 +276,6 @@ class StatusTab(ctk.CTkFrame):
                     card.grid_configure(row=0, column=index, padx=4, pady=0)
         except Exception:
             pass
-
-    def _make_health_tile(self, parent, col, title, icon):
-        outer = RoundedFrame(parent, bg=COLOR_ROOT, border=None, radius=18, padding=0)
-        outer.grid(row=0, column=col, sticky="nsew", padx=8, pady=0)
-        inner = outer.content()
-        inner.grid_columnconfigure(0, weight=0)
-        inner.grid_columnconfigure(1, weight=1)
-
-        header = ctk.CTkFrame(inner, fg_color="transparent")
-        header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 2))
-        ctk.CTkLabel(header, text=icon, text_color=COLOR_TEXT, font=("Segoe UI", 12)).pack(side=tk.LEFT)
-        ctk.CTkLabel(header, text=title, text_color=COLOR_SUBTEXT, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(6, 0))
-
-        lamp = tk.Canvas(inner, width=18, height=18, bg=COLOR_ROOT, highlightthickness=0)
-        lamp.grid(row=1, column=0, sticky="w", padx=(12, 8), pady=(2, 10))
-        line1 = ctk.CTkLabel(inner, text="--", text_color=COLOR_TEXT, font=("Segoe UI", 12, "bold"))
-        line1.grid(row=1, column=1, sticky="w", pady=(2, 0), padx=(0, 12))
-        line2 = ctk.CTkLabel(inner, text="--", text_color=COLOR_SUBTEXT, font=("Segoe UI", 9))
-        line2.grid(row=2, column=1, sticky="w", pady=(0, 10), padx=(0, 12))
-
-        return SimpleNamespace(lamp=lamp, line1=line1, line2=line2)
 
     def _build_consistency_lines(self, pv_rec_last, ht_rec_last) -> list[str]:
         consistency: list[str] = []

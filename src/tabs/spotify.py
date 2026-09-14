@@ -8,8 +8,9 @@ from io import BytesIO
 from typing import Any, Optional
 
 import requests
-from ui.styles import COLOR_ROOT, COLOR_TEXT, COLOR_SUBTEXT, COLOR_TITLE
+from ui.styles import COLOR_ROOT, COLOR_CARD, COLOR_TEXT, COLOR_SUBTEXT, COLOR_TITLE, emoji, get_safe_font
 from ui.components.tab_shell import TabShell
+from ui.components.card import Card
 try:
     import ttkbootstrap as ttk
     from ttkbootstrap.constants import BOTH, LEFT, RIGHT, W
@@ -56,14 +57,14 @@ class SpotifyTab:
         tk.Label(
             header,
             text="Geräteauswahl",
-            font=("Arial", 18, "bold"),
+            font=get_safe_font("Bahnschrift", 18, "bold"),
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
         ).pack(anchor=W)
         tk.Label(
             header,
             text="Wähle hier das Ausgabegerät für Spotify.",
-            font=("Arial", 13),
+            font=get_safe_font("Bahnschrift", 13),
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
         ).pack(anchor=W, pady=(2, 6))
@@ -168,9 +169,9 @@ class SpotifyTab:
         )
         btn.pack()
         name = playlist.get("name", "Unbenannte Playlist")
-        tk.Label(cell, text=name, font=("Arial", 13, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+24, bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(6,0))
+        tk.Label(cell, text=name, font=get_safe_font("Bahnschrift", 13, "bold"), wraplength=PLAYLIST_IMAGE_SIZE[0]+24, bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(6,0))
         tracks_total = playlist.get("tracks", {}).get("total", 0)
-        tk.Label(cell, text=f"{tracks_total} Titel", font=("Arial", 11), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack()
+        tk.Label(cell, text=f"{tracks_total} Titel", font=get_safe_font("Bahnschrift", 11), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack()
 
     def __init__(self, root, notebook, tab_frame=None):
         self.root = root
@@ -183,7 +184,10 @@ class SpotifyTab:
             self.tab_frame = tab_frame
         else:
             self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
-            self.notebook.add(self.tab_frame, text="Spotify")
+            # Icon ergaenzt, damit dieser Fallback-Pfad (nur relevant, wenn
+            # kein tab_frame uebergeben wird) zum regulaeren Tab-Aufbau in
+            # app.py passt, der bereits emoji("🎵 Spotify", ...) verwendet.
+            self.notebook.add(self.tab_frame, text=emoji("🎵 Spotify", "Spotify"))
 
         self.status_var = tk.StringVar(value="Spotify Integration bereit")
         self.link_var = tk.StringVar(value="Noch kein Login-Link erzeugt")
@@ -229,7 +233,7 @@ class SpotifyTab:
     # ------------------------------------------------------------------
     def _build_header(self) -> None:
         self.status_var = tk.StringVar(value="Spotify Integration bereit")
-        tk.Label(self.tab_frame, textvariable=self.status_var, font=("Arial", 12), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(12, 4))
+        tk.Label(self.tab_frame, textvariable=self.status_var, font=get_safe_font("Bahnschrift", 12), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=(12, 4))
 
         control_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         control_frame.pack(pady=(0, 6))
@@ -243,14 +247,14 @@ class SpotifyTab:
         # Login link UI removed for local-only use
         callback_uri = os.getenv("SPOTIPY_REDIRECT_URI") or "http://127.0.0.1:8889/callback"
         self.redirect_var = tk.StringVar(value=f"Callback-URL: {callback_uri}")
-        tk.Label(self.tab_frame, textvariable=self.redirect_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(6, 0))
+        tk.Label(self.tab_frame, textvariable=self.redirect_var, font=get_safe_font("Bahnschrift", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(6, 0))
 
         info_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         info_frame.pack(fill=tk.X, padx=20, pady=(0, 8))
         self.status_detail_var = tk.StringVar(value="Konfiguration wird geprüft…")
         self.token_info_var = tk.StringVar(value="Noch kein Token gefunden")
-        tk.Label(info_frame, textvariable=self.status_detail_var, font=("Arial", 10), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
-        tk.Label(info_frame, textvariable=self.token_info_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W)
+        tk.Label(info_frame, textvariable=self.status_detail_var, font=get_safe_font("Bahnschrift", 10), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W)
+        tk.Label(info_frame, textvariable=self.token_info_var, font=get_safe_font("Bahnschrift", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W)
 
     def _build_content(self) -> None:
         self.content_notebook = ttk.Notebook(self.tab_frame, bootstyle="dark")
@@ -276,7 +280,7 @@ class SpotifyTab:
         tk.Label(
             top,
             text="Zuletzt gespielt",
-            font=("Arial", 15, "bold"),
+            font=get_safe_font("Bahnschrift", 15, "bold"),
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
         ).pack(anchor=W)
@@ -323,7 +327,7 @@ class SpotifyTab:
             artists = ", ".join(a.get("name", "") for a in track.get("artists", []))
             album = track.get("album", {}).get("name", "")
             played_at = entry.get("played_at", "")
-            label = tk.Label(self.recent_inner, text=f"{name} – {artists}\n{album}", anchor="w", justify="left", font=("Arial", 11), bg=COLOR_ROOT, fg=COLOR_TEXT)
+            label = tk.Label(self.recent_inner, text=f"{name} – {artists}\n{album}", anchor="w", justify="left", font=get_safe_font("Bahnschrift", 11), bg=COLOR_ROOT, fg=COLOR_TEXT)
             label.pack(fill=tk.X, padx=8, pady=4)
 
     def _build_now_playing_tab(self) -> None:
@@ -334,14 +338,14 @@ class SpotifyTab:
         tk.Label(
             header,
             text="Aktuelle Wiedergabe",
-            font=("Arial", 15, "bold"),
+            font=get_safe_font("Bahnschrift", 15, "bold"),
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
         ).pack(anchor=W)
         tk.Label(
             header,
             text="Titel, Lautstärke und Schnellaktionen",
-            font=("Arial", 11),
+            font=get_safe_font("Bahnschrift", 11),
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
         ).pack(anchor=W, pady=(2, 0))
@@ -378,10 +382,19 @@ class SpotifyTab:
         self.artist_var = tk.StringVar(value="")
         self.album_var = tk.StringVar(value="")
 
-        volume_box = ttk.Labelframe(right, text="Lautstärke")
-        volume_box.grid(row=1, column=0, sticky="ew", pady=(6, 12))
+        # War zuvor ein ttk.Labelframe mit eigenem Rahmen/Titel-Font statt
+        # der geteilten Card-Komponente, die der Rest der App fuer betitelte
+        # Abschnitte verwendet - dadurch wirkte dieser Bereich optisch nicht
+        # wie derselbe "Baustein" wie z.B. die Energie-Tab-Karten.
+        volume_card = Card(right, padding=12)
+        volume_card.grid(row=1, column=0, sticky="ew", pady=(6, 12))
+        volume_card.add_title("Lautstärke", icon="🔊")
+        volume_box = volume_card.content()
         self.volume_var = tk.IntVar(value=50)
-        volume_controls = tk.Frame(volume_box, bg=COLOR_ROOT)
+        # bg=COLOR_CARD statt COLOR_ROOT: dieser Frame sitzt jetzt innerhalb
+        # der Card (Hintergrund COLOR_CARD statt COLOR_ROOT) - mit dem alten
+        # Wert waere hier ein sichtbar falsch gefaerbtes Rechteck entstanden.
+        volume_controls = tk.Frame(volume_box, bg=COLOR_CARD)
         volume_controls.pack(fill=tk.X, pady=4)
         ttk.Button(volume_controls, text="-", width=4, command=lambda: self._adjust_volume(-10), bootstyle="secondary").pack(side=LEFT, padx=3)
         self.volume_scale = ttk.Scale(volume_controls, from_=0, to=100, orient=tk.HORIZONTAL,
@@ -389,8 +402,10 @@ class SpotifyTab:
         self.volume_scale.pack(side=LEFT, expand=True, fill=tk.X)
         ttk.Button(volume_controls, text="+", width=4, command=lambda: self._adjust_volume(10), bootstyle="secondary").pack(side=LEFT, padx=3)
 
-        quick_box = ttk.Labelframe(right, text="Schnellaktionen")
-        quick_box.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        quick_card = Card(right, padding=12)
+        quick_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        quick_card.add_title("Schnellaktionen", icon="⚡")
+        quick_box = quick_card.content()
         self.shuffle_var = tk.BooleanVar(value=False)
         toggle_style = self.safe_toggle_style("round-toggle")
         try:
@@ -420,7 +435,7 @@ class SpotifyTab:
         tk.Label(
             right,
             textvariable=self.progress_var,
-            font=("Arial", 11),
+            font=get_safe_font("Bahnschrift", 11),
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
             anchor="w",
@@ -469,14 +484,14 @@ class SpotifyTab:
         tk.Label(
             top,
             text="Playlists & Favoriten",
-            font=("Arial", 15, "bold"),
+            font=get_safe_font("Bahnschrift", 15, "bold"),
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
         ).pack(anchor=W)
         tk.Label(
             top,
             text="Tippe auf ein Cover, um die Wiedergabe zu starten.",
-            font=("Arial", 11),
+            font=get_safe_font("Bahnschrift", 11),
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
         ).pack(anchor=W, pady=(2, 0))
@@ -800,14 +815,14 @@ class SpotifyTab:
         tk.Label(
             header,
             text="Login & Status",
-            font=("Arial", 15, "bold"),
+            font=get_safe_font("Bahnschrift", 15, "bold"),
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
         ).pack(anchor=W)
         tk.Label(
             header,
             text="Verbindung, Token und Berechtigungen",
-            font=("Arial", 11),
+            font=get_safe_font("Bahnschrift", 11),
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
         ).pack(anchor=W, pady=(2, 0))
@@ -821,12 +836,16 @@ class SpotifyTab:
                    bootstyle="danger-outline").pack(side=LEFT, padx=4)
 
         # Login link UI and browser logic removed for local-only use
-        tk.Label(frame, textvariable=self.redirect_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, padx=12)
+        tk.Label(frame, textvariable=self.redirect_var, font=get_safe_font("Bahnschrift", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, padx=12)
 
-        info_frame = ttk.Labelframe(frame, text="Status & Token")
-        info_frame.pack(fill=tk.X, padx=12, pady=8)
-        tk.Label(info_frame, textvariable=self.status_detail_var, font=("Arial", 10), bg=COLOR_ROOT, fg=COLOR_TEXT).pack(anchor=W, pady=(4, 2))
-        tk.Label(info_frame, textvariable=self.token_info_var, font=("Arial", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(0, 4))
+        info_card = Card(frame, padding=12)
+        info_card.pack(fill=tk.X, padx=12, pady=8)
+        info_card.add_title("Status & Token", icon="🔑")
+        info_frame = info_card.content()
+        # bg=COLOR_CARD statt COLOR_ROOT: sitzt jetzt in der Card (siehe
+        # volume_controls oben fuer die gleiche Begruendung).
+        tk.Label(info_frame, textvariable=self.status_detail_var, font=get_safe_font("Bahnschrift", 10), bg=COLOR_CARD, fg=COLOR_TEXT).pack(anchor=W, pady=(4, 2))
+        tk.Label(info_frame, textvariable=self.token_info_var, font=get_safe_font("Bahnschrift", 9), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(0, 4))
     # ------------------------------------------------------------------
     def _update_devices(self, devices: list[dict]) -> None:
         if devices == self._devices:

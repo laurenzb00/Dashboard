@@ -21,6 +21,7 @@ from ui.styles import (
     COLOR_TEXT,
     COLOR_WARNING,
 )
+from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 
 
 @dataclass
@@ -55,7 +56,7 @@ def _make_key(points: list[EnergyChartDataPoint]) -> tuple:
     return (len(points), last.timestamp.isoformat(), round(last.pv_power, 6), round(last.house_consumption, 6))
 
 
-class EnergyChart:
+class EnergyChart(MatplotlibCanvasResizeMixin):
     def __init__(self, parent):
         self._parent = parent
         self._last_key: Optional[tuple] = None
@@ -92,59 +93,13 @@ class EnergyChart:
         self._connect_events()
         self._init_interaction_artists()
 
-    def _sync_size(self, w: int, h: int) -> bool:
-        """Sync Matplotlib figure size to the Tk widget size.
-
-        Tk/CTk layouts can briefly report very small sizes (e.g. 1x1) during
-        relayout/tab switches. Resizing the figure to that can leave a tiny
-        re-render on top of an older buffer. Ignore those transient sizes.
-
-        WICHTIG (Ursache des "Diagramm bleibt klein"-Bugs): Vorher wurde
-        hier nur fig.set_size_inches(..., forward=True) + canvas.draw_idle()
-        aufgerufen. Das vergroessert zwar den intern von Matplotlib
-        gerenderten Bild-Buffer, aendert aber NICHT die Groesse des
-        zugrunde liegenden Tk PhotoImage (_tkphoto) und auch nicht
-        Position/Groesse des Canvas-Image-Items (_tkcanvas_image_region) -
-        das erledigt normalerweise automatisch FigureCanvasTk.resize(),
-        das intern per <Configure> ans Canvas-Widget gebunden wird. Weil
-        weiter oben canvas_widget.bind("<Configure>", self._on_resize)
-        aufgerufen wird (ohne add="+"), ERSETZT Tkinter die eingebaute
-        Bindung dadurch komplett - resize() wurde also nie mehr
-        aufgerufen. Fix: die eingebaute resize()-Logik direkt mit einem
-        synthetischen Event aufrufen statt sie unvollstaendig nachzubauen.
-        """
-        try:
-            if w < 50 or h < 50:
-                return False
-            from types import SimpleNamespace
-            self.canvas.resize(SimpleNamespace(width=int(w), height=int(h)))
-            self._last_synced_wh = (w, h)
-            return True
-        except Exception:
-            return False
+    # _sync_size() und _clear_tk_canvas(): siehe MatplotlibCanvasResizeMixin
+    # (ui/views/chart_resize_mixin.py) - waren zuvor hier, in historical.py
+    # und in tagesproduktion.py dreifach wortgleich dupliziert.
 
     def stop(self) -> None:
         """No-op placeholder kept for callers (e.g. ErtragTab.stop())."""
         pass
-
-    def _clear_tk_canvas(self) -> None:
-        """Clear the underlying Tk canvas to avoid stale pixels.
-
-        On some Tk/Matplotlib backends, rapid resizes/layout changes can leave
-        an older render buffer visible underneath the new one.
-        """
-        try:
-            tk_canvas = getattr(self.canvas, "_tkcanvas", None)
-            if tk_canvas is not None:
-                # IMPORTANT: Do NOT delete("all"). FigureCanvasTkAgg draws via
-                # items on this canvas (PhotoImage). Deleting everything can
-                # remove the render target and result in a blank chart.
-                try:
-                    tk_canvas.configure(bg=COLOR_ROOT, highlightthickness=0, bd=0)
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
     def refresh_size(self) -> None:
         """Force a resize-sync using the canvas widget's current geometry.

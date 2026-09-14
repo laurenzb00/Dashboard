@@ -54,6 +54,7 @@ from ui.components.card import Card
 from ui.components.header import HeaderBar
 from ui.components.statusbar import StatusBar
 from ui.components.rounded import RoundedFrame
+from ui.components.standby_overlay import StandbyOverlay
 from ui.views.energy_flow import EnergyFlowView
 from ui.views.buffer_storage import BufferStorageView
 from ui.views.pv_sparkline import PVSparklineView
@@ -641,6 +642,14 @@ class MainApp:
         self.sparkline_view = PVSparklineView(self.sparkline_card.content(), datastore=self.datastore)
         self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
+        # Presence-gesteuerter Standby-Bildschirmschoner: eigenstaendiges
+        # place()-Widget direkt auf root (nicht im Grid von main_container),
+        # damit es bei "nicht zuhause" (siehe _sync_presence_standby_state)
+        # das komplette Dashboard unabhaengig von dessen Layout ueberdecken
+        # kann. Zu Beginn nicht platziert/unsichtbar.
+        self.standby_overlay = StandbyOverlay(self.root)
+        self._standby_active = False
+
         # Statusbar - moderner Style mit besserem Spacing
         self.status = StatusBar(self.main_container, on_exit=self.on_exit, on_toggle_fullscreen=self.toggle_fullscreen)
         if self._portrait_screen:
@@ -650,6 +659,9 @@ class MainApp:
         self.build_tabs()
         # Keep the header Hue switch in sync with the bridge state.
         self._start_hue_switch_sync()
+        # Standby-Screensaver: fragt echte HA-Anwesenheit ab (nicht Touch-
+        # Leerlauf) und blendet bei "nicht zuhause" StandbyOverlay ein.
+        self._start_presence_standby_sync()
         # Initial update_tick delayed, then runs every 2000ms
         self.root.after(1000, self.update_tick)
 
@@ -806,6 +818,87 @@ class MainApp:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    # ------------------------------------------------------------------
+    # Presence-gesteuerter Standby-Bildschirmschoner
+    # ------------------------------------------------------------------
+    # Nutzer-Vorgabe (woertlich): "Es gibt die Moeglichkeit, dass Du erstens
+    # den Status abfragst, ob ich zu Hause bin oder nicht. Wenn ich nicht zu
+    # Hause bin, braucht das Display ja nicht laufen beziehungsweise nicht
+    # viel anzeigen oder nur einen Screensaver anzeigen." - bewusst KEIN
+    # Touch-Leerlauf-Timer, sondern echte HA-Anwesenheit von person.laurenz,
+    # analog zum bereits vorhandenen _sync_hue_switch_state()-Muster.
+
+    def _presence_person_entity_id(self) -> str:
+        """Entity-ID fuer die Standby-Anwesenheitsabfrage (ueberschreibbar)."""
+        return os.environ.get("DASHBOARD_PRESENCE_ENTITY_ID", "").strip() or "person.laurenz"
+
+    def _start_presence_standby_sync(self) -> None:
+        if getattr(self, "_presence_standby_sync_started", False):
+            return
+        self._presence_standby_sync_started = True
+        try:
+            # Erster Check erst nach 5s, damit HA-Client/Konfiguration (siehe
+            # _get_presence_ha_client) beim Start sicher initialisiert ist.
+            self.root.after(5000, self._sync_presence_standby_state)
+        except Exception:
+            pass
+
+    def _sync_presence_standby_state(self) -> None:
+        """Pollt periodisch den echten HA-Anwesenheitsstatus von
+        person.laurenz und blendet bei 'nicht zuhause' StandbyOverlay ein."""
+
+        def _reschedule() -> None:
+            try:
+                self.root.after(20000, self._sync_presence_standby_state)
+            except Exception:
+                pass
+
+        client = self._get_presence_ha_client()
+        if client is None:
+            _reschedule()
+            return
+
+        entity_id = self._presence_person_entity_id()
+
+        def worker() -> None:
+            state_str: str | None = None
+            try:
+                data = client.get_state(entity_id)
+                if isinstance(data, dict):
+                    state_str = str(data.get("state") or "").strip().lower()
+            except Exception:
+                state_str = None
+
+            def apply() -> None:
+                # Bei Fehlern/leerem Status bewusst NICHTS umschalten - ein
+                # einzelner HA-Ausfall soll weder faelschlich den
+                # Screensaver einblenden noch einen aktiven faelschlich
+                # beenden. "home" ist der einzige Zustand, der als
+                # "zuhause" zaehlt; jede Zone/jeder andere Wert (z.B.
+                # "not_home", ein Zonenname) gilt als "weg".
+                if state_str:
+                    self._set_standby_active(state_str != "home")
+                _reschedule()
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_standby_active(self, active: bool) -> None:
+        if getattr(self, "_standby_active", False) == bool(active):
+            return
+        self._standby_active = bool(active)
+        overlay = getattr(self, "standby_overlay", None)
+        if overlay is None:
+            return
+        try:
+            if active:
+                overlay.show()
+            else:
+                overlay.hide()
+        except Exception:
+            pass
+
     # strftime("%A") haengt vom System-Locale ab, das auf dem Pi nicht auf
     # Deutsch gesetzt ist - deshalb stand im Header bisher "Monday" statt
     # "Montag", obwohl der Rest der App komplett deutsch ist. Eine feste
@@ -830,6 +923,13 @@ class MainApp:
             self._cached_out_temp_ts = mono  # Mark as refreshing
         
         self.header.update_header(date_text, weekday, time_text, self._cached_out_temp)
+        overlay = getattr(self, "standby_overlay", None)
+        if overlay is not None:
+            try:
+                overlay.update_time(time_text)
+                overlay.update_date(date_text, weekday)
+            except Exception:
+                pass
         # Update every 10s (time only changes visibly every minute, temp every 15s)
         self.root.after(10000, self._update_header_datetime)
 

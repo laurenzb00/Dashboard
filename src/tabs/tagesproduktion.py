@@ -31,9 +31,10 @@ from ui.styles import (
 )
 from ui.components.tab_shell import TabShell
 from ui.components.metric_tile import MetricTile
+from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 
 
-class TagesproduktionTab(tk.Frame):
+class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
     """Tagesproduktion (PV-kWh pro Tag) als Linien-Diagramm.
 
     Anforderungen:
@@ -306,47 +307,9 @@ class TagesproduktionTab(tk.Frame):
         except Exception:
             pass
 
-    def _sync_size(self, w: int, h: int) -> bool:
-        """Sync Matplotlib figure size to the current Tk widget size.
-
-        CTk/Tk layouts can briefly report 1x1 during relayouts. Resizing the
-        renderer to that can leave a tiny re-render on top of an older buffer.
-
-        WICHTIG (Ursache des "Diagramm bleibt klein"-Bugs): Vorher wurde
-        hier nur fig.set_size_inches(..., forward=True) + canvas.draw_idle()
-        aufgerufen. Das vergroessert zwar den intern von Matplotlib
-        gerenderten Bild-Buffer, aendert aber NICHT die Groesse des
-        zugrunde liegenden Tk PhotoImage (_tkphoto) und auch nicht
-        Position/Groesse des Canvas-Image-Items (_tkcanvas_image_region) -
-        das erledigt normalerweise automatisch FigureCanvasTk.resize(),
-        das intern per <Configure> ans Canvas-Widget gebunden wird. Weil
-        weiter unten canvas_widget.bind("<Configure>", self._on_canvas_resize)
-        aufgerufen wird (ohne add="+"), ERSETZT Tkinter die eingebaute
-        Bindung dadurch komplett - resize() wurde also nie mehr
-        aufgerufen. Fix: die eingebaute resize()-Logik direkt mit einem
-        synthetischen Event aufrufen statt sie unvollstaendig nachzubauen.
-        """
-        try:
-            if w < 50 or h < 50:
-                return False
-            from types import SimpleNamespace
-            self.canvas.resize(SimpleNamespace(width=int(w), height=int(h)))
-            self._last_synced_wh = (w, h)
-            return True
-        except Exception:
-            return False
-
-    def _clear_tk_canvas(self) -> None:
-        """Ensure the underlying Tk canvas is configured for clean redraws."""
-        try:
-            tk_canvas = getattr(self.canvas, "_tkcanvas", None)
-            if tk_canvas is not None:
-                try:
-                    tk_canvas.configure(bg=COLOR_ROOT, highlightthickness=0, bd=0)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+    # _sync_size() und _clear_tk_canvas(): siehe MatplotlibCanvasResizeMixin
+    # (ui/views/chart_resize_mixin.py) - waren zuvor hier, in historical.py
+    # und in ui/views/energy_chart.py dreifach wortgleich dupliziert.
 
     def _apply_layout(self) -> None:
         try:

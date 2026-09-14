@@ -10,7 +10,7 @@ import customtkinter as ctk
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.card import Card
 from ui.components.tab_shell import TabShell
-from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, get_safe_font
+from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, emoji, get_safe_font
 
 
 class HomeAssistantActionsTab:
@@ -44,7 +44,10 @@ class HomeAssistantActionsTab:
             self.tab_frame = tab_frame
         else:
             self.tab_frame = ctk.CTkFrame(self.notebook, fg_color=COLOR_ROOT)
-            self.notebook.add(self.tab_frame, text="HomeA")
+            # Icon ergaenzt, damit dieser Fallback-Pfad (nur relevant, wenn
+            # kein tab_frame uebergeben wird) zum regulaeren Tab-Aufbau in
+            # app.py passt, der bereits emoji("🏠 HomeA", ...) verwendet.
+            self.notebook.add(self.tab_frame, text=emoji("🏠 HomeA", "HomeA"))
 
         self._build_ui()
         self._start_ui_pump()
@@ -98,6 +101,10 @@ class HomeAssistantActionsTab:
 
         self._actions_card = Card(self._shell.body, padding=18)
         self._actions_card.grid(row=0, column=0, sticky="nsew")
+        # War bisher die einzige Card in der App ohne add_title() - anders
+        # als Status/Tado/Health/Ertrag/Analyse, die ihre jeweilige Card
+        # immer beschriften.
+        self._actions_card.add_title("Automationen & Skripte", icon="⚙️")
 
         self._actions_body = ctk.CTkScrollableFrame(
             self._actions_card.content(),

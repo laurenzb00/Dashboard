@@ -334,7 +334,7 @@ class HueTab:
         status_lbl = tk.Label(
             header,
             textvariable=self.status_var,
-            font=("Segoe UI", 12),
+            font=get_safe_font("Bahnschrift", 12),
             fg=COLOR_SUBTEXT,
             bg=COLOR_ROOT,
         )
@@ -343,13 +343,15 @@ class HueTab:
         refresh_lbl = tk.Label(
             header,
             textvariable=self.last_refresh_var,
-            font=("Segoe UI", 11),
+            font=get_safe_font("Bahnschrift", 11),
             fg=COLOR_SUBTEXT,
             bg=COLOR_ROOT,
         )
         refresh_lbl.grid(row=0, column=1, sticky="e")
 
-        dimmer_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=14)
+        # corner_radius 14 -> 12: der Rest der App (Card-Komponente,
+        # Segment-Karten im Header usw.) nutzt durchgaengig 12.
+        dimmer_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=12)
         dimmer_card.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         dimmer_card.grid_columnconfigure(1, weight=1)
 
@@ -386,7 +388,7 @@ class HueTab:
 
         dim_slider.bind("<ButtonRelease-1>", _on_release)
 
-        vorraum_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=14)
+        vorraum_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=12)
         vorraum_card.grid(row=2, column=0, sticky="w", pady=(10, 0))
 
         vorraum_title = ctk.CTkLabel(
@@ -417,14 +419,18 @@ class HueTab:
         )
         vorraum_status_lbl.pack(side="left", padx=(0, 12), pady=10)
 
-        btn = tk.Button(
+        # War zuvor ein rohes tk.Button mit activebackground==bg, also ohne
+        # sichtbaren Hover-/Press-Zustand - anders als alle CTkButton in
+        # diesem Tab (und im Rest der App), die eine abweichende
+        # hover_color haben. Jetzt auf CTkButton umgestellt.
+        btn = ctk.CTkButton(
             header,
             text="↻ Neu laden",
-            font=("Segoe UI", 12, "bold"),
-            bg=COLOR_CARD,
-            fg=COLOR_TEXT,
-            activebackground=COLOR_CARD,
-            relief="flat",
+            font=get_safe_font("Bahnschrift", 12, "bold"),
+            fg_color=COLOR_CARD,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            corner_radius=10,
             command=self._refresh_all_async,
         )
         btn.grid(row=1, column=1, sticky="e", pady=(8, 0))
