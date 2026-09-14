@@ -311,12 +311,26 @@ class TagesproduktionTab(tk.Frame):
 
         CTk/Tk layouts can briefly report 1x1 during relayouts. Resizing the
         renderer to that can leave a tiny re-render on top of an older buffer.
+
+        WICHTIG (Ursache des "Diagramm bleibt klein"-Bugs): Vorher wurde
+        hier nur fig.set_size_inches(..., forward=True) + canvas.draw_idle()
+        aufgerufen. Das vergroessert zwar den intern von Matplotlib
+        gerenderten Bild-Buffer, aendert aber NICHT die Groesse des
+        zugrunde liegenden Tk PhotoImage (_tkphoto) und auch nicht
+        Position/Groesse des Canvas-Image-Items (_tkcanvas_image_region) -
+        das erledigt normalerweise automatisch FigureCanvasTk.resize(),
+        das intern per <Configure> ans Canvas-Widget gebunden wird. Weil
+        weiter unten canvas_widget.bind("<Configure>", self._on_canvas_resize)
+        aufgerufen wird (ohne add="+"), ERSETZT Tkinter die eingebaute
+        Bindung dadurch komplett - resize() wurde also nie mehr
+        aufgerufen. Fix: die eingebaute resize()-Logik direkt mit einem
+        synthetischen Event aufrufen statt sie unvollstaendig nachzubauen.
         """
         try:
             if w < 50 or h < 50:
                 return False
-            dpi = float(self.fig.get_dpi() or 100.0)
-            self.fig.set_size_inches(w / dpi, h / dpi, forward=True)
+            from types import SimpleNamespace
+            self.canvas.resize(SimpleNamespace(width=int(w), height=int(h)))
             self._last_synced_wh = (w, h)
             return True
         except Exception:
