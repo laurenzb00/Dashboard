@@ -29,78 +29,93 @@ class HeaderBar(ctk.CTkFrame):
         on_shower=None,
         on_exit=None,
     ):
-        # Kompletter Umbau: statt einer durchgehenden Leiste (ein einziges
-        # abgerundetes Rechteck über die volle Breite) jetzt einzelne
-        # Karten-Segmente mit kleinen Lücken dazwischen (Datum | Uhrzeit,
-        # hervorgehoben | Aktionen | Licht+Temperatur), die direkt auf dem
-        # App-Hintergrund sitzen - passt zum Karten-Look, den der Rest des
-        # Dashboards (Card-Komponente) schon hat, statt einer eigenen,
-        # separaten "Balken"-Optik nur für den Header.
-        super().__init__(parent, height=98, fg_color=COLOR_ROOT, corner_radius=0)
+        # Feinschliff Runde 2: Mischung aus "Akzentstreifen" (eine fliessende
+        # Leiste mit duennen Trennlinien statt einzelner umrandeter Kaesten
+        # fuer Aktionen/Licht/Temperatur) und "Klare Hierarchie" (Uhrzeit als
+        # eigene, dominante Karte mit eigenem Farbton statt nur farbigem
+        # Rand; Datum/Wochentag wandern darunter statt eine eigene Karte zu
+        # belegen). Layout: [Uhrzeit-Karte] [durchgehende Leiste: Aktionen |
+        # Licht | Temperatur].
+        super().__init__(parent, height=92, fg_color=COLOR_ROOT, corner_radius=0)
         self.pack_propagate(False)
         self.datastore = datastore
+
+        CLOCK_BG = "#16233a"
+        CLOCK_TEXT = "#7fb0ff"
+        ACTIVE_FILL = "#3a2c12"
 
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(fill=tk.BOTH, expand=True, padx=4, pady=6)
         inner.grid_rowconfigure(0, weight=1)
-        inner.grid_columnconfigure(0, weight=0)  # Datum
-        inner.grid_columnconfigure(1, weight=0)  # Uhrzeit
-        inner.grid_columnconfigure(2, weight=0)  # Aktionen
-        inner.grid_columnconfigure(3, weight=1)  # Spacer
-        inner.grid_columnconfigure(4, weight=0)  # Licht + Temp
+        inner.grid_columnconfigure(0, weight=0)  # Uhrzeit-Karte (Datum darunter)
+        inner.grid_columnconfigure(1, weight=1)  # Fliessende Leiste
 
-        def _seg_card(col: int, border_color: str = COLOR_BORDER, padx=(0, 10)) -> ctk.CTkFrame:
-            card = ctk.CTkFrame(
-                inner,
-                fg_color=COLOR_CARD,
-                corner_radius=14,
-                border_width=1,
-                border_color=border_color,
-            )
-            card.grid(row=0, column=col, sticky="ns", padx=padx)
-            return card
-
-        # --- Segment: Datum ---
-        date_card = _seg_card(0)
-        date_inner = ctk.CTkFrame(date_card, fg_color="transparent")
-        date_inner.pack(fill=tk.BOTH, expand=True, padx=16, pady=10)
-
-        self.date_label = ctk.CTkLabel(
-            date_inner,
-            text="--",
-            font=get_safe_font("Bahnschrift", 18, "bold"),
-            text_color=COLOR_TEXT,
-            anchor="w",
+        # --- Uhrzeit-Karte: dominanter Blickfang, eigener Farbton statt nur
+        # farbigem Rand, mit Datum/Wochentag darunter gruppiert. ---
+        clock_card = ctk.CTkFrame(
+            inner,
+            fg_color=CLOCK_BG,
+            corner_radius=18,
+            border_width=1,
+            border_color=COLOR_PRIMARY,
         )
-        self.date_label.pack(anchor="w", side=tk.TOP)
+        clock_card.grid(row=0, column=0, sticky="ns", padx=(0, 10))
+        clock_inner = ctk.CTkFrame(clock_card, fg_color="transparent")
+        clock_inner.pack(padx=26, pady=8)
+
+        self.clock_label = ctk.CTkLabel(
+            clock_inner,
+            text="--:--",
+            font=get_safe_font("Bahnschrift", 38, "bold"),
+            text_color=CLOCK_TEXT,
+        )
+        self.clock_label.pack(anchor="center")
+
+        date_row = ctk.CTkFrame(clock_inner, fg_color="transparent")
+        date_row.pack(anchor="center", pady=(2, 0))
 
         self.weekday_label = ctk.CTkLabel(
-            date_inner,
+            date_row,
             text="",
+            font=get_safe_font("Bahnschrift", 12, "bold"),
+            text_color=COLOR_SUBTEXT,
+        )
+        self.weekday_label.pack(side=tk.LEFT)
+
+        self.date_label = ctk.CTkLabel(
+            date_row,
+            text="--",
             font=get_safe_font("Bahnschrift", 12),
             text_color=COLOR_SUBTEXT,
-            anchor="w",
         )
-        self.weekday_label.pack(anchor="w", side=tk.TOP, pady=(2, 0))
+        self.date_label.pack(side=tk.LEFT, padx=(6, 0))
 
-        # --- Segment: Uhrzeit (hervorgehoben durch farbigen Rand statt
-        # neutralem Rahmen, damit sie als "wichtigstes" Segment auffaellt) ---
-        clock_card = _seg_card(1, border_color=COLOR_PRIMARY)
-        self.clock_label = ctk.CTkLabel(
-            clock_card,
-            text="--:--",
-            font=get_safe_font("Bahnschrift", 40, "bold"),
-            text_color=COLOR_PRIMARY,
+        # --- Fliessende Leiste: Aktionen, Licht, Temperatur - ein
+        # durchgehendes Bauteil mit duennen Trennlinien statt einzelner
+        # umrandeter Kaesten, damit es nicht wie "Kasten-im-Kasten" wirkt. ---
+        flow_bar = ctk.CTkFrame(
+            inner,
+            fg_color=COLOR_CARD,
+            corner_radius=18,
+            border_width=1,
+            border_color=COLOR_BORDER,
         )
-        self.clock_label.pack(padx=24, pady=8)
+        flow_bar.grid(row=0, column=1, sticky="nsew")
+        flow_inner = ctk.CTkFrame(flow_bar, fg_color="transparent")
+        flow_inner.pack(fill=tk.BOTH, expand=True, padx=16)
 
-        # --- Segment: Aktionen (Weg/Zuhause/Dusche) ---
-        actions_card = _seg_card(2)
-        actions_inner = ctk.CTkFrame(actions_card, fg_color="transparent")
-        actions_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+        def _divider(parent_widget: tk.Widget) -> None:
+            ctk.CTkFrame(parent_widget, fg_color=COLOR_BORDER, width=1).pack(
+                side=tk.LEFT, fill=tk.Y, pady=16, padx=14
+            )
 
-        leave_wrap = ctk.CTkFrame(actions_inner, fg_color="transparent")
-        leave_wrap.pack(side=tk.LEFT, padx=(0, 10))
+        # Aktionen als dezente Pills (kein Einzelrahmen mehr - sitzen direkt
+        # auf der Leiste, Hervorhebung nur ueber Hover/aktiven Fuell-Ton).
+        actions_wrap = ctk.CTkFrame(flow_inner, fg_color="transparent")
+        actions_wrap.pack(side=tk.LEFT, pady=10)
+
+        leave_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
+        leave_wrap.pack(side=tk.LEFT, padx=(0, 6))
 
         self.leave_btn = ctk.CTkButton(
             leave_wrap,
@@ -109,12 +124,11 @@ class HeaderBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=10,
-            font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=64,
+            corner_radius=12,
+            font=get_safe_font("Bahnschrift", 19, "bold"),
+            width=60,
             height=44,
-            border_width=1,
-            border_color=COLOR_BORDER,
+            border_width=0,
         )
         self.leave_btn.pack()
         self.leave_caption = ctk.CTkLabel(
@@ -124,9 +138,10 @@ class HeaderBar(ctk.CTkFrame):
 
         self._leave_btn_text_inactive = "🏃"
         self._leave_btn_text_active = "🏃✓"
+        self._active_fill = ACTIVE_FILL
 
-        home_wrap = ctk.CTkFrame(actions_inner, fg_color="transparent")
-        home_wrap.pack(side=tk.LEFT, padx=(0, 10))
+        home_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
+        home_wrap.pack(side=tk.LEFT, padx=(0, 6))
 
         self.home_btn = ctk.CTkButton(
             home_wrap,
@@ -135,12 +150,11 @@ class HeaderBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=10,
-            font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=64,
+            corner_radius=12,
+            font=get_safe_font("Bahnschrift", 19, "bold"),
+            width=60,
             height=44,
-            border_width=1,
-            border_color=COLOR_BORDER,
+            border_width=0,
         )
         self.home_btn.pack()
         self.home_caption = ctk.CTkLabel(
@@ -148,7 +162,7 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.home_caption.pack(pady=(2, 0))
 
-        shower_wrap = ctk.CTkFrame(actions_inner, fg_color="transparent")
+        shower_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
         shower_wrap.pack(side=tk.LEFT)
 
         self.shower_btn = ctk.CTkButton(
@@ -158,12 +172,11 @@ class HeaderBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=10,
-            font=get_safe_font("Bahnschrift", 20, "bold"),
-            width=64,
+            corner_radius=12,
+            font=get_safe_font("Bahnschrift", 19, "bold"),
+            width=60,
             height=44,
-            border_width=1,
-            border_color=COLOR_BORDER,
+            border_width=0,
         )
         self.shower_btn.pack()
         self.shower_caption = ctk.CTkLabel(
@@ -171,15 +184,12 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.shower_caption.pack(pady=(2, 0))
 
-        # --- Segment: Licht-Schalter + Außentemperatur ---
-        right_card = _seg_card(4, padx=(0, 0))
-        right_inner = ctk.CTkFrame(right_card, fg_color="transparent")
-        right_inner.pack(fill=tk.BOTH, expand=True, padx=14, pady=10)
+        # Spacer schiebt Licht+Temperatur an den rechten Rand der Leiste.
+        ctk.CTkFrame(flow_inner, fg_color="transparent").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Licht: Icon bleibt direkt am Schalter (wie zuvor) - nur jetzt Teil
-        # dieses gemeinsamen Segments statt einer eigenen Spalte in der Mitte.
-        light_control = ctk.CTkFrame(right_inner, fg_color="transparent")
-        light_control.pack(side=tk.LEFT, padx=(0, 16))
+        # Licht: Icon bleibt direkt am Schalter.
+        light_control = ctk.CTkFrame(flow_inner, fg_color="transparent")
+        light_control.pack(side=tk.LEFT)
 
         ctk.CTkLabel(
             light_control,
@@ -214,7 +224,10 @@ class HeaderBar(ctk.CTkFrame):
         self._on_shower = on_shower
         self._on_exit = on_exit  # fallback only
 
-        temp_block = ctk.CTkFrame(right_inner, fg_color="transparent")
+        # Trennlinie vor der Temperatur, wie in der fliessenden Leiste.
+        _divider(flow_inner)
+
+        temp_block = ctk.CTkFrame(flow_inner, fg_color="transparent")
         temp_block.pack(side=tk.LEFT)
 
         top_row = ctk.CTkFrame(temp_block, fg_color="transparent")
@@ -325,18 +338,25 @@ class HeaderBar(ctk.CTkFrame):
             self._suppress_light_switch_event = False
 
     def set_leave_home_active(self, is_active: bool | None) -> None:
-        """Mark the leave-home button as active when 'all lights are off'."""
+        """Mark the leave-home button as active when 'all lights are off'.
+
+        Der Button hat in der fliessenden Leiste (Feinschliff Runde 2) keinen
+        eigenen Rahmen mehr (border_width=0) - die "aktiv"-Markierung laeuft
+        deshalb jetzt ueber einen gefuellten Hintergrundton statt ueber die
+        Rahmenfarbe.
+        """
         try:
+            active_fill = getattr(self, "_active_fill", COLOR_WARNING)
             if is_active is True:
                 self.leave_btn.configure(
                     text=self._leave_btn_text_active,
-                    border_color=COLOR_WARNING,
+                    fg_color=active_fill,
                     text_color=COLOR_WARNING,
                 )
             else:
                 self.leave_btn.configure(
                     text=self._leave_btn_text_inactive,
-                    border_color=COLOR_BORDER,
+                    fg_color="transparent",
                     text_color=COLOR_TEXT,
                 )
         except Exception:
