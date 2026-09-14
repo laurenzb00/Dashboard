@@ -61,6 +61,13 @@ from core.schema import (
 
 DEBUG_LOG = os.environ.get("DASHBOARD_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
+# Sparkline-Akzentfarben ("Vibrant Amber/Magenta" - Nutzer-Feedback zur
+# Farbwahl der PV/Außentemperatur-Sparkline im Energie-Tab). Eigene, kraeftige
+# Farben statt der generischen Success/Info-Theme-Farben, damit die
+# Sparkline sich staerker vom Rest abhebt.
+SPARK_PV_COLOR = "#ffb01a"
+SPARK_TEMP_COLOR = "#ff4fd8"
+
 
 class BufferStorageView(tk.Frame):
 
@@ -168,9 +175,9 @@ class BufferStorageView(tk.Frame):
 
         if pv_series:
             xs_pv, ys_pv = zip(*pv_series)
-            self.spark_ax.plot(xs_pv, ys_pv, color=COLOR_SUCCESS, linewidth=2.0, alpha=0.9)
-            self.spark_ax.fill_between(xs_pv, ys_pv, color=COLOR_SUCCESS, alpha=0.15)
-            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=COLOR_SUCCESS, s=12, zorder=10)
+            self.spark_ax.plot(xs_pv, ys_pv, color=SPARK_PV_COLOR, linewidth=2.0, alpha=0.95)
+            self.spark_ax.fill_between(xs_pv, ys_pv, color=SPARK_PV_COLOR, alpha=0.18)
+            self.spark_ax.scatter([xs_pv[-1]], [ys_pv[-1]], color=SPARK_PV_COLOR, s=12, zorder=10)
             try:
                 max_pv = max(float(v) for v in ys_pv)
             except Exception:
@@ -178,8 +185,8 @@ class BufferStorageView(tk.Frame):
             self.spark_ax.set_ylim(0.0, max(0.5, max_pv * 1.15))
         if temp_series:
             xs_temp, ys_temp = zip(*temp_series)
-            ax2.plot(xs_temp, ys_temp, color=COLOR_INFO, linewidth=2.0, alpha=0.9, linestyle="--")
-            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=COLOR_INFO, s=12, zorder=10)
+            ax2.plot(xs_temp, ys_temp, color=SPARK_TEMP_COLOR, linewidth=2.0, alpha=0.9, linestyle="--")
+            ax2.scatter([xs_temp[-1]], [ys_temp[-1]], color=SPARK_TEMP_COLOR, s=12, zorder=10)
             try:
                 min_t = min(float(v) for v in ys_temp)
                 max_t = max(float(v) for v in ys_temp)
@@ -203,8 +210,8 @@ class BufferStorageView(tk.Frame):
         ax2.spines['bottom'].set_linewidth(0.5)
         self.spark_ax.tick_params(axis='both', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
         ax2.tick_params(axis='y', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        self.spark_ax.set_ylabel('kW', fontsize=8, color=COLOR_SUCCESS, rotation=0, labelpad=10, va='center')
-        ax2.set_ylabel('°C', fontsize=8, color=COLOR_INFO, rotation=0, labelpad=10, va='center')
+        self.spark_ax.set_ylabel('kW', fontsize=8, color=SPARK_PV_COLOR, rotation=0, labelpad=10, va='center')
+        ax2.set_ylabel('°C', fontsize=8, color=SPARK_TEMP_COLOR, rotation=0, labelpad=10, va='center')
         self.spark_ax.yaxis.set_major_locator(plt.MaxNLocator(4))
         ax2.yaxis.set_major_locator(plt.MaxNLocator(4))
         self.spark_ax.xaxis.set_major_locator(plt.MaxNLocator(6))
@@ -455,9 +462,12 @@ class BufferStorageView(tk.Frame):
             (0.09, 0.06),
             0.34,
             PUFFER_TOP - 0.06,
-            boxstyle="round,pad=0.02,rounding_size=0.10",
+            # Staerker abgerundete Ecken (0.10 -> 0.17) + duennerer Rand fuer
+            # eine modernere, weichere Silhouette (Nutzer-Feedback: "form
+            # etwas moderner").
+            boxstyle="round,pad=0.02,rounding_size=0.17",
             transform=self.ax.transAxes,
-            linewidth=1.3,
+            linewidth=1.1,
             edgecolor=COLOR_ROOT,
             facecolor="none",
             alpha=0.75,
@@ -494,9 +504,9 @@ class BufferStorageView(tk.Frame):
             (0.58, 0.06),
             0.32,
             BOILER_TOP - 0.06,
-            boxstyle="round,pad=0.02,rounding_size=0.10",
+            boxstyle="round,pad=0.02,rounding_size=0.17",
             transform=self.ax.transAxes,
-            linewidth=1.1,
+            linewidth=1.0,
             edgecolor=COLOR_ROOT,
             facecolor=self._temp_color(60),
             alpha=0.95,
@@ -544,83 +554,25 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _build_cmap() -> LinearSegmentedColormap:
-        # Heatmap scale, oriented on the dashboard node colors.
-        # The node colors should appear as meaningful anchors on the bar,
-        # with smooth gradients between them.
-        #
-        # Targets (°C):
-        # - Blue range dominated from TEMP_MIN..TEMP_BLUE_MAX
-        # - No green band (requested)
-        # - Orange..Red from TEMP_ORANGE_FROM..TEMP_MAX (now capped at 75°C)
-        t_min = float(BufferStorageView.TEMP_MIN)
-        t_blue_max = float(BufferStorageView.TEMP_BLUE_MAX)
-        t_orange_from = float(BufferStorageView.TEMP_ORANGE_FROM)
-        t_max = float(BufferStorageView.TEMP_MAX)
-
-        span = max(1e-6, (t_max - t_min))
-
-        def p(temp_c: float) -> float:
-            return max(0.0, min(1.0, (float(temp_c) - t_min) / span))
-
-        # Keep the node colors visible by adding short plateaus and multiple
-        # intermediate steps. All intermediate colors are derived by blending
-        # existing theme colors (no new hard-coded palette).
-
-        # Start with a darker blue than COLOR_PRIMARY, derived from palette.
-        dark_blue = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_ROOT, 0.70)
-        deep_blue = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_ROOT, 0.50)
-        mid_blue_1 = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_INFO, 0.25)
-        mid_blue_2 = BufferStorageView._blend_hex(COLOR_PRIMARY, COLOR_INFO, 0.55)
-        ice_blue = BufferStorageView._blend_hex(COLOR_INFO, COLOR_TEXT, 0.18)
-
-        # Warm spectrum (orange -> red) with additional anchors for a stronger gradient.
-        warm_1 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.25)
-        warm_2 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.50)
-        warm_3 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.72)
-        warm_4 = BufferStorageView._blend_hex(COLOR_WARNING, COLOR_DANGER, 0.86)
-
-        # Transition between info-blue and orange right around the knee.
-        teal_1 = BufferStorageView._blend_hex(COLOR_INFO, COLOR_WARNING, 0.35)
-        teal_2 = BufferStorageView._blend_hex(COLOR_INFO, COLOR_WARNING, 0.65)
-
-        def clamp_t(x: float) -> float:
-            return max(t_min, min(t_max, float(x)))
-
-        stops: list[tuple[float, str]] = []
-        def add(temp_c: float, color: str) -> None:
-            stops.append((p(clamp_t(temp_c)), color))
-
-        # --- Cold range (35..53): dark -> primary -> info (with richer gradient)
-        add(t_min, dark_blue)
-        add(t_min + 1.0, deep_blue)
-        add(t_min + 2.0, COLOR_PRIMARY)
-        add(t_min + 6.0, mid_blue_1)
-        add(t_min + 12.0, mid_blue_2)
-        add(max(t_min + 16.0, t_blue_max - 4.0), COLOR_INFO)
-        add(t_blue_max - 2.0, ice_blue)
-        add(t_blue_max, COLOR_INFO)
-
-        # --- Knee (53..55): smoothly go from info to orange
-        add(t_blue_max + 0.4, teal_1)
-        add(t_orange_from - 0.4, teal_2)
-        add(t_orange_from, COLOR_WARNING)
-
-        # --- Hot range (55..75): orange -> red with multiple anchors
-        add(t_orange_from + 2.0, warm_1)
-        add(t_orange_from + 5.0, warm_2)
-        add(t_orange_from + 9.0, warm_3)
-        add(t_max - 1.5, warm_4)
-        add(t_max, COLOR_DANGER)
-
-        # Ensure monotonic positions and avoid duplicates confusing Matplotlib.
-        stops.sort(key=lambda item: item[0])
-        dedup: list[tuple[float, str]] = []
-        for pos, col in stops:
-            if dedup and abs(pos - dedup[-1][0]) < 1e-6 and col == dedup[-1][1]:
-                continue
-            dedup.append((pos, col))
-
-        return LinearSegmentedColormap.from_list("dashboard_temp", dedup, N=512)
+        # "Ocean-to-Ember" Palette (Nutzer-Feedback: kraeftiger/kontrastreicher
+        # als die vorherige Blau/Orange/Rot-Abstufung, mit eigener statt von
+        # den Theme-Farben abgeleiteter Farbwahl). Kalt = dunkles Navy ueber
+        # Ozean-Tuerkis zu hellem Cyan, warm = Bernstein ueber Orange-Rot zu
+        # tiefem Karminrot. Positionen sind direkt als Anteil der TEMP_MIN..
+        # TEMP_MAX-Spanne (35-75°C) gesetzt, exakt wie im abgestimmten
+        # Vorschau-Rendering.
+        stops: list[tuple[float, str]] = [
+            (0.00, "#0a2540"),
+            (0.12, "#0e3f6b"),
+            (0.28, "#0f7ea8"),
+            (0.42, "#22c3d6"),
+            (0.55, "#8fe3e0"),
+            (0.62, "#f2e07a"),
+            (0.72, "#f4a53d"),
+            (0.85, "#e8542f"),
+            (1.00, "#c81e3a"),
+        ]
+        return LinearSegmentedColormap.from_list("dashboard_temp_ocean_ember", stops, N=512)
 
     def _temp_color(self, temp: float) -> str:
         rgba = self._build_cmap()(self.norm(temp))
