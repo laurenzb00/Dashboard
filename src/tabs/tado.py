@@ -790,6 +790,143 @@ class TadoTab:
             return False
         return False
 
+    def _perform_login(self) -> bool:
+        """Tado-Login mit automatischem Retry.
+
+        Vorher: ein einzelner Fehlschlag beim Login (z.B. weil beim
+        Erstellen von Tado(...) - typischerweise kurz nach dem Boot des Pi,
+        wenn Netzwerk/DNS noch nicht bereit sind - der Geraete-Code-Flow auf
+        Tado's Servern nicht registriert werden konnte und
+        device_activation_status() dauerhaft bei "NOT_STARTED" blieb) hat
+        die Tado-Integration fuer den Rest des App-Laufs komplett
+        lahmgelegt ("Tado Aktivierung fehlgeschlagen" / "Login
+        fehlgeschlagen"), obwohl sich die Ursache (Netzwerk) kurz danach von
+        selbst geloest haette. Lokal auf denselben self.api weiter zu warten
+        half dabei nicht, weil device_activation_status() nur den beim
+        Erstellen von Tado(...) einmalig festgelegten Zustand zurueckgibt -
+        Tado(...) muss dafuer komplett NEU erstellt werden.
+
+        Jetzt: bei jedem Fehlschlag wird nach einer kurzen, wachsenden Pause
+        der komplette Login (inkl. Neu-Erstellen von Tado(...)) automatisch
+        wiederholt, bis er klappt oder die App beendet wird.
+
+        Returns True sobald self.zones erfolgreich geladen wurde, False
+        wenn die App waehrenddessen beendet wurde (self.alive == False)
+        oder python-tado fehlt (dauerhafter Fehler).
+        """
+        login_attempt = 0
+        while self.alive:
+            login_attempt += 1
+            try:
+                # Prefer direct User/Pass only for python-tado.
+                # PyTado uses token/device activation flow (token_file_path).
+                if _TADO_IMPL == "python_tado" and TADO_USER and TADO_PASS:
+                    try:
+                        self.api = Tado(TADO_USER, TADO_PASS)
+                        self._ui_set(self.var_status, "Verbunden")
+                    except Exception:
+                        self.api = Tado(TADO_USER, TADO_PASS, client_id=TADO_CLIENT_ID)
+                        self._ui_set(self.var_status, "Verbunden")
+                else:
+                    # OAuth Device Flow (seit 2025) + Token-Cache
+                    self.api = Tado(token_file_path=TADO_TOKEN_FILE)
+                    status = self.api.device_activation_status()
+                    logging.info(
+                        "[TADO] Login-Versuch %s: device_activation_status=%s",
+                        login_attempt, status,
+                    )
+                    if status != "COMPLETED":
+                        # WICHTIG: Laut PyTado-Doku liefert device_verification_url()
+                        # erst ab Status PENDING eine echte URL - waehrend
+                        # NOT_STARTED ist sie None (der Device-Code-Flow ist auf
+                        # Tado's Servern noch gar nicht registriert). Der Code hier
+                        # hat die URL bisher VOR dieser Wartezeit abgerufen und sie
+                        # danach nie neu geholt - "url" blieb dadurch dauerhaft
+                        # None, der Aktivierungs-Hinweis/Button im UI blieb leer
+                        # ("Tado Aktivierung fehlgeschlagen. URL: None"), obwohl
+                        # nach dem Warten auf PENDING eine echte URL verfuegbar
+                        # gewesen waere. Fix: erst warten, DANN die URL holen.
+                        start = time.time()
+                        while status == "NOT_STARTED" and (time.time() - start) < 10:
+                            time.sleep(1)
+                            status = self.api.device_activation_status()
+
+                        url = self._normalize_device_url(self.api.device_verification_url())
+                        if url:
+                            logging.info("[TADO] Device activation URL: %s", url)
+                            self._ui_set(self.var_status, "Tado: Bitte Gerät im Browser aktivieren")
+                            self._set_hint(f"Aktivierung erforderlich: {url}", device_url=url)
+                        else:
+                            logging.warning(
+                                "[TADO] Keine Verification-URL erhalten (status=%s, Versuch %s)",
+                                status, login_attempt,
+                            )
+
+                        if status == "PENDING":
+                            self.api.device_activation()
+                            status = self.api.device_activation_status()
+                            logging.debug("[TADO] Status nach Aktivierung: %s", status)
+
+                        if status != "COMPLETED":
+                            # Nochmal versuchen, falls sich seit oben etwas geaendert hat.
+                            url = self._normalize_device_url(self.api.device_verification_url()) or url
+                            wait_s = min(15 * login_attempt, 120)
+                            self._ui_set(
+                                self.var_status,
+                                f"Tado Aktivierung ausstehend (Versuch {login_attempt}, naechster Versuch in {wait_s}s)",
+                            )
+                            # Keep URL available for manual activation
+                            self._set_hint(f"Aktivierung nicht abgeschlossen. URL: {url}", device_url=url)
+                            self._ui_set(self.var_temp_ist, "N/A")
+                            self._ui_set(self.var_humidity, "N/A")
+                            logging.warning(
+                                "[TADO] Login-Versuch %s fehlgeschlagen (status=%s), naechster Versuch in %ss",
+                                login_attempt, status, wait_s,
+                            )
+                            for _ in range(wait_s):
+                                if not self.alive:
+                                    return False
+                                time.sleep(1)
+                            continue
+
+                zones = self._get_zones()
+                logging.debug("[TADO] zones gefunden: %s", len(zones))
+                self.zones = zones or []
+                return True
+
+            except ImportError:
+                self._ui_set(self.var_status, "python-tado nicht installiert! Bitte im Terminal ausführen: 'pip install python-tado' (im .venv falls vorhanden). Dann Dashboard neu starten.")
+                self._set_hint("Bitte `pip install python-tado` ausführen und Dashboard neu starten.")
+                self._ui_set(self.var_temp_ist, "N/A")
+                self._ui_set(self.var_humidity, "N/A")
+                self._ui_call(self._set_controls_enabled, False)
+                while self.alive:
+                    time.sleep(5)
+                return False
+            except Exception as e:
+                # Zeige Fehlername und ggf. Message für bessere Diagnose
+                err_type = type(e).__name__
+                err_msg = str(e)
+                wait_s = min(15 * login_attempt, 120)
+                msg = f"Login fehlgeschlagen: {err_type} (Versuch {login_attempt}, naechster Versuch in {wait_s}s)"
+                if err_msg:
+                    msg += f" – {err_msg}"
+                self._ui_set(self.var_status, msg)
+                self._ui_set(self.var_temp_ist, "N/A")
+                self._ui_set(self.var_humidity, "N/A")
+                self._set_hint(f"Login/Verbindung fehlgeschlagen, naechster Versuch in {wait_s}s...")
+                self._ui_call(self._set_controls_enabled, False)
+                logging.exception(
+                    "[TADO] Login-Versuch %s mit Exception fehlgeschlagen, naechster Versuch in %ss",
+                    login_attempt, wait_s,
+                )
+                for _ in range(wait_s):
+                    if not self.alive:
+                        return False
+                    time.sleep(1)
+                continue
+        return False
+
     def _loop(self):
         """Hintergrund-Update Loop."""
         logging.info("[TADO] Loop gestartet")
@@ -804,117 +941,36 @@ class TadoTab:
                 time.sleep(30)
             return
 
-        # Login
-        try:
-            # Prefer direct User/Pass only for python-tado.
-            # PyTado uses token/device activation flow (token_file_path).
-            if _TADO_IMPL == "python_tado" and TADO_USER and TADO_PASS:
-                try:
-                    self.api = Tado(TADO_USER, TADO_PASS)
-                    self._ui_set(self.var_status, "Verbunden")
-                except Exception:
-                    self.api = Tado(TADO_USER, TADO_PASS, client_id=TADO_CLIENT_ID)
-                    self._ui_set(self.var_status, "Verbunden")
-            else:
-                # OAuth Device Flow (seit 2025) + Token-Cache
-                self.api = Tado(token_file_path=TADO_TOKEN_FILE)
-                status = self.api.device_activation_status()
-                logging.debug("[TADO] device_activation_status: %s", status)
-                if status != "COMPLETED":
-                    # WICHTIG: Laut PyTado-Doku liefert device_verification_url()
-                    # erst ab Status PENDING eine echte URL - waehrend
-                    # NOT_STARTED ist sie None (der Device-Code-Flow ist auf
-                    # Tado's Servern noch gar nicht registriert). Der Code hier
-                    # hat die URL bisher VOR dieser Wartezeit abgerufen und sie
-                    # danach nie neu geholt - "url" blieb dadurch dauerhaft
-                    # None, der Aktivierungs-Hinweis/Button im UI blieb leer
-                    # ("Tado Aktivierung fehlgeschlagen. URL: None"), obwohl
-                    # nach dem Warten auf PENDING eine echte URL verfuegbar
-                    # gewesen waere. Fix: erst warten, DANN die URL holen.
-                    start = time.time()
-                    while status == "NOT_STARTED" and (time.time() - start) < 10:
-                        time.sleep(1)
-                        status = self.api.device_activation_status()
-
-                    url = self._normalize_device_url(self.api.device_verification_url())
-                    if url:
-                        logging.info("[TADO] Device activation URL: %s", url)
-                        self._ui_set(self.var_status, "Tado: Bitte Gerät im Browser aktivieren")
-                        self._set_hint(f"Aktivierung erforderlich: {url}", device_url=url)
-                    else:
-                        logging.warning("[TADO] Keine Verification-URL erhalten (status=%s)", status)
-
-                    if status == "PENDING":
-                        self.api.device_activation()
-                        status = self.api.device_activation_status()
-                        logging.debug("[TADO] Status nach Aktivierung: %s", status)
-
-                    if status != "COMPLETED":
-                        # Nochmal versuchen, falls sich seit oben etwas geaendert hat.
-                        url = self._normalize_device_url(self.api.device_verification_url()) or url
-                        self._ui_set(self.var_status, "Tado Aktivierung fehlgeschlagen")
-                        # Keep URL available for manual activation
-                        self._set_hint(f"Aktivierung nicht abgeschlossen. URL: {url}", device_url=url)
-                        self._ui_set(self.var_temp_ist, "N/A")
-                        self._ui_set(self.var_humidity, "N/A")
-                        while self.alive:
-                            time.sleep(30)
-                        return
-            
-            zones = self._get_zones()
-            logging.debug("[TADO] zones gefunden: %s", len(zones))
-            self.zones = zones or []
-
-            # Single-zone setup: pick best match (Schlaf/Bed) else first.
-            picked = None
-            for z in self.zones:
-                name = (z.get("name") or "")
-                if "schlaf" in name.lower() or "bed" in name.lower():
-                    picked = z
-                    break
-            if picked is None and self.zones:
-                picked = self.zones[0]
-
-            if picked is not None:
-                self.zone_id = picked.get("id")
-                self._ui_set(self.var_zone, picked.get("name", "-"))
-
-            if not self.zone_id:
-                self._ui_set(self.var_status, "Tado: Keine Zone gefunden")
-                self._ui_call(self._set_controls_enabled, False)
-                while self.alive:
-                    time.sleep(30)
-                return
-            
-            self._ui_set(self.var_status, "Verbunden")
-            self._set_hint("", clear_url=True)  # Clear URL after successful connection
-            # Start in Auto mode until we see an overlay
-            self._ui_set(self.var_mode, "Auto")
-            self._ui_call(self._set_controls_enabled, False)
-        except ImportError:
-            self._ui_set(self.var_status, "python-tado nicht installiert! Bitte im Terminal ausführen: 'pip install python-tado' (im .venv falls vorhanden). Dann Dashboard neu starten.")
-            self._set_hint("Bitte `pip install python-tado` ausführen und Dashboard neu starten.")
-            self._ui_set(self.var_temp_ist, "N/A")
-            self._ui_set(self.var_humidity, "N/A")
-            self._ui_call(self._set_controls_enabled, False)
-            while self.alive:
-                time.sleep(5)
+        # Login (mit automatischem Retry bei Fehlschlag, siehe _perform_login)
+        if not self._perform_login():
             return
-        except Exception as e:
-            # Zeige Fehlername und ggf. Message für bessere Diagnose
-            err_type = type(e).__name__
-            err_msg = str(e)
-            msg = f"Login fehlgeschlagen: {err_type}"
-            if err_msg:
-                msg += f" – {err_msg}"
-            self._ui_set(self.var_status, msg)
-            self._ui_set(self.var_temp_ist, "N/A")
-            self._ui_set(self.var_humidity, "N/A")
-            self._set_hint("Login/Verbindung fehlgeschlagen. Prüfe Zugangsdaten oder Device-Flow Aktivierung.")
+
+        # Single-zone setup: pick best match (Schlaf/Bed) else first.
+        picked = None
+        for z in self.zones:
+            name = (z.get("name") or "")
+            if "schlaf" in name.lower() or "bed" in name.lower():
+                picked = z
+                break
+        if picked is None and self.zones:
+            picked = self.zones[0]
+
+        if picked is not None:
+            self.zone_id = picked.get("id")
+            self._ui_set(self.var_zone, picked.get("name", "-"))
+
+        if not self.zone_id:
+            self._ui_set(self.var_status, "Tado: Keine Zone gefunden")
             self._ui_call(self._set_controls_enabled, False)
             while self.alive:
                 time.sleep(30)
             return
+
+        self._ui_set(self.var_status, "Verbunden")
+        self._set_hint("", clear_url=True)  # Clear URL after successful connection
+        # Start in Auto mode until we see an overlay
+        self._ui_set(self.var_mode, "Auto")
+        self._ui_call(self._set_controls_enabled, False)
 
         # Update Loop
         while self.alive:
