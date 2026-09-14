@@ -62,16 +62,13 @@ class PVSparklineView(tk.Frame):
         self._spark_cache_ts = 0.0
         self._spark_cache_file = Path(__file__).resolve().parents[3] / "data" / "sparkline_cache.json"
 
-        header = tk.Frame(self, bg=COLOR_ROOT)
-        header.pack(fill=tk.X, padx=6, pady=(4, 2))
-        self._header = header
-        tk.Label(
-            header,
-            text="PV & Aussentemp. (24h)",
-            fg=COLOR_TITLE,
-            bg=COLOR_ROOT,
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w")
+        # Eigener Titel-Header entfernt: der Titel "PV & Außentemperatur
+        # (24h)" wird jetzt einheitlich ueber Card.add_title() im umgebenden
+        # sparkline_card gesetzt (gleiche Bahnschrift/Icon-Optik wie bei den
+        # anderen beiden Energie-Tab-Karten), statt hier ein zweites, kleiner
+        # gesetztes Segoe-UI-Label zu duplizieren. self._header bleibt als
+        # No-Op-Referenz erhalten, falls set_target_height() darauf zugreift.
+        self._header = None
 
         self.spark_fig = Figure(figsize=(7.5, 1.8), dpi=100)
         self.spark_fig.patch.set_facecolor(COLOR_ROOT)

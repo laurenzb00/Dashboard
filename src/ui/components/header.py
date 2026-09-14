@@ -48,7 +48,8 @@ class HeaderBar(ctk.CTkFrame):
         inner.pack(fill=tk.BOTH, expand=True, padx=4, pady=6)
         inner.grid_rowconfigure(0, weight=1)
         inner.grid_columnconfigure(0, weight=0)  # Uhrzeit-Karte (Datum darunter)
-        inner.grid_columnconfigure(1, weight=1)  # Fliessende Leiste
+        inner.grid_columnconfigure(1, weight=1)  # Leerraum (transparent, ausserhalb jeder Karte)
+        inner.grid_columnconfigure(2, weight=0)  # Fliessende Leiste (kompakt, umschliesst nur ihren Inhalt)
 
         # --- Uhrzeit-Karte: dominanter Blickfang, eigener Farbton statt nur
         # farbigem Rand, mit Datum/Wochentag darunter gruppiert. ---
@@ -90,9 +91,19 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.date_label.pack(side=tk.LEFT, padx=(6, 0))
 
+        # Transparenter Leerraum zwischen Uhrzeit-Karte und der Leiste -
+        # ausserhalb jeder Karte, statt (wie im ersten Wurf) die Leiste
+        # selbst ueber die volle Restbreite zu strecken. Dadurch entsteht
+        # keine riesige, groesstenteils leere Karten-Flaeche mehr - die
+        # Leiste bleibt kompakt und umschliesst nur ihren tatsaechlichen
+        # Inhalt (Nutzer-Feedback: "noch nicht wirklich gut" beim ersten
+        # Vollbreiten-Versuch).
+        ctk.CTkFrame(inner, fg_color="transparent").grid(row=0, column=1, sticky="nsew")
+
         # --- Fliessende Leiste: Aktionen, Licht, Temperatur - ein
-        # durchgehendes Bauteil mit duennen Trennlinien statt einzelner
-        # umrandeter Kaesten, damit es nicht wie "Kasten-im-Kasten" wirkt. ---
+        # kompaktes, durchgehendes Bauteil mit duennen Trennlinien statt
+        # einzelner umrandeter Kaesten, damit es nicht wie
+        # "Kasten-im-Kasten" wirkt. ---
         flow_bar = ctk.CTkFrame(
             inner,
             fg_color=COLOR_CARD,
@@ -100,7 +111,7 @@ class HeaderBar(ctk.CTkFrame):
             border_width=1,
             border_color=COLOR_BORDER,
         )
-        flow_bar.grid(row=0, column=1, sticky="nsew")
+        flow_bar.grid(row=0, column=2, sticky="ns")
         flow_inner = ctk.CTkFrame(flow_bar, fg_color="transparent")
         flow_inner.pack(fill=tk.BOTH, expand=True, padx=16)
 
@@ -184,8 +195,10 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.shower_caption.pack(pady=(2, 0))
 
-        # Spacer schiebt Licht+Temperatur an den rechten Rand der Leiste.
-        ctk.CTkFrame(flow_inner, fg_color="transparent").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # Trennlinie statt Leerraum-Spacer: die Leiste ist jetzt kompakt
+        # (siehe oben), daher soll Licht/Temperatur direkt an die Aktionen
+        # anschliessen statt an den rechten Rand gedrueckt zu werden.
+        _divider(flow_inner)
 
         # Licht: Icon bleibt direkt am Schalter.
         light_control = ctk.CTkFrame(flow_inner, fg_color="transparent")

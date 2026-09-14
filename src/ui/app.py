@@ -622,12 +622,22 @@ class MainApp:
         _dbg_print("[INIT] MainApp: BufferCard und BufferView werden erstellt...")
         self.buffer_card = Card(self.body, padding=12)
         self.buffer_card.grid(row=0, column=1, sticky="nsew", padx=6, pady=6)
-        self.buffer_card.add_title("Warmwasser", icon="🔥")
+        # War zuvor "Warmwasser" betitelt, obwohl die Karte BEIDE Werte zeigt
+        # (Puffer-Heatmap UND Warmwasser/Boiler) - die Matplotlib-Grafik
+        # darunter beschriftet die beiden Gefaesse zusaetzlich selbst noch
+        # einmal mit "PUFFER"/"WARMWASSER". Der alte Kartentitel war dadurch
+        # sowohl ungenau als auch redundant zur eigenen Grafik-Beschriftung.
+        self.buffer_card.add_title("Wärmespeicher", icon="🔥")
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=320, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
         self.sparkline_card = Card(self.body, padding=12)
         self.sparkline_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 6))
+        # Einheitlicher Karten-Titel (Icon + Bahnschrift-Bold) wie bei den
+        # anderen beiden Energie-Tab-Karten, statt eines eigenen, kleineren
+        # tk.Label-Headers in Segoe UI nur innerhalb der Sparkline-Ansicht -
+        # die drei Karten wirkten dadurch bisher nicht "aus einem Guss".
+        self.sparkline_card.add_title("PV & Außentemperatur (24h)", icon="🔆")
         self.sparkline_view = PVSparklineView(self.sparkline_card.content(), datastore=self.datastore)
         self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
@@ -905,8 +915,8 @@ class MainApp:
         if HomeAssistantActionsTab:
             try:
                 _dbg_print("[TABS] HomeAssistantActionsTab wird erstellt...")
-                self.tabview.add("HomeA")
-                ha_frame = self.tabview.tab("HomeA")
+                self.tabview.add(emoji("🏠 HomeA", "HomeA"))
+                ha_frame = self.tabview.tab(emoji("🏠 HomeA", "HomeA"))
                 try:
                     ha_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -921,8 +931,8 @@ class MainApp:
         if SpotifyTab:
             try:
                 _dbg_print("[TABS] SpotifyTab wird erstellt...")
-                self.tabview.add("Spotify")
-                spotify_frame = self.tabview.tab("Spotify")
+                self.tabview.add(emoji("🎵 Spotify", "Spotify"))
+                spotify_frame = self.tabview.tab(emoji("🎵 Spotify", "Spotify"))
                 try:
                     spotify_frame.configure(fg_color=COLOR_ROOT)
                 except:
