@@ -123,7 +123,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
                 font=("Segoe UI", FONT_SIZE_BODY, "bold"),
                 width=100,
                 height=BUTTON_HEIGHT_SECONDARY,
-                corner_radius=10,
+                corner_radius=14,
                 command=lambda p=period: self._select_period(p),
             )
             btn.pack(side=tk.LEFT, padx=4)

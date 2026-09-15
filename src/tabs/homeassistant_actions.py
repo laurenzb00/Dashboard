@@ -279,7 +279,7 @@ class HomeAssistantActionsTab:
                 hover_color=COLOR_BORDER,
                 border_width=1,
                 border_color=COLOR_BORDER,
-                corner_radius=10,
+                corner_radius=16,
                 height=52,
                 command=lambda a=action: self._trigger_action_async(a),
             ).grid(row=r, column=c, sticky="ew", padx=8, pady=6)

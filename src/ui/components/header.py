@@ -12,6 +12,7 @@ from ui.styles import (
     COLOR_ROOT,
     get_safe_font,
 )
+from ui.components.glyph_icon import ctk_icon
 
 
 class HeaderBar(ctk.CTkFrame):
@@ -40,7 +41,11 @@ class HeaderBar(ctk.CTkFrame):
         self.pack_propagate(False)
         self.datastore = datastore
 
-        CLOCK_BG = "#16233a"
+        # War fast identisch mit dem neuen (satteren) COLOR_CARD-Ton und
+        # haette die Uhrzeit-Karte optisch mit der Leiste daneben verschmelzen
+        # lassen - bewusst etwas heller/blauer gehalten, damit sie weiterhin
+        # als eigener Farbton auffaellt (siehe Kommentar oben zur Hierarchie).
+        CLOCK_BG = "#1B3155"
         CLOCK_TEXT = "#7fb0ff"
         ACTIVE_FILL = "#3a2c12"
 
@@ -130,9 +135,16 @@ class HeaderBar(ctk.CTkFrame):
         leave_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
         leave_wrap.pack(side=tk.LEFT, padx=(0, 6))
 
+        # Feine Glas-Linienicons statt Emoji (siehe glyph_icon.py) - passend
+        # zur selben Formsprache wie Energiefluss-Icons und Puffer/Warmwasser.
+        # "Weg" braucht zwei Varianten (normal/aktiv), die anderen nur eine.
+        self._icon_leave_normal = ctk_icon("door_exit", COLOR_TEXT, size=30)
+        self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=30)
+
         self.leave_btn = ctk.CTkButton(
             leave_wrap,
-            text="🏃",
+            text="",
+            image=self._icon_leave_normal,
             command=self._on_leave_pressed,
             fg_color="transparent",
             text_color=COLOR_TEXT,
@@ -149,8 +161,6 @@ class HeaderBar(ctk.CTkFrame):
         )
         self.leave_caption.pack(pady=(2, 0))
 
-        self._leave_btn_text_inactive = "🏃"
-        self._leave_btn_text_active = "🏃✓"
         self._active_fill = ACTIVE_FILL
 
         home_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
@@ -158,7 +168,8 @@ class HeaderBar(ctk.CTkFrame):
 
         self.home_btn = ctk.CTkButton(
             home_wrap,
-            text="🏠",
+            text="",
+            image=ctk_icon("house", COLOR_TEXT, size=30),
             command=self._on_home_pressed,
             fg_color="transparent",
             text_color=COLOR_TEXT,
@@ -180,7 +191,8 @@ class HeaderBar(ctk.CTkFrame):
 
         self.shower_btn = ctk.CTkButton(
             shower_wrap,
-            text="🚿",
+            text="",
+            image=ctk_icon("shower", COLOR_TEXT, size=30),
             command=self._on_shower_pressed,
             fg_color="transparent",
             text_color=COLOR_TEXT,
@@ -208,9 +220,8 @@ class HeaderBar(ctk.CTkFrame):
 
         ctk.CTkLabel(
             light_control,
-            text="💡",
-            font=get_safe_font("Bahnschrift", 20),
-            text_color=COLOR_WARNING,
+            text="",
+            image=ctk_icon("bulb", COLOR_WARNING, size=24),
             width=24,
         ).pack(side=tk.LEFT, padx=(0, 6))
 
@@ -253,9 +264,8 @@ class HeaderBar(ctk.CTkFrame):
         # bereits ein eigenes Icon hat statt nur nacktem Text.
         self.out_temp_icon = ctk.CTkLabel(
             top_row,
-            text="🌡️",
-            font=get_safe_font("Bahnschrift", 14),
-            text_color=COLOR_WARNING,
+            text="",
+            image=ctk_icon("thermometer", COLOR_WARNING, size=18),
         )
         self.out_temp_icon.pack(side=tk.LEFT, padx=(0, 6))
 
@@ -304,8 +314,16 @@ class HeaderBar(ctk.CTkFrame):
             self.weekday_label.configure(font=get_safe_font("Bahnschrift", 15))
             self.clock_label.configure(font=get_safe_font("Bahnschrift", 56, "bold"))
             self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 20, "bold"))
-            self.out_temp_icon.configure(font=get_safe_font("Bahnschrift", 17))
+            self.out_temp_icon.configure(image=ctk_icon("thermometer", COLOR_WARNING, size=24))
             self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 12))
+            # Groessere Icon-Varianten fuer die Touch-Hochformat-Buttons,
+            # inkl. der "Weg"-Aktiv/Inaktiv-Variante (siehe set_leave_home_active).
+            self._icon_leave_normal = ctk_icon("door_exit", COLOR_TEXT, size=40)
+            self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=40)
+            currently_active = self.leave_btn.cget("fg_color") not in ("transparent", None)
+            self.leave_btn.configure(image=self._icon_leave_active if currently_active else self._icon_leave_normal)
+            self.home_btn.configure(image=ctk_icon("house", COLOR_TEXT, size=40))
+            self.shower_btn.configure(image=ctk_icon("shower", COLOR_TEXT, size=40))
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
                 button.configure(width=82, height=56, font=get_safe_font("Bahnschrift", 23, "bold"))
             for caption in (self.leave_caption, self.home_caption, self.shower_caption):
@@ -364,13 +382,13 @@ class HeaderBar(ctk.CTkFrame):
             active_fill = getattr(self, "_active_fill", COLOR_WARNING)
             if is_active is True:
                 self.leave_btn.configure(
-                    text=self._leave_btn_text_active,
+                    image=self._icon_leave_active,
                     fg_color=active_fill,
                     text_color=COLOR_WARNING,
                 )
             else:
                 self.leave_btn.configure(
-                    text=self._leave_btn_text_inactive,
+                    image=self._icon_leave_normal,
                     fg_color="transparent",
                     text_color=COLOR_TEXT,
                 )

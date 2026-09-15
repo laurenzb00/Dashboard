@@ -8,11 +8,15 @@ ctk.set_appearance_mode("dark")  # "dark" oder "light"
 ctk.set_default_color_theme("blue")  # "blue", "green", "dark-blue"
 
 # Farbpalette (angepasst für CustomTkinter)
-COLOR_ROOT = "#0E0F12"       # Hintergrund/root (neutral dark)
-COLOR_HEADER = "#0C1016"     # Header/Notebook (slightly darker)
+# Feinschliff "Grundgeruest": vorher fast neutrales Schwarzgrau, jetzt ein
+# erkennbar blau-navy getoentes Dunkel - passend zur "Glas"-Designsprache
+# der Tanks/Icons, aber bewusst weiterhin gedeckt statt bunt (nur der
+# Farbton selbst wurde saettigter, keine neue Akzentfarbe eingefuehrt).
+COLOR_ROOT = "#0B1220"       # Hintergrund/root (dunkles Navy statt Neutralgrau)
+COLOR_HEADER = "#0A1421"     # Header/Notebook (etwas dunkler als Root)
 COLOR_BG = COLOR_HEADER       # alias für bestehende Verwendungen
-COLOR_CARD = "#111823"       # Card/Plot-Hintergrund - leicht angehoben
-COLOR_BORDER = "#1B2432"     # Dezente Rahmenfarbe
+COLOR_CARD = "#15243A"       # Card/Plot-Hintergrund - sichtbar angehobenes Navy
+COLOR_BORDER = "#26405E"     # Deutlicher blauer Rahmenton statt Neutralgrau
 COLOR_PRIMARY = "#3B82F6"
 COLOR_SUCCESS = "#10B981"
 COLOR_WARNING = "#F59E0B"

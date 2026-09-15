@@ -8,9 +8,21 @@ from io import BytesIO
 from typing import Any, Optional
 
 import requests
-from ui.styles import COLOR_ROOT, COLOR_CARD, COLOR_TEXT, COLOR_SUBTEXT, COLOR_TITLE, emoji, get_safe_font
+import customtkinter as ctk
+from ui.styles import (
+    COLOR_ROOT,
+    COLOR_CARD,
+    COLOR_BORDER,
+    COLOR_TEXT,
+    COLOR_SUBTEXT,
+    COLOR_TITLE,
+    COLOR_SUCCESS,
+    emoji,
+    get_safe_font,
+)
 from ui.components.tab_shell import TabShell
 from ui.components.card import Card
+from ui.components.glyph_icon import ctk_icon
 try:
     import ttkbootstrap as ttk
     from ttkbootstrap.constants import BOTH, LEFT, RIGHT, W
@@ -441,18 +453,55 @@ class SpotifyTab:
             anchor="w",
         ).grid(row=3, column=0, sticky="ew", pady=(16, 4))
 
+        # Feine Glas-Icons statt ttk-Buttons mit Text/Emoji (siehe
+        # glyph_icon.py) - passend zur selben Formsprache wie Header und
+        # Energiefluss. Play/Pause braucht zwei Icon+Farb-Varianten, die
+        # per _update_now_playing() je nach is_playing getauscht werden.
+        self._icon_play = ctk_icon("play", COLOR_TEXT, size=26)
+        self._icon_pause = ctk_icon("pause", COLOR_ROOT, size=26)
+
         controls = tk.Frame(right, bg=COLOR_ROOT)
         controls.grid(row=4, column=0, pady=(0, 0))
-        ttk.Button(controls, text="⏮", width=5, command=self._prev_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
-        self.play_button = ttk.Button(
+        ctk.CTkButton(
             controls,
-            text="Play",
-            width=9,
+            text="",
+            image=ctk_icon("skip_prev", COLOR_TEXT, size=22),
+            width=52,
+            height=44,
+            corner_radius=14,
+            fg_color=COLOR_CARD,
+            hover_color=COLOR_BORDER,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            command=self._prev_track,
+        ).pack(side=LEFT, padx=4)
+        self.play_button = ctk.CTkButton(
+            controls,
+            text="",
+            image=self._icon_play,
+            width=64,
+            height=44,
+            corner_radius=16,
+            fg_color=COLOR_CARD,
+            hover_color=COLOR_BORDER,
+            border_width=1,
+            border_color=COLOR_BORDER,
             command=self._toggle_playback,
-            bootstyle="success",
         )
         self.play_button.pack(side=LEFT, padx=4)
-        ttk.Button(controls, text="⏭", width=5, command=self._next_track, bootstyle="secondary-outline").pack(side=LEFT, padx=4)
+        ctk.CTkButton(
+            controls,
+            text="",
+            image=ctk_icon("skip_next", COLOR_TEXT, size=22),
+            width=52,
+            height=44,
+            corner_radius=14,
+            fg_color=COLOR_CARD,
+            hover_color=COLOR_BORDER,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            command=self._next_track,
+        ).pack(side=LEFT, padx=4)
 
     def set_portrait_layout(self, portrait: bool) -> None:
         """Stack the Spotify player and playback controls in portrait mode."""
@@ -628,8 +677,10 @@ class SpotifyTab:
         self.progress_var.set(f"{self._fmt_time(progress_ms)} / {self._fmt_time(duration_ms)}")
 
         is_playing = playback.get("is_playing")
-        self.play_button.configure(text="Pause" if is_playing else "Play",
-                                   bootstyle="success" if is_playing else "secondary")
+        if is_playing:
+            self.play_button.configure(image=self._icon_pause, fg_color=COLOR_SUCCESS, border_color=COLOR_SUCCESS)
+        else:
+            self.play_button.configure(image=self._icon_play, fg_color=COLOR_CARD, border_color=COLOR_BORDER)
 
         volume = playback.get("device", {}).get("volume_percent")
         if volume is not None:

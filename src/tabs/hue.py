@@ -349,9 +349,9 @@ class HueTab:
         )
         refresh_lbl.grid(row=0, column=1, sticky="e")
 
-        # corner_radius 14 -> 12: der Rest der App (Card-Komponente,
-        # Segment-Karten im Header usw.) nutzt durchgaengig 12.
-        dimmer_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=12)
+        # 12 -> 18: an die "Glas"-Designsprache angeglichen (Card()/
+        # TabShell/Header nutzen inzwischen alle die softere Rundung).
+        dimmer_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=18)
         dimmer_card.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         dimmer_card.grid_columnconfigure(1, weight=1)
 
@@ -388,7 +388,7 @@ class HueTab:
 
         dim_slider.bind("<ButtonRelease-1>", _on_release)
 
-        vorraum_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=12)
+        vorraum_card = ctk.CTkFrame(header, fg_color=COLOR_CARD, corner_radius=18)
         vorraum_card.grid(row=2, column=0, sticky="w", pady=(10, 0))
 
         vorraum_title = ctk.CTkLabel(
@@ -430,7 +430,7 @@ class HueTab:
             fg_color=COLOR_CARD,
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=10,
+            corner_radius=14,
             command=self._refresh_all_async,
         )
         btn.grid(row=1, column=1, sticky="e", pady=(8, 0))
@@ -522,7 +522,7 @@ class HueTab:
                 border_color=COLOR_BORDER,
                 border_width=1,
                 text_color=COLOR_TEXT,
-                corner_radius=14,
+                corner_radius=16,
                 height=64,
                 font=get_safe_font("Bahnschrift", 14, "bold"),
             )

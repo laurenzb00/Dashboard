@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from datetime import date
 import tkinter as tk
 from tkinter import ttk
+import customtkinter as ctk
 import numpy as np
 from core.datastore import get_shared_datastore
 from ui.styles import (
@@ -81,21 +82,19 @@ class ErtragTab:
         period_frame.pack(side=tk.RIGHT, padx=(0, 12))
         tk.Label(period_frame, text="Zeitraum:", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE)).pack(side=tk.LEFT, padx=(0, 10))
         
-        # Touch-freundliche Button-Gruppe
+        # Touch-freundliche Button-Gruppe - war zuvor rohes tk.Button ohne
+        # jede Rundung (einziger noch eckiger Zeitraum-Wahlschalter, waehrend
+        # Historie/Tagesproduktion schon auf CTkButton mit der "Glas"-Rundung
+        # liefen). Jetzt an dasselbe Muster angeglichen.
         self._period_buttons = {}
         for period in ["7 Tage", "30 Tage", "180 Tage", "1 Jahr"]:
-            btn = tk.Button(
+            btn = ctk.CTkButton(
                 period_frame,
                 text=period,
                 font=("Segoe UI", FONT_SIZE_BODY, "bold"),
-                width=10,
-                height=2,
-                relief=tk.FLAT,
-                bg=COLOR_BORDER,
-                fg=COLOR_TEXT,
-                activebackground=COLOR_PRIMARY,
-                activeforeground="#ffffff",
-                borderwidth=0,
+                width=100,
+                height=BUTTON_HEIGHT_SECONDARY,
+                corner_radius=14,
                 command=lambda p=period: self._select_period(p)
             )
             btn.pack(side=tk.LEFT, padx=4)
@@ -392,9 +391,9 @@ class ErtragTab:
         current = self._period_var.get()
         for period, btn in self._period_buttons.items():
             if period == current:
-                btn.configure(bg=COLOR_PRIMARY, fg="#ffffff", activebackground=COLOR_PRIMARY)
+                btn.configure(fg_color=COLOR_PRIMARY, text_color="#ffffff", hover_color=COLOR_PRIMARY)
             else:
-                btn.configure(bg=COLOR_BORDER, fg=COLOR_TEXT, activebackground=COLOR_PRIMARY)
+                btn.configure(fg_color=COLOR_BORDER, text_color=COLOR_TEXT, hover_color=COLOR_PRIMARY)
 
     def _load_energy_flow(self, days: int, bin_minutes: int = 10) -> list[dict]:
         """Load PV power + house consumption power + grid power for the last N days.
