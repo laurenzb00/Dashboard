@@ -960,20 +960,19 @@ class MainApp:
             segmented = getattr(self.tabview, "_segmented_button", None)
             if segmented is None:
                 return
-            # Etwas kompakter als vorher (17/16pt, 70/64px hoch, corner_radius
-            # 20): bei 10-11 Tabs (Energie/Licht/HomeA/Spotify/Raum/Kalender/
-            # Historie/Ertrag/Tagesprod./Status/Health) lief die Tab-Leiste
-            # sonst rechts (und teils auch links) über den Bildschirmrand
-            # hinaus, sodass die äußeren Tabs abgeschnitten wurden. Kleinere
-            # Schrift/Höhe/Eckenradius sparen an jedem Tab ein paar Pixel -
-            # zusammen mit den gekürzten Tab-Namen sollte das jetzt reichen.
+            # Feedback "Tabauswahl zu klein": Höhe (reiner Touch-Target-Zuwachs,
+            # kostet keine horizontale Breite) wieder auf 70/64px angehoben.
+            # Die Schriftgröße bleibt bewusst bei 15/14pt, NICHT wieder auf
+            # 17/16pt - das war (zusammen mit der Höhe) der eigentliche Grund
+            # für das früher gemeldete Ueberlaufen der Tab-Leiste bei 10-11
+            # Tabs (Energie/Licht/HomeA/Spotify/Raum/Kalender/Historie/Ertrag/
+            # Tagesprod./Status/Health): mehr Schriftbreite = mehr Breite pro
+            # Tab = Ueberlauf rechts. Reine Höhe verändert die Breite nicht.
             segmented.configure(
                 font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
-                height=60 if getattr(self, "_portrait_screen", False) else 54,
-                # 14 -> 16: an dieselbe "Glas"-Rundung wie TabShell-Header/
-                # Card angeglichen, statt als einziges Element im Grundgeruest
-                # noch auf dem alten (kleineren) Radius zu stehen.
-                corner_radius=16,
+                height=76 if getattr(self, "_portrait_screen", False) else 70,
+                # 16 -> 18: etwas kräftigere Rundung passend zur größeren Höhe.
+                corner_radius=18,
                 border_width=1,
                 border_color=COLOR_BORDER,
                 fg_color=COLOR_CARD,

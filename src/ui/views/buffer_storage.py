@@ -478,13 +478,23 @@ class BufferStorageView(tk.Frame):
             )
             self.ax.add_patch(glow)
 
-        white_rgba, black_rgba = self._cyl_shade_rgba()
-        im_w = self.ax.imshow(white_rgba, aspect="auto", origin="lower",
-                              extent=[x0, x0 + width, y0, top], zorder=3)
-        im_w.set_clip_path(body_patch)
-        im_b = self.ax.imshow(black_rgba, aspect="auto", origin="lower",
-                              extent=[x0, x0 + width, y0, top], zorder=3)
-        im_b.set_clip_path(body_patch)
+        # BUGFIX (Nutzer-Feedback "Puffer zeigt keine Farbe/Heatmap mehr
+        # an"): die zwei geclippten Schattierungs-Overlays (weiss/schwarz,
+        # zorder=3) direkt ueber dem Temperatur-Gradienten (zorder=2, selber
+        # Clip-Pfad) haben die komplette Heatmap zu einer fast einfarbigen
+        # Flaeche verflacht - reproduzierbar per isoliertem Headless-Render,
+        # unabhaengig vom Alpha-Wert (selbst bei kleinem alpha identisch).
+        # Deaktiviert, bis die Ursache (vermutlich ein Render-/Clip-Bug bei
+        # zwei uebereinandergelegten geclippten RGBA-Bildern mit demselben
+        # Clip-Pfad) genauer verstanden ist. Glow + Kappen-Glanzlicht bleiben
+        # erhalten, die zeigen dieses Problem nicht.
+        # white_rgba, black_rgba = self._cyl_shade_rgba()
+        # im_w = self.ax.imshow(white_rgba, aspect="auto", origin="lower",
+        #                       extent=[x0, x0 + width, y0, top], zorder=3)
+        # im_w.set_clip_path(body_patch)
+        # im_b = self.ax.imshow(black_rgba, aspect="auto", origin="lower",
+        #                       extent=[x0, x0 + width, y0, top], zorder=3)
+        # im_b.set_clip_path(body_patch)
 
         cap_h = (top - y0) * 0.09
         self.ax.add_patch(Ellipse(
@@ -562,6 +572,18 @@ class BufferStorageView(tk.Frame):
                          transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
             self.ax.text(0.12, 0.14, "--°C", color=COLOR_TEXT, fontsize=16, va="center", ha="left",
                          transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
+        ]
+
+        # Kleine Kreismarker vor jedem Messwert ("Fühlerposition" der drei
+        # Puffer-Sensoren). Farbe folgt derselben Temperatur-Skala wie
+        # Heatmap/Farbbalken (_temp_color) statt einer neuen Akzentfarbe -
+        # rein kosmetisch, keine neue Datenquelle. In update_temperatures()
+        # wird nur die Füllfarbe aktualisiert.
+        self.sensor_dots = [
+            self.ax.scatter([0.095], [y], s=110, transform=self.ax.transAxes,
+                            color=self._temp_color(60.0), edgecolor=COLOR_ROOT,
+                            linewidth=1.3, zorder=6)
+            for y in (0.78, 0.46, 0.14)
         ]
 
         self.boiler_rect = FancyBboxPatch(
@@ -872,6 +894,9 @@ class BufferStorageView(tk.Frame):
             self.val_texts[0].set_text(f"{top:.1f}°C")
             self.val_texts[1].set_text(f"{mid:.1f}°C")
             self.val_texts[2].set_text(f"{bot:.1f}°C")
+        if hasattr(self, 'sensor_dots') and len(self.sensor_dots) == 3:
+            for dot, value in zip(self.sensor_dots, (top, mid, bot)):
+                dot.set_facecolor(self._temp_color(value))
         if hasattr(self, 'boiler_text'):
             self.boiler_text.set_text(f"{boiler:.1f}°C")
         if hasattr(self, 'boiler_rect'):
