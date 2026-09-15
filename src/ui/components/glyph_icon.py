@@ -38,6 +38,144 @@ def render_glyph(draw_fn, color_hex: str, size: int = 40, scale: int = 10, glow:
     return img.resize((size, size), Image.LANCZOS)
 
 
+# --- "rich" multi-colour icons (Weg/Zuhause/Dusche) ---------------------------
+# Nutzer-Feedback zu den Header-Aktions-Icons ueber mehrere Runden: erst
+# "Icons gefallen mir nicht" (-> Neuzeichnung), dann "noch weniger
+# minimalistisch und nicht so neonartig" (-> flaechig statt Linie, kein Glow
+# mehr sondern ein dezenter Schlagschatten), zuletzt "duerfen auch nicht
+# einfarbig sein" (-> echte Materialfarben je Element statt Hell/Dunkel-
+# Varianten EINER Akzentfarbe: Holztuer, Ziegeldach, Chrom-Duschkopf, etc.).
+# Diese drei Icons ignorieren daher bewusst das color_hex-Argument von
+# ctk_icon() - ihre Palette ist fest einprogrammiert - waehrend alle anderen
+# Glyphen (bulb/thermometer/play/...) weiter ueber render_glyph()/ctk_icon()
+# laufen und einfarbig bleiben.
+
+def _blend_hex(c1: str, c2: str, t: float) -> tuple[int, int, int]:
+    r1, g1, b1 = _hex_rgb(c1)
+    r2, g2, b2 = _hex_rgb(c2)
+    return (int(r1 + (r2 - r1) * t), int(g1 + (g2 - g1) * t), int(b1 + (b2 - b1) * t))
+
+
+def _darker(c: str, t: float = 0.35) -> tuple[int, int, int]:
+    return _blend_hex(c, "#000000", t)
+
+
+def _lighter(c: str, t: float = 0.45) -> tuple[int, int, int]:
+    return _blend_hex(c, "#ffffff", t)
+
+
+def render_flat_glyph(draw_fn, size: int = 40, scale: int = 10, shadow: bool = True) -> Image.Image:
+    """Render a fixed-palette glyph (no tint colour, no glow) with an
+    optional soft grey drop-shadow underneath for a bit of grounding/depth
+    instead of the neon-style halo used by render_glyph()."""
+    S = size * scale
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    w = max(3, S // 45)
+    draw_fn(d, S, w)
+    out = img
+    if shadow:
+        shadow_alpha = img.split()[3].point(lambda v: int(v * 0.38))
+        black_shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        black_shadow.putalpha(shadow_alpha)
+        black_shadow = black_shadow.filter(ImageFilter.GaussianBlur(S * 0.03))
+        offset = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        offset.paste(black_shadow, (int(S * 0.012), int(S * 0.02)), black_shadow)
+        out = Image.alpha_composite(offset, img)
+    return out.resize((size, size), Image.LANCZOS)
+
+
+# Materialfarben (nicht an COLOR_WARNING/SUCCESS/INFO gekoppelt - die
+# bestimmen weiterhin nur Chip-Rahmen/-Hover in header.py).
+_WOOD = "#B06B34"
+_WOOD_DARK = "#7A491F"
+_BRASS = "#E8C468"
+_EXIT_GREEN = "#2FBF71"
+
+_ROOF = "#C1543A"
+_WALL = "#E8DCC8"  # Nutzer-Feedback: das vorherige Sage-Gruen "ist nicht gut"
+_WINDOW_GLOW = "#F5D67B"
+_HOUSE_DOOR = "#8A5A34"
+_STONE = "#8B93A1"
+
+_CHROME = "#C7CDD6"
+_CHROME_DARK = "#7C8794"
+_WATER = "#3FA9E0"
+
+
+def draw_door_exit_rich(d, S, w):
+    d.rounded_rectangle([S * 0.14, S * 0.10, S * 0.50, S * 0.90], radius=S * 0.03, fill=_hex_rgb(_WOOD_DARK))
+    door = [S * 0.19, S * 0.15, S * 0.45, S * 0.85]
+    d.rounded_rectangle(door, radius=S * 0.02, fill=_hex_rgb(_WOOD))
+    d.rounded_rectangle([S * 0.23, S * 0.20, S * 0.41, S * 0.46], radius=S * 0.01,
+                         outline=_darker(_WOOD, 0.25), width=max(2, w - 2))
+    d.rounded_rectangle([S * 0.23, S * 0.52, S * 0.41, S * 0.80], radius=S * 0.01,
+                         outline=_darker(_WOOD, 0.25), width=max(2, w - 2))
+    r = S * 0.028
+    d.ellipse([S * 0.36 - r, S * 0.5 - r, S * 0.36 + r, S * 0.5 + r], fill=_hex_rgb(_BRASS))
+    d.line([(S * 0.58, S * 0.50), (S * 0.82, S * 0.50)], fill=_hex_rgb(_EXIT_GREEN), width=int(S * 0.05))
+    d.polygon([(S * 0.70, S * 0.36), (S * 0.90, S * 0.50), (S * 0.70, S * 0.64)], fill=_hex_rgb(_EXIT_GREEN))
+
+
+def draw_house_rich(d, S, w):
+    d.polygon([(S * 0.10, S * 0.48), (S * 0.50, S * 0.14), (S * 0.90, S * 0.48)], fill=_darker(_ROOF, 0.2))
+    d.rectangle([S * 0.66, S * 0.20, S * 0.76, S * 0.38], fill=_hex_rgb(_STONE))
+    d.rectangle([S * 0.22, S * 0.46, S * 0.78, S * 0.84], fill=_hex_rgb(_WALL))
+    d.rounded_rectangle([S * 0.44, S * 0.60, S * 0.56, S * 0.84], radius=S * 0.01, fill=_hex_rgb(_HOUSE_DOOR))
+    r = S * 0.018
+    d.ellipse([S * 0.52 - r, S * 0.71 - r, S * 0.52 + r, S * 0.71 + r], fill=_hex_rgb(_BRASS))
+    win = [S * 0.29, S * 0.53, S * 0.41, S * 0.65]
+    d.rectangle(win, fill=_hex_rgb(_WINDOW_GLOW))
+    d.line([((win[0] + win[2]) / 2, win[1]), ((win[0] + win[2]) / 2, win[3])],
+           fill=_darker(_WINDOW_GLOW, 0.3), width=max(2, w - 2))
+    d.line([(win[0], (win[1] + win[3]) / 2), (win[2], (win[1] + win[3]) / 2)],
+           fill=_darker(_WINDOW_GLOW, 0.3), width=max(2, w - 2))
+    d.rectangle([S * 0.10, S * 0.84, S * 0.90, S * 0.87], fill=_darker(_WALL, 0.3))
+
+
+def draw_shower_rich(d, S, w):
+    d.rounded_rectangle([S * 0.09, S * 0.11, S * 0.23, S * 0.23], radius=S * 0.025, fill=_hex_rgb(_CHROME_DARK))
+    d.line([(S * 0.20, S * 0.17), (S * 0.34, S * 0.17), (S * 0.46, S * 0.28)],
+           fill=_hex_rgb(_CHROME), width=int(S * 0.055), joint="curve")
+    head = [S * 0.20, S * 0.24, S * 0.80, S * 0.47]
+    d.pieslice(head, start=180, end=360, fill=_hex_rgb(_CHROME))
+    d.arc(head, start=180, end=360, fill=_hex_rgb(_CHROME_DARK), width=max(2, w - 2))
+    face_y = (head[1] + head[3]) / 2
+    xs = [head[0] + (head[2] - head[0]) * t for t in (0.08, 0.24, 0.40, 0.5, 0.60, 0.76, 0.92)]
+    lens = [0.20, 0.25, 0.29, 0.31, 0.29, 0.25, 0.20]
+    y0 = face_y + S * 0.03
+    for x, ln in zip(xs, lens):
+        y1 = y0 + S * ln
+        d.line([(x, y0), (x, y1)], fill=_hex_rgb(_WATER), width=max(3, w - 1))
+    for x in (xs[0], xs[-1]):
+        r = S * 0.02
+        cy = y0 + S * 0.22
+        d.ellipse([x - r, cy - r, x + r, cy + r], fill=_hex_rgb(_WATER))
+
+
+_RICH_GLYPHS = {
+    "door_exit": draw_door_exit_rich,
+    "house": draw_house_rich,
+    "shower": draw_shower_rich,
+}
+
+_rich_icon_cache: dict = {}
+
+
+def ctk_icon_rich(name: str, size: int = 40, shadow: bool = True) -> "ctk.CTkImage":
+    """Like ctk_icon(), but for the fixed-palette multi-colour glyphs in
+    _RICH_GLYPHS - no colour argument, since the palette is baked in."""
+    key = (name, size, shadow)
+    cached = _rich_icon_cache.get(key)
+    if cached is not None:
+        return cached
+    draw_fn = _RICH_GLYPHS[name]
+    pil_img = render_flat_glyph(draw_fn, size=size, shadow=shadow)
+    image = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(size, size))
+    _rich_icon_cache[key] = image
+    return image
+
+
 # --- individual glyph drawers -------------------------------------------------
 # Each draws into a supersampled SxS canvas; d=ImageDraw, col=RGB tuple,
 # w=base stroke width already scaled for S.

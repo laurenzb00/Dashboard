@@ -14,7 +14,7 @@ from ui.styles import (
     COLOR_ROOT,
     get_safe_font,
 )
-from ui.components.glyph_icon import ctk_icon
+from ui.components.glyph_icon import ctk_icon, ctk_icon_rich
 
 
 class HeaderBar(ctk.CTkFrame):
@@ -83,9 +83,19 @@ class HeaderBar(ctk.CTkFrame):
         # staendigen Farbakzent (vorher nur "Zuhause" gruen, Weg/Dusche rein
         # neutral/grau) statt die Akzentfarbe erst beim Aktiv-Zustand zu
         # zeigen - macht die Leiste bunter, ohne wieder in "zu viel Blau"
-        # zurueckzufallen (Weg=Amber, Zuhause=Gruen, Dusche=Cyan/Info).
-        self._icon_leave_normal = ctk_icon("door_exit", COLOR_WARNING, size=32)
-        self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=32)
+        # zurueckzufallen (Weg=Amber, Zuhause=Gruen, Dusche=Cyan/Info) - das
+        # steuert weiterhin nur den Chip-Rahmen.
+        # Die Icons selbst kamen danach durch mehrere Feinschliff-Runden:
+        # neu gezeichnet ("Icons gefallen mir nicht"), dann flaechig +
+        # Schlagschatten statt Glow ("weniger minimalistisch, nicht
+        # neonartig"), zuletzt echte Materialfarben statt Hell/Dunkel-
+        # Varianten EINER Akzentfarbe ("duerfen auch nicht einfarbig sein") -
+        # siehe ctk_icon_rich()/_RICH_GLYPHS in glyph_icon.py. Dadurch
+        # braucht "Weg" auch keine eigene aktiv/normal-Icon-Variante mehr,
+        # die feste Holztuer-Palette bleibt gleich; nur die Chip-Fuellung
+        # (fg_color, siehe set_leave_home_active) zeigt den Aktiv-Zustand.
+        self._icon_leave_normal = ctk_icon_rich("door_exit", size=32)
+        self._icon_leave_active = self._icon_leave_normal
 
         self.leave_btn = ctk.CTkButton(
             leave_wrap,
@@ -114,7 +124,7 @@ class HeaderBar(ctk.CTkFrame):
         self.home_btn = ctk.CTkButton(
             home_wrap,
             text="",
-            image=ctk_icon("house", COLOR_SUCCESS, size=32),
+            image=ctk_icon_rich("house", size=32),
             command=self._on_home_pressed,
             fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
@@ -136,7 +146,7 @@ class HeaderBar(ctk.CTkFrame):
         self.shower_btn = ctk.CTkButton(
             shower_wrap,
             text="",
-            image=ctk_icon("shower", COLOR_INFO, size=32),
+            image=ctk_icon_rich("shower", size=32),
             command=self._on_shower_pressed,
             fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
@@ -295,14 +305,13 @@ class HeaderBar(ctk.CTkFrame):
             self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 24, "bold"))
             self.out_temp_icon.configure(image=ctk_icon("thermometer", COLOR_WARNING, size=26))
             self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 12))
-            # Groessere Icon-Varianten fuer die Touch-Hochformat-Chips,
-            # inkl. der "Weg"-Aktiv/Inaktiv-Variante (siehe set_leave_home_active).
-            self._icon_leave_normal = ctk_icon("door_exit", COLOR_WARNING, size=40)
-            self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=40)
-            currently_active = self.leave_btn.cget("fg_color") == self._active_fill
-            self.leave_btn.configure(image=self._icon_leave_active if currently_active else self._icon_leave_normal)
-            self.home_btn.configure(image=ctk_icon("house", COLOR_SUCCESS, size=40))
-            self.shower_btn.configure(image=ctk_icon("shower", COLOR_INFO, size=40))
+            # Groessere Icon-Varianten fuer die Touch-Hochformat-Chips (feste
+            # Materialfarben-Palette, siehe ctk_icon_rich() weiter oben).
+            self._icon_leave_normal = ctk_icon_rich("door_exit", size=40)
+            self._icon_leave_active = self._icon_leave_normal
+            self.leave_btn.configure(image=self._icon_leave_normal)
+            self.home_btn.configure(image=ctk_icon_rich("house", size=40))
+            self.shower_btn.configure(image=ctk_icon_rich("shower", size=40))
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
                 button.configure(width=124, height=100)
             for caption in (self.leave_caption, self.home_caption, self.shower_caption):
