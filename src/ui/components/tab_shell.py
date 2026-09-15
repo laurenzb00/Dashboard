@@ -12,7 +12,8 @@ class TabShell(ctk.CTkFrame):
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        self.header = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=12, border_width=1, border_color=COLOR_BORDER)
+        # 12 -> 16: an dieselbe softere Rundung wie Card() angeglichen.
+        self.header = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=16, border_width=1, border_color=COLOR_BORDER)
         self.header.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 12))
         self.header.grid_columnconfigure(0, weight=1)
 

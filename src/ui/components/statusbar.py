@@ -88,7 +88,8 @@ class StatusBar(ctk.CTkFrame):
             pass
 
     def __init__(self, parent: tk.Widget, on_exit=None, on_toggle_fullscreen=None):
-        super().__init__(parent, height=60, fg_color=COLOR_HEADER, corner_radius=16)
+        # 16 -> 20: gleiche softere Rundung wie Card()/HeaderBar.
+        super().__init__(parent, height=60, fg_color=COLOR_HEADER, corner_radius=20)
         self.pack_propagate(False)
         self._status_text = ""
         self._start_monotonic = time.monotonic()
@@ -116,7 +117,7 @@ class StatusBar(ctk.CTkFrame):
             chip = ctk.CTkFrame(
                 self.chips_frame,
                 fg_color=COLOR_CARD,
-                corner_radius=8,
+                corner_radius=10,
                 border_width=1,
                 border_color=COLOR_BORDER,
             )
@@ -159,7 +160,7 @@ class StatusBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_PRIMARY,
             hover_color=COLOR_BORDER,
-            corner_radius=10,
+            corner_radius=12,
             font=get_safe_font("Bahnschrift", 16, "bold"),
             width=64,
             height=42,
@@ -175,7 +176,7 @@ class StatusBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_SUBTEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=10,
+            corner_radius=12,
             font=get_safe_font("Bahnschrift", 14, "bold"),
             width=104,
             height=42,

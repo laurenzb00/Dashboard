@@ -10,7 +10,12 @@ class Card(ctk.CTkFrame):
         super().__init__(
             parent,
             fg_color=COLOR_CARD,
-            corner_radius=12,
+            # 12 -> 18: Teil der app-weiten "Glas"-Designsprache (siehe
+            # buffer_storage.py Tank-Rendering) - softere, rundere Flaechen
+            # statt der vorherigen eher technischen 12px-Ecken. Card ist die
+            # gemeinsame Basis fast aller Tab-Panels, dieser eine Wert
+            # propagiert die Rundung dadurch automatisch ueberall dort mit.
+            corner_radius=18,
             border_width=1,
             border_color=COLOR_BORDER,
             *args,

@@ -56,7 +56,9 @@ class HeaderBar(ctk.CTkFrame):
         clock_card = ctk.CTkFrame(
             inner,
             fg_color=CLOCK_BG,
-            corner_radius=18,
+            # 18 -> 22: an die app-weite "Glas"-Designsprache angeglichen
+            # (siehe Card()/StatusBar) - einheitlich softere Rundung.
+            corner_radius=22,
             border_width=1,
             border_color=COLOR_PRIMARY,
         )
@@ -107,7 +109,7 @@ class HeaderBar(ctk.CTkFrame):
         flow_bar = ctk.CTkFrame(
             inner,
             fg_color=COLOR_CARD,
-            corner_radius=18,
+            corner_radius=22,
             border_width=1,
             border_color=COLOR_BORDER,
         )
@@ -135,7 +137,7 @@ class HeaderBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=12,
+            corner_radius=14,
             font=get_safe_font("Bahnschrift", 19, "bold"),
             width=60,
             height=44,
@@ -161,7 +163,7 @@ class HeaderBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=12,
+            corner_radius=14,
             font=get_safe_font("Bahnschrift", 19, "bold"),
             width=60,
             height=44,
@@ -183,7 +185,7 @@ class HeaderBar(ctk.CTkFrame):
             fg_color="transparent",
             text_color=COLOR_TEXT,
             hover_color=COLOR_BORDER,
-            corner_radius=12,
+            corner_radius=14,
             font=get_safe_font("Bahnschrift", 19, "bold"),
             width=60,
             height=44,

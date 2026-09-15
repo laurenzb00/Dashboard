@@ -433,6 +433,66 @@ class BufferStorageView(tk.Frame):
         except Exception:
             pass
 
+    # Feine, ruhige "Glas"-Optik fuer die Tank-Gefaesse (Nutzer-Feedback:
+    # zunaechst mehrere Iterationen ueber HTML-Mockups abgestimmt - "3D-Optik"
+    # aber "nicht so bunt und clumsy, etwas feiner"). Drei zusaetzliche,
+    # rein optische Ebenen ueber der bestehenden Farbe/Form, OHNE die
+    # Daten-Logik (Schichtung, Farbverlauf-Wissenschaft, Positionen) oder die
+    # bestehende Titel-/Text-Platzierung anzufassen:
+    #   1) Glow: gestapelte, transparente Kopien der Gefaess-Form dahinter
+    #      (zorder 1, unter allem anderen) - kein echter Weichzeichner noetig.
+    #   2) Zylinder-Schattierung: ein statisches RGBA-Overlay (hell-dunkel-
+    #      hell in Fliess-Richtung), auf die Gefaess-Form geclippt - macht die
+    #      Roehre rund statt flach, ohne die darunterliegende Temperaturfarbe
+    #      zu veraendern.
+    #   3) Kappen-Glanzlicht oben: eine kleine, halbtransparente weisse
+    #      Ellipse nahe der Oberkante (Blick von leicht oben ins Glas).
+    @staticmethod
+    def _cyl_shade_rgba(h: int = 160, w: int = 80):
+        """Statisches Hell-Dunkel-Hell-Schattierungs-Overlay (links hell =
+        Lichteinfall, Mitte/rechts dunkler Kern, schmaler Reflex nahe dem
+        rechten Rand) als zwei RGBA-Bilder (weiss/schwarz getrennt, da ein
+        einzelnes RGBA-Array keine gemischten Vorzeichen darstellen kann)."""
+        x = np.linspace(0.0, 1.0, w)
+        white_a = 0.55 * np.exp(-((x - 0.05) ** 2) / (2 * 0.045 ** 2))
+        white_a += 0.30 * np.exp(-((x - 0.90) ** 2) / (2 * 0.03 ** 2))
+        black_a = 0.40 * np.exp(-((x - 0.60) ** 2) / (2 * 0.17 ** 2))
+        white_rgba = np.zeros((h, w, 4))
+        white_rgba[:, :, 0:3] = 1.0
+        white_rgba[:, :, 3] = np.clip(white_a, 0.0, 1.0)
+        black_rgba = np.zeros((h, w, 4))
+        black_rgba[:, :, 3] = np.clip(black_a, 0.0, 1.0)
+        return white_rgba, black_rgba
+
+    def _add_vessel_depth(self, x0: float, width: float, y0: float, top: float,
+                           body_patch: FancyBboxPatch, glow_color: str, rounding: float = 0.17) -> None:
+        """Legt Glow + Zylinder-Schattierung + Kappen-Glanzlicht um ein
+        bereits gezeichnetes Tank-Gefaess (body_patch dient nur als
+        Clip-Pfad fuer die Schattierung)."""
+        for pad, alpha in ((0.075, 0.07), (0.05, 0.11), (0.028, 0.16)):
+            glow = FancyBboxPatch(
+                (x0 - pad, y0 - pad), width + 2 * pad, (top - y0) + 2 * pad,
+                boxstyle=f"round,pad=0.0,rounding_size={rounding + pad}",
+                transform=self.ax.transAxes, linewidth=0, facecolor=glow_color,
+                alpha=alpha, zorder=1,
+            )
+            self.ax.add_patch(glow)
+
+        white_rgba, black_rgba = self._cyl_shade_rgba()
+        im_w = self.ax.imshow(white_rgba, aspect="auto", origin="lower",
+                              extent=[x0, x0 + width, y0, top], zorder=3)
+        im_w.set_clip_path(body_patch)
+        im_b = self.ax.imshow(black_rgba, aspect="auto", origin="lower",
+                              extent=[x0, x0 + width, y0, top], zorder=3)
+        im_b.set_clip_path(body_patch)
+
+        cap_h = (top - y0) * 0.09
+        self.ax.add_patch(Ellipse(
+            (x0 + width / 2, top - cap_h * 0.35), width * 0.86, cap_h,
+            transform=self.ax.transAxes, facecolor="white", edgecolor="none",
+            alpha=0.16, zorder=4.3,
+        ))
+
     def _setup_plot(self) -> None:
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
@@ -475,6 +535,10 @@ class BufferStorageView(tk.Frame):
         )
         self.im.set_clip_path(puffer_cyl)
         self.ax.add_patch(puffer_cyl)
+        # Glow/Zylinder-Rundung/Kappen-Glanzlicht - "kuehler" Glow (aus der
+        # blauen Seite der Ocean-to-Ember-Palette), da der Puffer im
+        # ueblichen Betriebsbereich meist im kuehleren Skalenabschnitt liegt.
+        self._add_vessel_depth(0.09, 0.34, 0.06, PUFFER_TOP, puffer_cyl, glow_color="#1f7fa8")
         self.ax.add_patch(Ellipse((0.26, PUFFER_TOP), 0.34, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
         self.ax.add_patch(Ellipse((0.26, 0.06), 0.34, 0.08, transform=self.ax.transAxes,
@@ -513,6 +577,9 @@ class BufferStorageView(tk.Frame):
             zorder=4,
         )
         self.ax.add_patch(self.boiler_rect)
+        # Warmer Glow (Bernstein/Orange-Seite der Palette) - Warmwasser liegt
+        # ueblicherweise im oberen, waermeren Skalenbereich.
+        self._add_vessel_depth(0.58, 0.32, 0.06, BOILER_TOP, self.boiler_rect, glow_color="#e8542f")
         self.ax.add_patch(Ellipse((0.74, BOILER_TOP), 0.32, 0.08, transform=self.ax.transAxes,
                                   edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
         self.ax.add_patch(Ellipse((0.74, 0.06), 0.32, 0.08, transform=self.ax.transAxes,
