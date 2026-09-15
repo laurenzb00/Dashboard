@@ -9,6 +9,7 @@ from ui.styles import (
     COLOR_PRIMARY,
     COLOR_BORDER,
     COLOR_WARNING,
+    COLOR_SUCCESS,
     COLOR_ROOT,
     get_safe_font,
 )
@@ -30,161 +31,97 @@ class HeaderBar(ctk.CTkFrame):
         on_shower=None,
         on_exit=None,
     ):
-        # Feinschliff Runde 2: Mischung aus "Akzentstreifen" (eine fliessende
-        # Leiste mit duennen Trennlinien statt einzelner umrandeter Kaesten
-        # fuer Aktionen/Licht/Temperatur) und "Klare Hierarchie" (Uhrzeit als
-        # eigene, dominante Karte mit eigenem Farbton statt nur farbigem
-        # Rand; Datum/Wochentag wandern darunter statt eine eigene Karte zu
-        # belegen). Layout: [Uhrzeit-Karte] [durchgehende Leiste: Aktionen |
-        # Licht | Temperatur].
-        super().__init__(parent, height=92, fg_color=COLOR_ROOT, corner_radius=0)
+        # Feinschliff Runde 3: komplett neu aufgebaut nach Nutzer-Feedback
+        # ("Layout/Aufbau gefaellt mir nicht" -> "1 Zeile, Uhrzeit in der
+        # Mitte, Buttons etwas schoener, klarer Aufbau"). Statt zwei
+        # getrennt schwebender Elemente (Uhrzeit-Karte + separate Leiste,
+        # Runde 2) jetzt EINE durchgehende Leiste ueber die volle Breite:
+        # Aktionen links, Uhrzeit exakt mittig (per place(), unabhaengig
+        # von der Breite links/rechts), Licht/Temperatur rechts. Farben
+        # bewusst zurueckhaltend (kein Blau mehr - siehe Feedback "weniger
+        # Blau im gesamten Programm"): die Leiste selbst ist neutral,
+        # einzig "Zuhause" bekommt Gruen als Akzent, Licht/Temperatur
+        # bleiben beim bestehenden Warnfarbton.
+        super().__init__(parent, height=110, fg_color=COLOR_ROOT, corner_radius=0)
         self.pack_propagate(False)
         self.datastore = datastore
 
-        # War fast identisch mit dem neuen (satteren) COLOR_CARD-Ton und
-        # haette die Uhrzeit-Karte optisch mit der Leiste daneben verschmelzen
-        # lassen - bewusst etwas heller/blauer gehalten, damit sie weiterhin
-        # als eigener Farbton auffaellt (siehe Kommentar oben zur Hierarchie).
-        CLOCK_BG = "#1B3155"
-        CLOCK_TEXT = "#7fb0ff"
+        # Chip-Hintergrund der Aktions-Buttons: einen Schritt heller als die
+        # Leiste selbst, damit sie als eigene Flaeche auffallen statt auf
+        # der Karte zu verschwimmen (siehe Card()/COLOR_CARD).
+        CHIP_BG = "#242A35"
         ACTIVE_FILL = "#3a2c12"
+        self._chip_bg = CHIP_BG
+        self._active_fill = ACTIVE_FILL
 
         inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill=tk.BOTH, expand=True, padx=4, pady=6)
-        inner.grid_rowconfigure(0, weight=1)
-        inner.grid_columnconfigure(0, weight=0)  # Uhrzeit-Karte (Datum darunter)
-        inner.grid_columnconfigure(1, weight=1)  # Leerraum (transparent, ausserhalb jeder Karte)
-        inner.grid_columnconfigure(2, weight=0)  # Fliessende Leiste (kompakt, umschliesst nur ihren Inhalt)
+        inner.pack(fill=tk.BOTH, expand=True, padx=16, pady=8)
 
-        # --- Uhrzeit-Karte: dominanter Blickfang, eigener Farbton statt nur
-        # farbigem Rand, mit Datum/Wochentag darunter gruppiert. ---
-        clock_card = ctk.CTkFrame(
-            inner,
-            fg_color=CLOCK_BG,
-            # 18 -> 22: an die app-weite "Glas"-Designsprache angeglichen
-            # (siehe Card()/StatusBar) - einheitlich softere Rundung.
-            corner_radius=22,
-            border_width=1,
-            border_color=COLOR_PRIMARY,
-        )
-        clock_card.grid(row=0, column=0, sticky="ns", padx=(0, 10))
-        clock_inner = ctk.CTkFrame(clock_card, fg_color="transparent")
-        clock_inner.pack(padx=26, pady=8)
-
-        self.clock_label = ctk.CTkLabel(
-            clock_inner,
-            text="--:--",
-            font=get_safe_font("Bahnschrift", 38, "bold"),
-            text_color=CLOCK_TEXT,
-        )
-        self.clock_label.pack(anchor="center")
-
-        date_row = ctk.CTkFrame(clock_inner, fg_color="transparent")
-        date_row.pack(anchor="center", pady=(2, 0))
-
-        self.weekday_label = ctk.CTkLabel(
-            date_row,
-            text="",
-            font=get_safe_font("Bahnschrift", 12, "bold"),
-            text_color=COLOR_SUBTEXT,
-        )
-        self.weekday_label.pack(side=tk.LEFT)
-
-        self.date_label = ctk.CTkLabel(
-            date_row,
-            text="--",
-            font=get_safe_font("Bahnschrift", 12),
-            text_color=COLOR_SUBTEXT,
-        )
-        self.date_label.pack(side=tk.LEFT, padx=(6, 0))
-
-        # Transparenter Leerraum zwischen Uhrzeit-Karte und der Leiste -
-        # ausserhalb jeder Karte, statt (wie im ersten Wurf) die Leiste
-        # selbst ueber die volle Restbreite zu strecken. Dadurch entsteht
-        # keine riesige, groesstenteils leere Karten-Flaeche mehr - die
-        # Leiste bleibt kompakt und umschliesst nur ihren tatsaechlichen
-        # Inhalt (Nutzer-Feedback: "noch nicht wirklich gut" beim ersten
-        # Vollbreiten-Versuch).
-        ctk.CTkFrame(inner, fg_color="transparent").grid(row=0, column=1, sticky="nsew")
-
-        # --- Fliessende Leiste: Aktionen, Licht, Temperatur - ein
-        # kompaktes, durchgehendes Bauteil mit duennen Trennlinien statt
-        # einzelner umrandeter Kaesten, damit es nicht wie
-        # "Kasten-im-Kasten" wirkt. ---
-        flow_bar = ctk.CTkFrame(
+        bar = ctk.CTkFrame(
             inner,
             fg_color=COLOR_CARD,
-            corner_radius=22,
-            border_width=1,
+            corner_radius=26,
+            border_width=2,
             border_color=COLOR_BORDER,
         )
-        flow_bar.grid(row=0, column=2, sticky="ns")
-        flow_inner = ctk.CTkFrame(flow_bar, fg_color="transparent")
-        flow_inner.pack(fill=tk.BOTH, expand=True, padx=16)
+        bar.pack(fill=tk.BOTH, expand=True)
+        self._bar = bar
 
-        def _divider(parent_widget: tk.Widget) -> None:
-            ctk.CTkFrame(parent_widget, fg_color=COLOR_BORDER, width=1).pack(
-                side=tk.LEFT, fill=tk.Y, pady=16, padx=14
-            )
-
-        # Aktionen als dezente Pills (kein Einzelrahmen mehr - sitzen direkt
-        # auf der Leiste, Hervorhebung nur ueber Hover/aktiven Fuell-Ton).
-        actions_wrap = ctk.CTkFrame(flow_inner, fg_color="transparent")
-        actions_wrap.pack(side=tk.LEFT, pady=10)
+        # --- Links: Aktionen als groessere, klar umrandete Chips statt
+        # der vorherigen fast unsichtbaren Transparent-Buttons. ---
+        actions_wrap = ctk.CTkFrame(bar, fg_color="transparent")
+        actions_wrap.pack(side=tk.LEFT, padx=(18, 0), pady=14)
 
         leave_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
-        leave_wrap.pack(side=tk.LEFT, padx=(0, 6))
+        leave_wrap.pack(side=tk.LEFT, padx=(0, 10))
 
-        # Feine Glas-Linienicons statt Emoji (siehe glyph_icon.py) - passend
-        # zur selben Formsprache wie Energiefluss-Icons und Puffer/Warmwasser.
-        # "Weg" braucht zwei Varianten (normal/aktiv), die anderen nur eine.
-        self._icon_leave_normal = ctk_icon("door_exit", COLOR_TEXT, size=30)
-        self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=30)
+        # Feine Glas-Linienicons statt Emoji (siehe glyph_icon.py). "Weg"
+        # braucht zwei Varianten (normal/aktiv), die anderen nur eine.
+        self._icon_leave_normal = ctk_icon("door_exit", COLOR_TEXT, size=32)
+        self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=32)
 
         self.leave_btn = ctk.CTkButton(
             leave_wrap,
             text="",
             image=self._icon_leave_normal,
             command=self._on_leave_pressed,
-            fg_color="transparent",
-            text_color=COLOR_TEXT,
+            fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
-            corner_radius=14,
-            font=get_safe_font("Bahnschrift", 19, "bold"),
-            width=60,
-            height=44,
-            border_width=0,
+            corner_radius=18,
+            width=78,
+            height=78,
+            border_width=2,
+            border_color=COLOR_BORDER,
         )
         self.leave_btn.pack()
         self.leave_caption = ctk.CTkLabel(
-            leave_wrap, text="Weg", font=get_safe_font("Bahnschrift", 10), text_color=COLOR_SUBTEXT
+            leave_wrap, text="Weg", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT
         )
-        self.leave_caption.pack(pady=(2, 0))
-
-        self._active_fill = ACTIVE_FILL
+        self.leave_caption.pack(pady=(4, 0))
 
         home_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
-        home_wrap.pack(side=tk.LEFT, padx=(0, 6))
+        home_wrap.pack(side=tk.LEFT, padx=(0, 10))
 
+        # Einziger Farbakzent unter den drei Aktionen: "Zuhause" ist positiv
+        # besetzt (alles an/normal) - Gruen statt des frueheren Blaus.
         self.home_btn = ctk.CTkButton(
             home_wrap,
             text="",
-            image=ctk_icon("house", COLOR_TEXT, size=30),
+            image=ctk_icon("house", COLOR_SUCCESS, size=32),
             command=self._on_home_pressed,
-            fg_color="transparent",
-            text_color=COLOR_TEXT,
+            fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
-            corner_radius=14,
-            font=get_safe_font("Bahnschrift", 19, "bold"),
-            width=60,
-            height=44,
-            border_width=0,
+            corner_radius=18,
+            width=78,
+            height=78,
+            border_width=2,
+            border_color=COLOR_SUCCESS,
         )
         self.home_btn.pack()
         self.home_caption = ctk.CTkLabel(
-            home_wrap, text="Zuhause", font=get_safe_font("Bahnschrift", 10), text_color=COLOR_SUBTEXT
+            home_wrap, text="Zuhause", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT
         )
-        self.home_caption.pack(pady=(2, 0))
+        self.home_caption.pack(pady=(4, 0))
 
         shower_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
         shower_wrap.pack(side=tk.LEFT)
@@ -192,46 +129,85 @@ class HeaderBar(ctk.CTkFrame):
         self.shower_btn = ctk.CTkButton(
             shower_wrap,
             text="",
-            image=ctk_icon("shower", COLOR_TEXT, size=30),
+            image=ctk_icon("shower", COLOR_TEXT, size=32),
             command=self._on_shower_pressed,
-            fg_color="transparent",
-            text_color=COLOR_TEXT,
+            fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
-            corner_radius=14,
-            font=get_safe_font("Bahnschrift", 19, "bold"),
-            width=60,
-            height=44,
-            border_width=0,
+            corner_radius=18,
+            width=78,
+            height=78,
+            border_width=2,
+            border_color=COLOR_BORDER,
         )
         self.shower_btn.pack()
         self.shower_caption = ctk.CTkLabel(
-            shower_wrap, text="Dusche", font=get_safe_font("Bahnschrift", 10), text_color=COLOR_SUBTEXT
+            shower_wrap, text="Dusche", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT
         )
-        self.shower_caption.pack(pady=(2, 0))
+        self.shower_caption.pack(pady=(4, 0))
 
-        # Trennlinie statt Leerraum-Spacer: die Leiste ist jetzt kompakt
-        # (siehe oben), daher soll Licht/Temperatur direkt an die Aktionen
-        # anschliessen statt an den rechten Rand gedrueckt zu werden.
-        _divider(flow_inner)
+        # --- Mitte: Uhrzeit/Datum, per place() exakt auf der Bar-Mitte
+        # zentriert - unabhaengig davon, wie breit links (Aktionen) und
+        # rechts (Licht/Temperatur) tatsaechlich sind. Kein eigener
+        # Karten-Hintergrund mehr (Runde 2), sitzt direkt auf der Leiste,
+        # und keine eigene Akzentfarbe (Runde 2 nutzte Blau) - einfach
+        # heller Text, der von selbst als Blickfang wirkt.
+        clock_block = ctk.CTkFrame(bar, fg_color="transparent")
+        clock_block.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Licht: Icon bleibt direkt am Schalter.
-        light_control = ctk.CTkFrame(flow_inner, fg_color="transparent")
+        self.clock_label = ctk.CTkLabel(
+            clock_block,
+            text="--:--",
+            font=get_safe_font("Bahnschrift", 46, "bold"),
+            text_color=COLOR_TEXT,
+        )
+        self.clock_label.pack(anchor="center")
+
+        date_row = ctk.CTkFrame(clock_block, fg_color="transparent")
+        date_row.pack(anchor="center", pady=(4, 0))
+
+        self.weekday_label = ctk.CTkLabel(
+            date_row,
+            text="",
+            font=get_safe_font("Bahnschrift", 13, "bold"),
+            text_color=COLOR_SUBTEXT,
+        )
+        self.weekday_label.pack(side=tk.LEFT)
+
+        self.date_label = ctk.CTkLabel(
+            date_row,
+            text="--",
+            font=get_safe_font("Bahnschrift", 13),
+            text_color=COLOR_SUBTEXT,
+        )
+        self.date_label.pack(side=tk.LEFT, padx=(6, 0))
+
+        # --- Rechts: Licht und Temperatur, wie zuvor mit Trennlinie
+        # dazwischen, jetzt etwas groesser. ---
+        right_wrap = ctk.CTkFrame(bar, fg_color="transparent")
+        right_wrap.pack(side=tk.RIGHT, padx=(0, 20), pady=14)
+
+        def _divider(parent_widget: tk.Widget) -> None:
+            ctk.CTkFrame(parent_widget, fg_color=COLOR_BORDER, width=1).pack(
+                side=tk.LEFT, fill=tk.Y, pady=8, padx=18
+            )
+
+        light_control = ctk.CTkFrame(right_wrap, fg_color="transparent")
         light_control.pack(side=tk.LEFT)
 
         ctk.CTkLabel(
             light_control,
             text="",
-            image=ctk_icon("bulb", COLOR_WARNING, size=24),
-            width=24,
-        ).pack(side=tk.LEFT, padx=(0, 6))
+            image=ctk_icon("bulb", COLOR_WARNING, size=26),
+            width=26,
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
         self.light_switch = ctk.CTkSwitch(
             light_control,
             text="",
-            width=68,
-            height=34,
-            switch_width=68,
-            switch_height=34,
+            width=72,
+            height=36,
+            switch_width=72,
+            switch_height=36,
             fg_color=COLOR_BORDER,
             progress_color=COLOR_WARNING,
             button_color="#FFFFFF",
@@ -250,29 +226,25 @@ class HeaderBar(ctk.CTkFrame):
         self._on_shower = on_shower
         self._on_exit = on_exit  # fallback only
 
-        # Trennlinie vor der Temperatur, wie in der fliessenden Leiste.
-        _divider(flow_inner)
+        _divider(right_wrap)
 
-        temp_block = ctk.CTkFrame(flow_inner, fg_color="transparent")
+        temp_block = ctk.CTkFrame(right_wrap, fg_color="transparent")
         temp_block.pack(side=tk.LEFT)
 
         top_row = ctk.CTkFrame(temp_block, fg_color="transparent")
         top_row.pack(anchor="e", side=tk.TOP)
 
-        # Kleines Thermometer-Icon vor dem Wert - passend zum Rest des
-        # Headers, wo jede Aktion/jeder Wert (Weg/Zuhause/Dusche, Licht)
-        # bereits ein eigenes Icon hat statt nur nacktem Text.
         self.out_temp_icon = ctk.CTkLabel(
             top_row,
             text="",
-            image=ctk_icon("thermometer", COLOR_WARNING, size=18),
+            image=ctk_icon("thermometer", COLOR_WARNING, size=22),
         )
-        self.out_temp_icon.pack(side=tk.LEFT, padx=(0, 6))
+        self.out_temp_icon.pack(side=tk.LEFT, padx=(0, 8))
 
         self.out_temp_label = ctk.CTkLabel(
             top_row,
             text="--.- °C",
-            font=get_safe_font("Bahnschrift", 16, "bold"),
+            font=get_safe_font("Bahnschrift", 20, "bold"),
             text_color=COLOR_WARNING,
             anchor="e",
         )
@@ -309,26 +281,26 @@ class HeaderBar(ctk.CTkFrame):
         if not portrait:
             return
         try:
-            self.configure(height=132)
-            self.date_label.configure(font=get_safe_font("Bahnschrift", 22, "bold"))
-            self.weekday_label.configure(font=get_safe_font("Bahnschrift", 15))
-            self.clock_label.configure(font=get_safe_font("Bahnschrift", 56, "bold"))
-            self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 20, "bold"))
-            self.out_temp_icon.configure(image=ctk_icon("thermometer", COLOR_WARNING, size=24))
+            self.configure(height=150)
+            self.date_label.configure(font=get_safe_font("Bahnschrift", 16))
+            self.weekday_label.configure(font=get_safe_font("Bahnschrift", 16, "bold"))
+            self.clock_label.configure(font=get_safe_font("Bahnschrift", 60, "bold"))
+            self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 24, "bold"))
+            self.out_temp_icon.configure(image=ctk_icon("thermometer", COLOR_WARNING, size=26))
             self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 12))
-            # Groessere Icon-Varianten fuer die Touch-Hochformat-Buttons,
+            # Groessere Icon-Varianten fuer die Touch-Hochformat-Chips,
             # inkl. der "Weg"-Aktiv/Inaktiv-Variante (siehe set_leave_home_active).
             self._icon_leave_normal = ctk_icon("door_exit", COLOR_TEXT, size=40)
             self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=40)
-            currently_active = self.leave_btn.cget("fg_color") not in ("transparent", None)
+            currently_active = self.leave_btn.cget("fg_color") == self._active_fill
             self.leave_btn.configure(image=self._icon_leave_active if currently_active else self._icon_leave_normal)
-            self.home_btn.configure(image=ctk_icon("house", COLOR_TEXT, size=40))
+            self.home_btn.configure(image=ctk_icon("house", COLOR_SUCCESS, size=40))
             self.shower_btn.configure(image=ctk_icon("shower", COLOR_TEXT, size=40))
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
-                button.configure(width=82, height=56, font=get_safe_font("Bahnschrift", 23, "bold"))
+                button.configure(width=92, height=92)
             for caption in (self.leave_caption, self.home_caption, self.shower_caption):
-                caption.configure(font=get_safe_font("Bahnschrift", 12))
-            self.light_switch.configure(width=76, height=38, switch_width=76, switch_height=38)
+                caption.configure(font=get_safe_font("Bahnschrift", 13))
+            self.light_switch.configure(width=80, height=40, switch_width=80, switch_height=40)
         except Exception:
             pass
 
@@ -373,10 +345,10 @@ class HeaderBar(ctk.CTkFrame):
     def set_leave_home_active(self, is_active: bool | None) -> None:
         """Mark the leave-home button as active when 'all lights are off'.
 
-        Der Button hat in der fliessenden Leiste (Feinschliff Runde 2) keinen
-        eigenen Rahmen mehr (border_width=0) - die "aktiv"-Markierung laeuft
-        deshalb jetzt ueber einen gefuellten Hintergrundton statt ueber die
-        Rahmenfarbe.
+        Der Button ist jetzt ein Chip mit sichtbarem Hintergrund/Rahmen
+        (Feinschliff Runde 3) - die "aktiv"-Markierung faerbt Fuellung UND
+        Rahmen warm ein, statt (wie zuvor bei transparentem Hintergrund)
+        nur die Fuellung zu setzen.
         """
         try:
             active_fill = getattr(self, "_active_fill", COLOR_WARNING)
@@ -384,13 +356,13 @@ class HeaderBar(ctk.CTkFrame):
                 self.leave_btn.configure(
                     image=self._icon_leave_active,
                     fg_color=active_fill,
-                    text_color=COLOR_WARNING,
+                    border_color=COLOR_WARNING,
                 )
             else:
                 self.leave_btn.configure(
                     image=self._icon_leave_normal,
-                    fg_color="transparent",
-                    text_color=COLOR_TEXT,
+                    fg_color=getattr(self, "_chip_bg", "#242A35"),
+                    border_color=COLOR_BORDER,
                 )
         except Exception:
             pass

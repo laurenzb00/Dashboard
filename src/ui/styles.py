@@ -8,15 +8,18 @@ ctk.set_appearance_mode("dark")  # "dark" oder "light"
 ctk.set_default_color_theme("blue")  # "blue", "green", "dark-blue"
 
 # Farbpalette (angepasst für CustomTkinter)
-# Feinschliff "Grundgeruest": vorher fast neutrales Schwarzgrau, jetzt ein
-# erkennbar blau-navy getoentes Dunkel - passend zur "Glas"-Designsprache
-# der Tanks/Icons, aber bewusst weiterhin gedeckt statt bunt (nur der
-# Farbton selbst wurde saettigter, keine neue Akzentfarbe eingefuehrt).
-COLOR_ROOT = "#0B1220"       # Hintergrund/root (dunkles Navy statt Neutralgrau)
-COLOR_HEADER = "#0A1421"     # Header/Notebook (etwas dunkler als Root)
+# Feinschliff "Grundgeruest", Runde 3: Runde 2 (kraeftiges Navy ueberall)
+# war laut Feedback "zu viel Blau im gesamten Programm" - die Flaechen
+# selbst sind jetzt wieder neutral dunkel (Slate statt Navy), damit die
+# eigentlichen Akzentfarben (COLOR_WARNING/SUCCESS/INFO/PRIMARY - Orange/
+# Gruen/Cyan/Blau je nach Kontext) sich davon abheben statt im selben
+# Blauton unterzugehen. "Mehr Farbe" kommt dadurch von den Akzenten, nicht
+# mehr vom Hintergrund selbst.
+COLOR_ROOT = "#111317"       # Hintergrund/root - neutral dunkel
+COLOR_HEADER = "#0F1115"     # Header/Notebook (etwas dunkler als Root)
 COLOR_BG = COLOR_HEADER       # alias für bestehende Verwendungen
-COLOR_CARD = "#15243A"       # Card/Plot-Hintergrund - sichtbar angehobenes Navy
-COLOR_BORDER = "#26405E"     # Deutlicher blauer Rahmenton statt Neutralgrau
+COLOR_CARD = "#1B1F27"       # Card/Plot-Hintergrund - neutral, leicht angehoben
+COLOR_BORDER = "#3A4150"     # Neutraler Rahmenton statt Blauton
 COLOR_PRIMARY = "#3B82F6"
 COLOR_SUCCESS = "#10B981"
 COLOR_WARNING = "#F59E0B"

@@ -507,7 +507,9 @@ class MainApp:
         }
 
         # Touch targets are deliberately generous for the 14-inch touchscreen.
-        self._base_header_h = 132
+        # 132 -> 150: HeaderBar's portrait height grew with the Runde-3
+        # Header-Neubau (groesserer, mittig zentrierter Uhrzeit-Block).
+        self._base_header_h = 150
         self._base_status_h = 68
 
         # Start weekly Ertrag validation in background
@@ -968,7 +970,10 @@ class MainApp:
             segmented.configure(
                 font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
                 height=60 if getattr(self, "_portrait_screen", False) else 54,
-                corner_radius=14,
+                # 14 -> 16: an dieselbe "Glas"-Rundung wie TabShell-Header/
+                # Card angeglichen, statt als einziges Element im Grundgeruest
+                # noch auf dem alten (kleineren) Radius zu stehen.
+                corner_radius=16,
                 border_width=1,
                 border_color=COLOR_BORDER,
                 fg_color=COLOR_CARD,
