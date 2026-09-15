@@ -10,6 +10,7 @@ from ui.styles import (
     COLOR_BORDER,
     COLOR_WARNING,
     COLOR_SUCCESS,
+    COLOR_INFO,
     COLOR_ROOT,
     get_safe_font,
 )
@@ -77,7 +78,13 @@ class HeaderBar(ctk.CTkFrame):
 
         # Feine Glas-Linienicons statt Emoji (siehe glyph_icon.py). "Weg"
         # braucht zwei Varianten (normal/aktiv), die anderen nur eine.
-        self._icon_leave_normal = ctk_icon("door_exit", COLOR_TEXT, size=32)
+        # Nutzer-Feedback ("keine Farbe, Icons gefallen mir nicht, etwas
+        # breiter machen"): alle drei Chips bekommen jetzt einen eigenen
+        # staendigen Farbakzent (vorher nur "Zuhause" gruen, Weg/Dusche rein
+        # neutral/grau) statt die Akzentfarbe erst beim Aktiv-Zustand zu
+        # zeigen - macht die Leiste bunter, ohne wieder in "zu viel Blau"
+        # zurueckzufallen (Weg=Amber, Zuhause=Gruen, Dusche=Cyan/Info).
+        self._icon_leave_normal = ctk_icon("door_exit", COLOR_WARNING, size=32)
         self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=32)
 
         self.leave_btn = ctk.CTkButton(
@@ -88,10 +95,10 @@ class HeaderBar(ctk.CTkFrame):
             fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
             corner_radius=18,
-            width=78,
-            height=78,
+            width=104,
+            height=82,
             border_width=2,
-            border_color=COLOR_BORDER,
+            border_color=COLOR_WARNING,
         )
         self.leave_btn.pack()
         self.leave_caption = ctk.CTkLabel(
@@ -112,8 +119,8 @@ class HeaderBar(ctk.CTkFrame):
             fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
             corner_radius=18,
-            width=78,
-            height=78,
+            width=104,
+            height=82,
             border_width=2,
             border_color=COLOR_SUCCESS,
         )
@@ -129,15 +136,15 @@ class HeaderBar(ctk.CTkFrame):
         self.shower_btn = ctk.CTkButton(
             shower_wrap,
             text="",
-            image=ctk_icon("shower", COLOR_TEXT, size=32),
+            image=ctk_icon("shower", COLOR_INFO, size=32),
             command=self._on_shower_pressed,
             fg_color=CHIP_BG,
             hover_color=COLOR_BORDER,
             corner_radius=18,
-            width=78,
-            height=78,
+            width=104,
+            height=82,
             border_width=2,
-            border_color=COLOR_BORDER,
+            border_color=COLOR_INFO,
         )
         self.shower_btn.pack()
         self.shower_caption = ctk.CTkLabel(
@@ -290,14 +297,14 @@ class HeaderBar(ctk.CTkFrame):
             self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 12))
             # Groessere Icon-Varianten fuer die Touch-Hochformat-Chips,
             # inkl. der "Weg"-Aktiv/Inaktiv-Variante (siehe set_leave_home_active).
-            self._icon_leave_normal = ctk_icon("door_exit", COLOR_TEXT, size=40)
+            self._icon_leave_normal = ctk_icon("door_exit", COLOR_WARNING, size=40)
             self._icon_leave_active = ctk_icon("door_exit", COLOR_WARNING, size=40)
             currently_active = self.leave_btn.cget("fg_color") == self._active_fill
             self.leave_btn.configure(image=self._icon_leave_active if currently_active else self._icon_leave_normal)
             self.home_btn.configure(image=ctk_icon("house", COLOR_SUCCESS, size=40))
-            self.shower_btn.configure(image=ctk_icon("shower", COLOR_TEXT, size=40))
+            self.shower_btn.configure(image=ctk_icon("shower", COLOR_INFO, size=40))
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
-                button.configure(width=92, height=92)
+                button.configure(width=124, height=100)
             for caption in (self.leave_caption, self.home_caption, self.shower_caption):
                 caption.configure(font=get_safe_font("Bahnschrift", 13))
             self.light_switch.configure(width=80, height=40, switch_width=80, switch_height=40)
@@ -359,10 +366,13 @@ class HeaderBar(ctk.CTkFrame):
                     border_color=COLOR_WARNING,
                 )
             else:
+                # Rahmen/Icon bleiben Amber (staendiger Farbakzent, siehe
+                # __init__) - nur die Fuellung geht zurueck auf den
+                # neutralen Chip-Hintergrund.
                 self.leave_btn.configure(
                     image=self._icon_leave_normal,
                     fg_color=getattr(self, "_chip_bg", "#242A35"),
-                    border_color=COLOR_BORDER,
+                    border_color=COLOR_WARNING,
                 )
         except Exception:
             pass

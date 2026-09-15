@@ -72,16 +72,20 @@ SPARK_TEMP_COLOR = "#ff4fd8"
 class BufferStorageView(tk.Frame):
 
     # Heatmap scale targets (°C)
-    # TEMP_BLUE_MAX/TEMP_ORANGE_FROM used to sit only 2°C apart (53/55), so
-    # two close real readings (z.B. Puffer-Mitte 53.5°C vs. Boiler 54.8°C -
-    # nur 1.3°C Unterschied) landeten auf fast entgegengesetzten Enden der
-    # Skala (kräftiges Blau vs. sattes Orange). Der Übergang ist jetzt auf
-    # den tatsächlichen Betriebsbereich (meist 40-60°C) verbreitert, damit
-    # nah beieinanderliegende Temperaturen auch optisch nah beieinander
-    # liegen, ohne die Endpunkte (35°C kalt / 75°C sehr heiß) zu verändern.
-    TEMP_MIN = 35.0
-    TEMP_BLUE_MAX = 46.0
-    TEMP_ORANGE_FROM = 62.0
+    # Nutzer-Feedback zur Farbwahrnehmung: "50 bis 55 Grad ist mittel, alles
+    # unter 45 ist eigentlich schon kalt und 65 ist schon ziemlich warm".
+    # TEMP_MIN/TEMP_MAX (die Normalize-Endpunkte, auf die sich die gesamte
+    # Farbskala bezieht) sind dafür von 35-75°C auf 30-75°C verschoben, damit
+    # 45°C sicher im kuehlen/blauen Bereich landet (Anteil ~0.33, noch vor
+    # dem neutralen Tuerkis-Stop) und 50-55°C genau um den neutralen,
+    # weder kalt noch warm wirkenden Farbton der Palette (Anteil ~0.44-0.56)
+    # liegt, waehrend 65°C bereits deutlich im Orange (Anteil ~0.78) sitzt -
+    # "schon ziemlich warm", aber mit Reserve nach oben fuer noch heissere
+    # Werte bis 75°C. TEMP_BLUE_MAX/TEMP_ORANGE_FROM (nur fuer die mittlere
+    # Farbbalken-Beschriftung) folgen denselben 45/65-Grenzen.
+    TEMP_MIN = 30.0
+    TEMP_BLUE_MAX = 45.0
+    TEMP_ORANGE_FROM = 65.0
     TEMP_MAX = 75.0
 
     @staticmethod

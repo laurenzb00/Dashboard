@@ -44,15 +44,14 @@ def render_glyph(draw_fn, color_hex: str, size: int = 40, scale: int = 10, glow:
 
 def draw_door_exit(d, S, col, w):
     fill = (*col, 255)
-    # Door frame (open, slightly ajar for a "leaving" feel), with the exit
-    # arrow kept clear of the handle so both read distinctly at small size.
-    d.line([(S * 0.20, S * 0.14), (S * 0.20, S * 0.86)], fill=fill, width=w)
-    d.line([(S * 0.20, S * 0.14), (S * 0.46, S * 0.20)], fill=fill, width=w)
-    d.line([(S * 0.46, S * 0.20), (S * 0.46, S * 0.80)], fill=fill, width=w)
-    d.line([(S * 0.20, S * 0.86), (S * 0.46, S * 0.80)], fill=fill, width=w)
+    # Feinschliff: gerader (nicht mehr schraeg/"angelehnter") Tuerrahmen -
+    # laeuft bei kleiner Groesse als schiefes Trapez statt als klare Tuer.
+    # Nutzer-Feedback "Icons gefallen mir nicht" (Weg/Dusche).
+    door = [S * 0.18, S * 0.14, S * 0.46, S * 0.86]
+    d.rounded_rectangle(door, radius=S * 0.02, outline=fill, width=w)
     d.ellipse([S * 0.38, S * 0.48, S * 0.42, S * 0.52], fill=fill)
-    d.line([(S * 0.58, S * 0.50), (S * 0.82, S * 0.50)], fill=fill, width=w)
-    d.line([(S * 0.70, S * 0.38), (S * 0.82, S * 0.50), (S * 0.70, S * 0.62)], fill=fill, width=w, joint="curve")
+    d.line([(S * 0.58, S * 0.50), (S * 0.84, S * 0.50)], fill=fill, width=w)
+    d.line([(S * 0.72, S * 0.38), (S * 0.84, S * 0.50), (S * 0.72, S * 0.62)], fill=fill, width=w, joint="curve")
 
 
 def draw_house(d, S, col, w):
@@ -68,19 +67,27 @@ def draw_house(d, S, col, w):
 
 def draw_shower(d, S, col, w):
     fill = (*col, 255)
-    tw = max(1, S // 110)
-    d.line([(S * 0.14, S * 0.16), (S * 0.30, S * 0.16)], fill=fill, width=w)
-    d.line([(S * 0.30, S * 0.16), (S * 0.44, S * 0.30)], fill=fill, width=w, joint="curve")
-    head = [S * 0.30, S * 0.28, S * 0.72, S * 0.42]
-    d.rounded_rectangle(head, radius=S * 0.06, outline=fill, width=w)
-    face_y = head[3]
-    for t in (0.18, 0.38, 0.58, 0.78):
-        sx = head[0] + (head[2] - head[0]) * t
-        d.line([(sx, face_y), (sx - S * 0.02, face_y + S * 0.18)], fill=fill, width=tw + 1)
-    for dx, dy, r in [(-0.02, 0.30, 0.024), (0.18, 0.28, 0.020)]:
-        cx = head[0] + (head[2] - head[0]) * 0.5 + S * dx
-        cy = face_y + S * dy
-        d.ellipse([cx - S * r, cy - S * r * 1.3, cx + S * r, cy + S * r * 1.3], outline=fill, width=tw)
+    # Komplett neu gezeichnet (Nutzer-Feedback "Icons gefallen mir nicht"):
+    # die alte Version (schraege Linien + zwei Kreise) las sich bei kleiner
+    # Groesse eher wie ein Besen als ein Duschkopf. Jetzt ein klar
+    # symmetrischer, flacher Duschkopf mit geradem Wasserstrahl-Fächer
+    # darunter.
+    d.line([(S * 0.16, S * 0.16), (S * 0.32, S * 0.16), (S * 0.42, S * 0.26)],
+           fill=fill, width=w, joint="curve")
+    head = [S * 0.24, S * 0.24, S * 0.76, S * 0.44]
+    d.pieslice(head, start=180, end=360, outline=fill, width=w)
+    face_y = (head[1] + head[3]) / 2
+    d.line([(head[0], face_y), (head[2], face_y)], fill=fill, width=w)
+    xs = [head[0] + (head[2] - head[0]) * t for t in (0.12, 0.31, 0.5, 0.69, 0.88)]
+    y0 = face_y + S * 0.05
+    y1 = face_y + S * 0.34
+    tw = max(2, w - 1)
+    for sx in xs:
+        d.line([(sx, y0), (sx, y1)], fill=fill, width=tw)
+    for sx in (xs[0], xs[-1]):
+        r = S * 0.018
+        cy = y1 + S * 0.06
+        d.ellipse([sx - r, cy - r, sx + r, cy + r], fill=fill)
 
 
 def draw_bulb(d, S, col, w):
