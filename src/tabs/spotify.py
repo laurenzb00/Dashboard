@@ -40,7 +40,9 @@ except ImportError:
 
 
 POLL_INTERVAL_MS = 5000
-COVER_SIZE = (260, 260)
+# War (260, 260) - deutlich kleiner als die linke Haelfte des Now-Playing-Cards,
+# wirkte dadurch verloren mit viel leerem Rand drumherum.
+COVER_SIZE = (380, 380)
 PLAYLIST_IMAGE_SIZE = (96, 96)
 
 

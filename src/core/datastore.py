@@ -539,6 +539,66 @@ class DataStore:
             for row in rows
         ]
 
+    def get_heating_bucketed(self, hours: Optional[int], bucket_seconds: int) -> List[dict]:
+        """SQL-seitig zeit-gebuckete Mittelwerte der heating-Tabelle.
+
+        Wird von historical.py fuer lange Zeitraeume (>=7 Tage) genutzt:
+        vorher wurden dort ALLE Rohzeilen im Zeitraum geladen (bei 90d/180d/
+        365d potenziell zehntausende) und erst danach in Python auf ein paar
+        hundert Punkte heruntergerechnet - der Grossteil der geladenen Daten
+        wurde also nur zum Transportieren/Parsen verschwendet. Hier passiert
+        das Bucketing+Mitteln direkt in SQLite (gleiches Muster wie
+        _load_energy_flow() in ertrag.py), es werden von vornherein nur noch
+        die schon gemittelten Punkte geladen.
+
+        Die Plausibilitaets-Filterung, die historical.py bisher nach dem
+        Laden in Python gemacht hat (0.0 als Platzhalter fuer fehlende
+        Heizungs-Sensorwerte behandeln, Aussentemperatur mit weiterem
+        gueltigem Bereich), wird hier 1:1 per CASE WHEN ... THEN NULL
+        nachgebildet - SQLite's AVG() ignoriert NULL-Werte automatisch,
+        genau wie vorher np.nan in Python.
+        """
+        cursor = self.conn.cursor()
+        bucket_seconds = max(60, int(bucket_seconds))
+        bucket_expr = (
+            f"datetime((CAST(strftime('%s', datetime(timestamp)) AS INTEGER) / {bucket_seconds}) * {bucket_seconds}, 'unixepoch')"
+        )
+
+        def _heat_avg(col: str) -> str:
+            return f"AVG(CASE WHEN {col} = 0.0 OR {col} < -40 OR {col} > 120 THEN NULL ELSE {col} END)"
+
+        outdoor_avg = "AVG(CASE WHEN aussentemp < -40 OR aussentemp > 60 THEN NULL ELSE aussentemp END)"
+
+        sql = (
+            "SELECT " + bucket_expr + " AS bucket_ts, "
+            + _heat_avg("kesseltemp") + " AS kessel_avg, "
+            + outdoor_avg + " AS outdoor_avg, "
+            + _heat_avg("puffer_top") + " AS top_avg, "
+            + _heat_avg("puffer_mid") + " AS mid_avg, "
+            + _heat_avg("puffer_bot") + " AS bot_avg, "
+            + _heat_avg("warmwasser") + " AS warm_avg "
+            + "FROM heating "
+        )
+        cutoff = _hours_ago_iso(hours)
+        if cutoff:
+            sql += "WHERE timestamp >= ? "
+            rows = cursor.execute(sql + "GROUP BY bucket_ts ORDER BY bucket_ts ASC", (cutoff,)).fetchall()
+        else:
+            rows = cursor.execute(sql + "GROUP BY bucket_ts ORDER BY bucket_ts ASC").fetchall()
+
+        return [
+            {
+                'timestamp': row[0],
+                'kessel': row[1],
+                'outdoor': row[2],
+                'top': row[3],
+                'mid': row[4],
+                'bot': row[5],
+                'warm': row[6],
+            }
+            for row in rows
+        ]
+
     def get_last_heating_record(self) -> Optional[dict]:
         """
         Hole letzten Heizungs-Record als dict mit final keys (schema.py). Cached for 2s.

@@ -480,12 +480,34 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
             now = datetime.now()
             cutoff = now - timedelta(hours=hours)
 
+            # Fuer lange Zeitraeume wurden bisher IMMER ALLE Rohzeilen geladen
+            # (bei 90d/180d/365d potenziell zehntausende) und erst danach in
+            # Python per _downsample_timeseries() auf ein paar hundert Punkte
+            # heruntergerechnet - der Grossteil der geladenen/geparsten Daten
+            # wurde also nur weggeworfen. Jetzt macht SQLite das Bucketing+
+            # Mitteln direkt in der Datenbank (gleiches Muster wie
+            # _load_energy_flow() in ertrag.py); es werden von vornherein nur
+            # noch die schon gemittelten Punkte geladen.
+            bin_hours = 0
+            if hours >= 720:
+                bin_hours = 24
+            elif hours >= 168:
+                bin_hours = 3
+
             try:
-                rows = self.datastore.get_recent_heating(hours=hours, limit=None) if self.datastore else []
-                using_archive = False
-                if not rows and self.datastore:
-                    rows = self.datastore.get_recent_heating(hours=None, limit=None)
-                    using_archive = bool(rows)
+                if bin_hours and self.datastore:
+                    bucket_seconds = bin_hours * 3600
+                    rows = self.datastore.get_heating_bucketed(hours=hours, bucket_seconds=bucket_seconds)
+                    using_archive = False
+                    if not rows:
+                        rows = self.datastore.get_heating_bucketed(hours=None, bucket_seconds=bucket_seconds)
+                        using_archive = bool(rows)
+                else:
+                    rows = self.datastore.get_recent_heating(hours=hours, limit=None) if self.datastore else []
+                    using_archive = False
+                    if not rows and self.datastore:
+                        rows = self.datastore.get_recent_heating(hours=None, limit=None)
+                        using_archive = bool(rows)
             except Exception:
                 rows = []
                 using_archive = False
@@ -512,6 +534,16 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
                 if ts < cutoff or ts > now + timedelta(seconds=60):
                     continue
                 times.append(ts)
+
+                if bin_hours:
+                    # Plausibilitaets-Filterung ist hier schon SQL-seitig passiert
+                    # (siehe get_heating_bucketed) - Werte sind entweder ein
+                    # gueltiger Mittelwert oder bereits None (= keine gueltigen
+                    # Rohwerte in diesem Bucket).
+                    for key in series.keys():
+                        val = (row or {}).get(key)
+                        series[key].append(float(val) if val is not None else np.nan)
+                    continue
 
                 for key in series.keys():
                     val = self._as_float((row or {}).get(key))
@@ -546,16 +578,9 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
                     return a[order]
 
                 ordered_series = {key: _ordered(series[key]) for key in series.keys()}
-
-                # Downsample for long ranges to reduce noise and improve readability.
-                bin_hours = 0
-                if hours >= 720:
-                    bin_hours = 24
-                elif hours >= 168:
-                    bin_hours = 3
-
-                if bin_hours:
-                    times_sorted, ordered_series = self._downsample_timeseries(times_sorted, ordered_series, bin_hours)
+                # Weiteres Downsampling ist jetzt ueberfluessig: bei bin_hours>0
+                # liefert das SQL-Bucketing oben die Zielaufloesung schon direkt
+                # aus der Datenbank.
 
             def apply() -> None:
                 if token != self._update_token:
