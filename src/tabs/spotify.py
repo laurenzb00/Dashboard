@@ -40,10 +40,13 @@ except ImportError:
 
 
 POLL_INTERVAL_MS = 5000
-# War (260, 260), dann (380, 380) - auf Wunsch nochmal groesser. Die linke
-# Haelfte des Now-Playing-Cards hat bei typischer Fensterbreite genug Platz
-# fuer ~480px, ohne in die rechte Spalte (Titel/Buttons) zu ragen.
-COVER_SIZE = (480, 480)
+# War (260, 260), dann (380, 380), dann (480, 480) - auf erneuten Wunsch
+# nochmal groesser. Die linke Haelfte des Now-Playing-Cards ist eine feste
+# Grid-Spalte (container.columnconfigure(0, weight=1)) unabhaengig von der
+# Bildgroesse, das Cover selbst wird per PIL auf COVER_SIZE reinskaliert -
+# ein weiterer Sprung ragt also nicht in die rechte Spalte (Titel/Buttons),
+# sondern macht die linke Spalte hoechstens breiter/das Bild hoeher.
+COVER_SIZE = (600, 600)
 PLAYLIST_IMAGE_SIZE = (96, 96)
 
 
