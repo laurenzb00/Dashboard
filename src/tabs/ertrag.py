@@ -543,14 +543,24 @@ class ErtragTab:
         window_days = int(self._period_map.get(self._period_var.get(), 7) or 7)
 
         # Choose a coarse bin for long windows to keep UI fast.
+        # War bei 180 Tagen (180min-Bins, ~1440 Punkte) und 1 Jahr (360min-
+        # Bins, ~1460 Punkte) faktisch unlesbar: die Leistung (kW) schwankt
+        # jeden Tag zwischen 0 (Nacht) und Spitzenwert (Mittag) - bei
+        # mehreren hundert Tagen in einen ~950px breiten Chart gequetscht
+        # ergibt das nur noch einen dichten Kamm aus Zacken statt eines
+        # erkennbaren Verlaufs (mit synthetischen Testdaten nachgebaut und
+        # verglichen). Ab 90 Tagen jetzt Tages-Mittelwerte (1440min-Bins) -
+        # das glaettet den taeglichen Tag/Nacht-Zyklus komplett weg und
+        # zeigt stattdessen den eigentlich interessanten saisonalen Trend
+        # als glatte Linie (siehe auch Tagesproduktion-Tab, der PV-Ertrag
+        # bei langen Zeitraeumen ebenfalls pro Tag statt pro Leistungswert
+        # darstellt).
         if window_days <= 7:
             bin_minutes = 10
         elif window_days <= 30:
             bin_minutes = 30
-        elif window_days <= 180:
-            bin_minutes = 180
         else:
-            bin_minutes = 360
+            bin_minutes = 1440
 
         # War bisher alles synchron hier im Tk-Main-Thread (DB-Query in
         # _load_energy_flow, kWh-Integration, Monats-Query) - dadurch fror

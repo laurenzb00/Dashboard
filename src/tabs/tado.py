@@ -898,16 +898,24 @@ class TadoTab:
                             # nur noch: was ist zu tun (Link nutzen, falls
                             # vorhanden - sonst kurz warten).
                             self._ui_set(self.var_status, "Tado: Aktivierung im Browser ausstehend")
+                            # Der PyTado-Status (NOT_STARTED/PENDING/...) ist kein
+                            # interner Debug-Zaehler wie "Versuch N", sondern der
+                            # eigentliche Fortschritt des Aktivierungsflows - ohne
+                            # Konsolen-/SSH-Zugriff auf den Pi war das bisher
+                            # unsichtbar. Kurz mit anzeigen hilft einzugrenzen, ob
+                            # ueberhaupt ein Geraete-Code bei Tado registriert wurde
+                            # (NOT_STARTED) oder nur die Aktivierung im Browser
+                            # noch aussteht (PENDING).
                             if url:
                                 # Keep URL available for manual activation
                                 self._set_hint(
                                     "Bitte Tado im Browser aktivieren (Link rechts oeffnen) - "
-                                    "wird im Hintergrund automatisch weiter geprueft.",
+                                    f"wird im Hintergrund automatisch weiter geprueft. (Status: {status})",
                                     device_url=url,
                                 )
                             else:
                                 self._set_hint(
-                                    "Warte auf Aktivierungs-Link von Tado ...",
+                                    f"Warte auf Aktivierungs-Link von Tado ... (Status: {status})",
                                     device_url=None,
                                 )
                             self._ui_set(self.var_temp_ist, "N/A")

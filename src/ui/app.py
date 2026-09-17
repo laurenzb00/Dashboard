@@ -1011,20 +1011,19 @@ class MainApp:
             segmented = getattr(self.tabview, "_segmented_button", None)
             if segmented is None:
                 return
-            # Feedback "Tabauswahl zu klein" (zuletzt: beim Betrachten per
-            # Fernzugriff auf einem iPhone nochmal "allgemein etwas
-            # groesser" gewuenscht): Hoehe (reiner Touch-Target-Zuwachs,
-            # kostet keine horizontale Breite) weiter angehoben, 70/76 ->
-            # 78/84px. Die Schriftgroesse bleibt bewusst bei 15/14pt, NICHT
-            # groesser - das war (zusammen mit der Hoehe) der eigentliche
-            # Grund fuer das frueher gemeldete Ueberlaufen der Tab-Leiste bei
-            # 10-11 Tabs (Energie/Licht/HomeA/Spotify/Raum/Kalender/Historie/
-            # Ertrag/Tagesprod./Status/Health): mehr Schriftbreite = mehr
-            # Breite pro Tab = Ueberlauf rechts. Reine Hoehe veraendert die
-            # Breite nicht.
+            # Feedback "Tabauswahl zu klein" (wiederholt: nach 70/76 -> 78/84
+            # nochmal "ein bisschen groesser" gewuenscht). Weiter erhoeht auf
+            # 88/96px - immer noch reiner Touch-Target-Zuwachs ueber die
+            # Hoehe, kostet keine horizontale Breite. Die Schriftgroesse
+            # bleibt bewusst bei 15/14pt, NICHT groesser - das war (zusammen
+            # mit der Hoehe) der eigentliche Grund fuer das frueher gemeldete
+            # Ueberlaufen der Tab-Leiste bei 10-11 Tabs (Energie/Licht/HomeA/
+            # Spotify/Raum/Kalender/Historie/Ertrag/Tagesprod./Status/
+            # Health): mehr Schriftbreite = mehr Breite pro Tab = Ueberlauf
+            # rechts. Reine Hoehe veraendert die Breite nicht.
             segmented.configure(
                 font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
-                height=84 if getattr(self, "_portrait_screen", False) else 78,
+                height=96 if getattr(self, "_portrait_screen", False) else 88,
                 # 16 -> 18: etwas kräftigere Rundung passend zur größeren Höhe.
                 corner_radius=18,
                 border_width=1,
