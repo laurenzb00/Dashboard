@@ -202,8 +202,17 @@ class MainApp:
             except queue.Empty:
                 pass
             try:
-                # Increased from 100ms to 1000ms to reduce main thread load
-                self.root.after(1000, pump)
+                # War 1000ms (davor 100ms, extra verlangsamt "to reduce main
+                # thread load"). Laut Task-Manager-Screenshot lag die
+                # Python-App bei nur ~4.6% CPU/474MB RAM - der Pi hatte also
+                # deutlich Luft, waehrend ueber diese zentrale App-Queue
+                # laufende UI-Updates bis zu 1 volle Sekunde brauchen
+                # konnten, um anzukommen. Auf 200ms zurueckgesetzt - passt
+                # damit auch zu den pro-Tab-Queues (hue.py, calendar.py,
+                # ertrag.py, historical.py, tagesproduktion.py), die schon
+                # laenger mit 200ms laufen, ohne dass das je als Problem
+                # auffiel.
+                self.root.after(200, pump)
             except Exception:
                 pass
 
@@ -595,8 +604,8 @@ class MainApp:
 
         # Energy Dashboard Tab
         _dbg_print("[INIT] MainApp: Dashboard-Tab wird erstellt...")
-        self.tabview.add(emoji("⚡ Energie", "Energie"))
-        self.dashboard_tab = self.tabview.tab(emoji("⚡ Energie", "Energie"))
+        self.tabview.add(emoji("⚡\nEnergie", "Energie"))
+        self.dashboard_tab = self.tabview.tab(emoji("⚡\nEnergie", "Energie"))
         # Setze Tab-Frame Hintergrund explizit auf COLOR_ROOT
         try:
             self.dashboard_tab.configure(fg_color=COLOR_ROOT)
@@ -1011,19 +1020,41 @@ class MainApp:
             segmented = getattr(self.tabview, "_segmented_button", None)
             if segmented is None:
                 return
-            # Feedback "Tabauswahl zu klein" (wiederholt: nach 70/76 -> 78/84
-            # nochmal "ein bisschen groesser" gewuenscht). Weiter erhoeht auf
-            # 88/96px - immer noch reiner Touch-Target-Zuwachs ueber die
-            # Hoehe, kostet keine horizontale Breite. Die Schriftgroesse
-            # bleibt bewusst bei 15/14pt, NICHT groesser - das war (zusammen
-            # mit der Hoehe) der eigentliche Grund fuer das frueher gemeldete
-            # Ueberlaufen der Tab-Leiste bei 10-11 Tabs (Energie/Licht/HomeA/
-            # Spotify/Raum/Kalender/Historie/Ertrag/Tagesprod./Status/
-            # Health): mehr Schriftbreite = mehr Breite pro Tab = Ueberlauf
-            # rechts. Reine Hoehe veraendert die Breite nicht.
+            # Feedback "Tabauswahl zu klein" (wiederholt: 70/76 -> 78/84 ->
+            # 88/96, jetzt nochmal groesser + Layout-Vorschlag "Icon oben,
+            # Schrift darunter"). Die Tab-Labels selbst kommen jetzt als
+            # "<icon>\n<Name>" (siehe die tabview.add()/tabview.tab()-Aufrufe
+            # weiter unten) - Tkinter/CTk rendert eingebettete "\n" in
+            # Button-Text zuverlaessig zweizeilig zentriert, ganz ohne
+            # Custom-Widget. Zweizeilig braucht mehr Hoehe als vorher, daher
+            # hier auf 104/116px erhoeht. Die Schriftgroesse bleibt bewusst
+            # bei 15/14pt (isoliert von der Layout-Umstellung getestet,
+            # bevor an der Schriftgroesse selbst gedreht wird) - ein
+            # bekanntes frueheres Problem war zu breite Tab-Labels
+            # (Icon+Leerzeichen+Name in einer Zeile) bei 10 Tabs, das durch
+            # die Zwei-Zeilen-Aufteilung jetzt ohnehin schon entschaerft ist.
+            #
+            # "auf maximale Breite vergroessern": CTkTabview plaziert die
+            # interne Segmented-Button per grid() nur mit sticky="ns" (siehe
+            # CustomTkinter-Quellcode) - also NICHT horizontal gestreckt.
+            # Ohne explizite width bleibt die Leiste auf ihrer natuerlichen
+            # (Inhalt-basierten) Breite und laesst rechts ggf. Platz frei.
+            # CTkSegmentedButton verteilt seine Segmente intern aber bereits
+            # per grid_columnconfigure(weight=1) gleichmaessig auf die EIGENE
+            # Breite - eine groessere width hier sorgt also dafuer, dass
+            # jedes Tab-Segment anteilig breiter wird und die Leiste die
+            # komplette verfuegbare Bildschirmbreite ausfuellt.
+            try:
+                screen_w = self.root.winfo_screenwidth()
+            except Exception:
+                screen_w = 1024
+            # Marge passend zum aeusseren Padding, das anderswo in der App
+            # verwendet wird (TabShell nutzt z.B. padx=20 je Seite).
+            tabbar_width = max(600, int(screen_w) - 40)
             segmented.configure(
                 font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
-                height=96 if getattr(self, "_portrait_screen", False) else 88,
+                height=116 if getattr(self, "_portrait_screen", False) else 104,
+                width=tabbar_width,
                 # 16 -> 18: etwas kräftigere Rundung passend zur größeren Höhe.
                 corner_radius=18,
                 border_width=1,
@@ -1054,8 +1085,8 @@ class MainApp:
             try:
                 _dbg_print("[TABS] HueTab wird erstellt...")
                 # Tab in Tabview erstellen
-                self.tabview.add(emoji("💡 Licht", "Licht"))
-                hue_frame = self.tabview.tab(emoji("💡 Licht", "Licht"))
+                self.tabview.add(emoji("💡\nLicht", "Licht"))
+                hue_frame = self.tabview.tab(emoji("💡\nLicht", "Licht"))
                 # Setze Frame Hintergrund
                 try:
                     hue_frame.configure(fg_color=COLOR_ROOT)
@@ -1072,8 +1103,8 @@ class MainApp:
         if HomeAssistantActionsTab:
             try:
                 _dbg_print("[TABS] HomeAssistantActionsTab wird erstellt...")
-                self.tabview.add(emoji("🏠 HomeA", "HomeA"))
-                ha_frame = self.tabview.tab(emoji("🏠 HomeA", "HomeA"))
+                self.tabview.add(emoji("🏠\nHomeA", "HomeA"))
+                ha_frame = self.tabview.tab(emoji("🏠\nHomeA", "HomeA"))
                 try:
                     ha_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1088,8 +1119,8 @@ class MainApp:
         if SpotifyTab:
             try:
                 _dbg_print("[TABS] SpotifyTab wird erstellt...")
-                self.tabview.add(emoji("🎵 Spotify", "Spotify"))
-                spotify_frame = self.tabview.tab(emoji("🎵 Spotify", "Spotify"))
+                self.tabview.add(emoji("🎵\nSpotify", "Spotify"))
+                spotify_frame = self.tabview.tab(emoji("🎵\nSpotify", "Spotify"))
                 try:
                     spotify_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1108,8 +1139,8 @@ class MainApp:
                 # rechts/links ueber den Bildschirmrand hinaus lief und Tabs
                 # abgeschnitten wurden. Der volle Titel steht weiterhin oben
                 # im Tab selbst (TabShell in tado.py).
-                self.tabview.add(emoji("🌡️ Raum", "Raum"))
-                tado_frame = self.tabview.tab(emoji("🌡️ Raum", "Raum"))
+                self.tabview.add(emoji("🌡️\nRaum", "Raum"))
+                tado_frame = self.tabview.tab(emoji("🌡️\nRaum", "Raum"))
                 try:
                     tado_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1125,8 +1156,8 @@ class MainApp:
         if CalendarTab:
             try:
                 _dbg_print("[TABS] CalendarTab wird erstellt...")
-                self.tabview.add(emoji("📅 Kalender", "Kalender"))
-                calendar_frame = self.tabview.tab(emoji("📅 Kalender", "Kalender"))
+                self.tabview.add(emoji("📅\nKalender", "Kalender"))
+                calendar_frame = self.tabview.tab(emoji("📅\nKalender", "Kalender"))
                 try:
                     calendar_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1140,8 +1171,8 @@ class MainApp:
         if HistoricalTab:
             try:
                 _dbg_print("[TABS] HistoricalTab wird erstellt...")
-                self.tabview.add(emoji("📈 Historie", "Historie"))
-                historical_frame = self.tabview.tab(emoji("📈 Historie", "Historie"))
+                self.tabview.add(emoji("📈\nHistorie", "Historie"))
+                historical_frame = self.tabview.tab(emoji("📈\nHistorie", "Historie"))
                 try:
                     historical_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1155,8 +1186,8 @@ class MainApp:
         if ErtragTab:
             try:
                 _dbg_print("[TABS] ErtragTab wird erstellt...")
-                self.tabview.add(emoji("🔆 Ertrag", "Ertrag"))
-                ertrag_frame = self.tabview.tab(emoji("🔆 Ertrag", "Ertrag"))
+                self.tabview.add(emoji("🔆\nErtrag", "Ertrag"))
+                ertrag_frame = self.tabview.tab(emoji("🔆\nErtrag", "Ertrag"))
                 try:
                     ertrag_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1171,8 +1202,8 @@ class MainApp:
             try:
                 _dbg_print("[TABS] TagesproduktionTab wird erstellt...")
                 # Gekuerzt, gleicher Grund wie beim Raum-Tab oben.
-                self.tabview.add(emoji("📊 Tagesprod.", "Tagesprod."))
-                prod_frame = self.tabview.tab(emoji("📊 Tagesprod.", "Tagesprod."))
+                self.tabview.add(emoji("📊\nTagesprod.", "Tagesprod."))
+                prod_frame = self.tabview.tab(emoji("📊\nTagesprod.", "Tagesprod."))
                 try:
                     prod_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1216,8 +1247,8 @@ class MainApp:
         if HealthTab:
             try:
                 _dbg_print("[TABS] HealthTab wird erstellt...")
-                self.tabview.add(emoji("🩺 Health", "Health"))
-                health_frame = self.tabview.tab(emoji("🩺 Health", "Health"))
+                self.tabview.add(emoji("🩺\nHealth", "Health"))
+                health_frame = self.tabview.tab(emoji("🩺\nHealth", "Health"))
                 try:
                     health_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1228,6 +1259,15 @@ class MainApp:
                 logger.error("HealthTab init failed: %s", e)
                 self.health_tab = None
         _dbg_print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
+        # _style_tabview_buttons() lief bisher nur einmal ganz am Anfang,
+        # bevor die meisten Tabs ueberhaupt existierten (nur "Energie" war
+        # zu dem Zeitpunkt schon da) - hier nochmal aufrufen, jetzt wo alle
+        # ~10 Tabs feststehen, damit Breite/Hoehe/Schrift sicher fuer die
+        # tatsaechliche, finale Segment-Anzahl gesetzt werden.
+        try:
+            self._style_tabview_buttons()
+        except Exception:
+            pass
 
     def _subscribe_view_updates(self) -> None:
         if not hasattr(self, "app_state") or not self.app_state:

@@ -692,6 +692,18 @@ class EnergyFlowView(tk.Frame):
         nx, ny = -vy / length, vx / length
         ux, uy = vx / length, vy / length
 
+        # A (near-)vertical connector - the Haus<->Batterie line, since both
+        # nodes sit at the same x - has a perpendicular that is itself
+        # (near-)horizontal (ny ~ 0). That breaks two things below: the
+        # side-flip can never tell 'above' from 'below' apart (ny is never
+        # reliably >0 or <0), and the arrow-aligned rotation further down
+        # ends up close to +-90deg, rendering the value top-to-bottom -
+        # illegible at a glance, and (depending on charge/discharge
+        # direction flipping src/dst) sometimes overlapping the SoC ring.
+        # Special-case it: fixed side, enough clearance to always stay
+        # outside the SoC ring regardless of node size, and no rotation.
+        near_vertical = abs(vx) < 0.15 * length
+
         # Pick perpendicular side deterministically in screen space.
         # outside='above' => smaller y, outside='below' => larger y.
         side = 1.0
@@ -704,14 +716,25 @@ class EnergyFlowView(tk.Frame):
         if outside in ("above", "below"):
             eff_offset += float(max(0, outside_pad))
 
-        px = mx + nx * eff_offset * side + ux * along
-        py = my + ny * eff_offset * side + uy * along
+        if near_vertical:
+            clearance = max(eff_offset, self.node_radius + self.ring_gap + 16)
+            px = mx + clearance + ux * along
+            py = my + uy * along
+        else:
+            px = mx + nx * eff_offset * side + ux * along
+            py = my + ny * eff_offset * side + uy * along
 
         # Render rotated text along arrow direction
         angle = -1 * (180 / math.pi) * (0 if length == 0 else math.atan2(vy, vx))
         # Auto-flip if upside down (keep labels readable)
         if abs(angle) > 90:
             angle += 180
+        # Keep near-vertical (or otherwise steep) connectors flat instead of
+        # rotated - a value spelled out top-to-bottom is hard to read on a
+        # dashboard glanced at from a distance. The shallower PV/Grid
+        # connectors stay untouched (their angle is well under this).
+        if near_vertical or abs(angle) > 55:
+            angle = 0
         value_text, unit_text = self._format_power_parts(abs(watts))
         font_val = self._get_font(self._flow_value_size, bold=True)
         font_unit = self._get_font(self._flow_unit_size, bold=False)

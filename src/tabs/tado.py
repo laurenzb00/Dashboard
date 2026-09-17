@@ -70,7 +70,18 @@ TADO_TOKEN_FILE = os.getenv(
     "TADO_TOKEN_FILE",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tado_refresh_token"),
 )
-TADO_CLIENT_ID = os.getenv("TADO_CLIENT_ID", "tado-web-app")
+# War "tado-web-app" - das ist der Grund fuer das dauerhafte NOT_STARTED
+# (siehe _perform_login): Tado lehnt diese Client-ID mittlerweile mit
+# "invalid_client_id" ab (sichtbar geworden erst, nachdem der "Im Browser
+# oeffnen"-Button tatsaechlich funktionierte und die Tado-Fehlerseite
+# zeigte). Der neue Wert ist die aktuelle Device-Flow-Client-ID, sowohl aus
+# Tados eigener API-Doku (support.tado.com) als auch aus dem aktuellen
+# PyTado-Quelltext (CLIENT_ID_DEVICE in PyTado/const.py) bestaetigt - beide
+# Quellen stimmen ueberein. Die auf dem Pi installierte PyTado-Version ist
+# vermutlich aelter und hat intern noch die alte, jetzt ungueltige
+# Client-ID als Default - deshalb wird sie unten jetzt explizit mitgegeben
+# statt sich auf den Library-internen Default zu verlassen.
+TADO_CLIENT_ID = os.getenv("TADO_CLIENT_ID", "1bb50063-6b0c-4d11-bd99-387f4a91cc46")
 TADO_SCOPE = os.getenv("TADO_SCOPE", "home.user")
 TADO_ECO_TEMP = float(os.getenv("TADO_ECO_TEMP", "19.0"))
 TADO_COMFORT_TEMP = float(os.getenv("TADO_COMFORT_TEMP", "21.0"))
@@ -909,8 +920,23 @@ class TadoTab:
                         self.api = Tado(TADO_USER, TADO_PASS, client_id=TADO_CLIENT_ID)
                         self._ui_set(self.var_status, "Verbunden")
                 else:
-                    # OAuth Device Flow (seit 2025) + Token-Cache
-                    self.api = Tado(token_file_path=TADO_TOKEN_FILE)
+                    # OAuth Device Flow (seit 2025) + Token-Cache. client_id
+                    # jetzt explizit mitgegeben (siehe TADO_CLIENT_ID oben) -
+                    # ohne das faellt PyTado auf seinen eigenen internen
+                    # Default zurueck, der auf der hier installierten Version
+                    # offenbar noch die alte, von Tado mittlerweile
+                    # abgelehnte Client-ID ist (invalid_client_id).
+                    try:
+                        self.api = Tado(token_file_path=TADO_TOKEN_FILE, client_id=TADO_CLIENT_ID)
+                    except TypeError:
+                        # Sehr alte PyTado-Version ohne client_id-Parameter im
+                        # Konstruktor - dann bleibt nur der Library-interne
+                        # Default (kann die alte, ungueltige Client-ID sein).
+                        logging.warning(
+                            "[TADO] Installierte PyTado-Version akzeptiert kein "
+                            "client_id-Argument - nutze Library-Default."
+                        )
+                        self.api = Tado(token_file_path=TADO_TOKEN_FILE)
                     status = self.api.device_activation_status()
                     logging.info(
                         "[TADO] Login-Versuch %s: device_activation_status=%s",
