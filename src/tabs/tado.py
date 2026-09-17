@@ -309,6 +309,9 @@ class TadoTab:
                 values=["Auto", "Manuell"],
                 variable=self.var_mode,
                 command=self._on_mode_changed,
+                # Hatte keine explizite Hoehe (CTk-Default) - fuer einen
+                # Touch-Modus-Umschalter zu knapp.
+                height=44,
                 fg_color=COLOR_CARD,
                 selected_color=COLOR_PRIMARY,
                 selected_hover_color=COLOR_SUCCESS,
@@ -356,6 +359,10 @@ class TadoTab:
             from_=12,
             to=30,
             number_of_steps=36,
+            # Hatte keine explizite Hoehe (CTk-Default, duenner Track) -
+            # fuer die Zieltemperatur (der wichtigste Regler auf dem Tab)
+            # jetzt konsistent mit den anderen Slidern/Switches vergroessert.
+            height=36,
             variable=self.var_target,
             command=self._on_target_slider,
             fg_color=COLOR_CARD,

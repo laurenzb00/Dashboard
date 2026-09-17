@@ -166,8 +166,13 @@ class HueTab:
                 pass
 
             try:
-                # Increased from 50ms to 200ms to reduce main thread load
-                self.root.after(200, pump)
+                # War 200ms (davor 50ms, ebenfalls "to reduce main thread
+                # load" verlangsamt - siehe dieselbe Begruendung/Aenderung
+                # bei ui/app.py's zentraler UI-Queue). Laut Task-Manager
+                # deutlich Luft auf dem Pi (Python-Prozess nur ~4.6% CPU) -
+                # zurueck auf 50ms, konsistent mit homeassistant_actions.py,
+                # das schon laenger mit 50ms laeuft.
+                self.root.after(50, pump)
             except Exception:
                 pass
 
@@ -412,7 +417,9 @@ class HueTab:
             to=100,
             number_of_steps=100,
             width=440,
-            height=28,
+            # 28 -> 36: etwas mehr Touch-Flaeche, konsistent mit den anderen
+            # Slidern/Switches in der App.
+            height=36,
             variable=self._dimmer_value,
             command=lambda _v: self._apply_dimmer_label(),
             fg_color=COLOR_BORDER,
@@ -442,9 +449,17 @@ class HueTab:
         )
         vorraum_title.pack(side="left", padx=(12, 10), pady=10)
 
+        # Hatte bisher keine explizite Breite/Hoehe - CTk-Default fuer
+        # CTkSwitch ist recht duenn/klein, schwer per Touch (v.a. remote
+        # ueber VNC) zu treffen. Groesse an header.py's light_switch
+        # angeglichen (dort schon bewusst groesser gesetzt).
         vorraum_switch = ctk.CTkSwitch(
             vorraum_card,
             text="",
+            width=64,
+            height=32,
+            switch_width=64,
+            switch_height=32,
             variable=self._vorraum_var,
             command=self._on_vorraum_toggle,
             fg_color=COLOR_BORDER,

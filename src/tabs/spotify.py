@@ -422,8 +422,13 @@ class SpotifyTab:
         # angelehnt (siehe tabs/hue.py).
         volume_controls = tk.Frame(volume_box, bg=COLOR_CARD)
         volume_controls.pack(fill=tk.X, pady=4)
+        # Touch-Optimierung: 36x32 lag unter der ueblichen ~44x44px-Touch-
+        # Zielgroesse, der Slider hatte gar keine explizite Hoehe (duenner
+        # CTk-Default-Track) - beides zusammen mit den anderen Switches/
+        # Slidern/Checkboxen in der App auf ein konsistentes, groesseres Mass
+        # gebracht.
         ctk.CTkButton(
-            volume_controls, text="-", width=36, height=32, corner_radius=12,
+            volume_controls, text="-", width=48, height=44, corner_radius=12,
             fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_TEXT,
             command=lambda: self._adjust_volume(-10),
         ).pack(side=LEFT, padx=3)
@@ -431,12 +436,13 @@ class SpotifyTab:
         self.volume_scale = ctk.CTkSlider(
             volume_controls, from_=0, to=100, number_of_steps=100,
             variable=self._volume_ctk_var, command=self._on_volume_change,
+            height=32,
             fg_color=COLOR_BORDER, progress_color=COLOR_PRIMARY,
             button_color=COLOR_TEXT, button_hover_color=COLOR_TEXT,
         )
         self.volume_scale.pack(side=LEFT, expand=True, fill=tk.X, padx=6)
         ctk.CTkButton(
-            volume_controls, text="+", width=36, height=32, corner_radius=12,
+            volume_controls, text="+", width=48, height=44, corner_radius=12,
             fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_TEXT,
             command=lambda: self._adjust_volume(10),
         ).pack(side=LEFT, padx=3)
@@ -448,6 +454,7 @@ class SpotifyTab:
         self.shuffle_var = tk.BooleanVar(value=False)
         ctk.CTkCheckBox(
             quick_box, text="Shuffle", variable=self.shuffle_var, command=self._set_shuffle,
+            checkbox_width=28, checkbox_height=28,
             fg_color=COLOR_PRIMARY, hover_color=COLOR_PRIMARY, border_color=COLOR_BORDER,
             checkmark_color=COLOR_TEXT, text_color=COLOR_TEXT,
         ).pack(side=LEFT, padx=8)
