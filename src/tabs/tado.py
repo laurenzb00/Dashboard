@@ -425,47 +425,64 @@ class TadoTab:
         logging.info("[TADO] Button geklickt, URL: %s", url)
         if not url:
             logging.warning("[TADO] Keine URL gesetzt!")
+            self._ui_set(self.var_hint, "Kein Aktivierungslink verfügbar - bitte warten oder Login neu starten.")
             return
         try:
             # Also place the link on the clipboard: the dashboard often runs
             # on a headless Pi while the user opens the link on another device.
+            clipboard_ok = False
             try:
                 self.root.clipboard_clear()
                 self.root.clipboard_append(url)
                 self.root.update()
+                clipboard_ok = True
             except Exception:
                 pass
             # Try multiple methods for Raspberry Pi compatibility
             import subprocess
             import platform
-            
+
             system = platform.system().lower()
             logging.info("[TADO] System: %s, versuche Browser zu öffnen für: %s", system, url)
-            opened = False
-            
+            opened_with = None
+            attempts: list[str] = []
+
             if system == "linux":
                 # Try common Linux browsers
                 for cmd in ["xdg-open", "chromium-browser", "chromium", "firefox", "sensible-browser"]:
                     try:
                         result = subprocess.Popen([cmd, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         logging.info("[TADO] Browser gestartet mit: %s (pid=%s)", cmd, result.pid)
-                        opened = True
+                        opened_with = cmd
                         break
                     except FileNotFoundError:
                         logging.debug("[TADO] %s nicht gefunden", cmd)
+                        attempts.append(f"{cmd}: nicht installiert")
                         continue
                     except Exception as e:
                         logging.warning("[TADO] %s fehlgeschlagen: %s", cmd, e)
+                        attempts.append(f"{cmd}: {e}")
                         continue
-            
-            if not opened:
+
+            if opened_with is None:
                 logging.info("[TADO] Fallback: webbrowser.open()")
-                opened = bool(webbrowser.open_new_tab(url))
-                opened = True
-                
-            if opened:
-                # Zeige Bestätigung im Hint
-                self._ui_set(self.var_hint, f"URL geöffnet und kopiert: {url}")
+                try:
+                    if webbrowser.open_new_tab(url):
+                        opened_with = "webbrowser-Modul"
+                    else:
+                        attempts.append("webbrowser-Modul: kein Erfolg gemeldet")
+                except Exception as e:
+                    attempts.append(f"webbrowser-Modul: {e}")
+
+            if opened_with:
+                clip_note = " (Link auch in Zwischenablage kopiert)" if clipboard_ok else ""
+                self._ui_set(self.var_hint, f"Browser geöffnet via {opened_with}{clip_note}: {url}")
+                logging.info("[TADO] Browser erfolgreich geöffnet via %s", opened_with)
+            else:
+                detail = " | ".join(attempts) if attempts else "kein Browser gefunden"
+                clip_note = " Link wurde in die Zwischenablage kopiert." if clipboard_ok else ""
+                self._ui_set(self.var_hint, f"Konnte keinen Browser öffnen ({detail}).{clip_note}\nLink manuell öffnen: {url}")
+                logging.warning("[TADO] Kein Browser konnte geöffnet werden: %s", detail)
         except Exception as e:
             logging.error("[TADO] Browser öffnen fehlgeschlagen: %s", e)
             self._ui_set(self.var_hint, f"Fehler beim Öffnen: {e}\nURL manuell öffnen: {url}")
@@ -871,12 +888,28 @@ class TadoTab:
                             # Nochmal versuchen, falls sich seit oben etwas geaendert hat.
                             url = self._normalize_device_url(self.api.device_verification_url()) or url
                             wait_s = min(15 * login_attempt, 120)
-                            self._ui_set(
-                                self.var_status,
-                                f"Tado Aktivierung ausstehend (Versuch {login_attempt}, naechster Versuch in {wait_s}s)",
-                            )
-                            # Keep URL available for manual activation
-                            self._set_hint(f"Aktivierung nicht abgeschlossen. URL: {url}", device_url=url)
+                            # War bisher "Tado Aktivierung ausstehend (Versuch 29,
+                            # naechster Versuch in 120s)" / "Aktivierung nicht
+                            # abgeschlossen. URL: None" - interner Retry-Zaehler
+                            # und ein rohes "URL: None" landeten direkt im
+                            # Dashboard, obwohl das reine Debug-Infos sind (die
+                            # Versuchsnummer/Wartezeit steht weiterhin im Log,
+                            # siehe logging.warning unten). Nutzer-Text jetzt
+                            # nur noch: was ist zu tun (Link nutzen, falls
+                            # vorhanden - sonst kurz warten).
+                            self._ui_set(self.var_status, "Tado: Aktivierung im Browser ausstehend")
+                            if url:
+                                # Keep URL available for manual activation
+                                self._set_hint(
+                                    "Bitte Tado im Browser aktivieren (Link rechts oeffnen) - "
+                                    "wird im Hintergrund automatisch weiter geprueft.",
+                                    device_url=url,
+                                )
+                            else:
+                                self._set_hint(
+                                    "Warte auf Aktivierungs-Link von Tado ...",
+                                    device_url=None,
+                                )
                             self._ui_set(self.var_temp_ist, "N/A")
                             self._ui_set(self.var_humidity, "N/A")
                             logging.warning(

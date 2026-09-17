@@ -649,8 +649,11 @@ class MainApp:
         # damit es bei "nicht zuhause" (siehe _sync_presence_standby_state)
         # das komplette Dashboard unabhaengig von dessen Layout ueberdecken
         # kann. Zu Beginn nicht platziert/unsichtbar.
-        self.standby_overlay = StandbyOverlay(self.root)
+        self.standby_overlay = StandbyOverlay(self.root, on_peek=self._standby_peek)
         self._standby_active = False
+        # Timer-Handle fuer den "Kurz anzeigen"-Fernzugriff-Button auf dem
+        # Screensaver (siehe _standby_peek/_standby_peek_expire weiter unten).
+        self._standby_peek_after_id = None
 
         # Statusbar - moderner Style mit besserem Spacing
         self.status = StatusBar(self.main_container, on_exit=self.on_exit, on_toggle_fullscreen=self.toggle_fullscreen)
@@ -900,6 +903,54 @@ class MainApp:
                 overlay.hide()
         except Exception:
             pass
+        # Ein neuer "weg"/"zuhause"-Uebergang macht einen laufenden Peek
+        # gegenstandslos - Timer verwerfen, damit er nicht spaeter noch
+        # ungewollt den (schon wieder korrekt ein-/ausgeblendeten) Overlay
+        # umschaltet.
+        if getattr(self, "_standby_peek_after_id", None) is not None:
+            try:
+                self.root.after_cancel(self._standby_peek_after_id)
+            except Exception:
+                pass
+            self._standby_peek_after_id = None
+
+    def _standby_peek(self) -> None:
+        """Lokaler, rein clientseitiger Fernzugriff-Ausweg (VPN/VNC): blendet
+        den Screensaver fuer 30 Minuten aus, OHNE die echte HA-Anwesenheit
+        zu aendern - bewusst getrennt vom "Zuhause erzwingen"-Header-Button
+        (on_come_home), der einen echten HA-Webhook mit echten Smart-Home-
+        Auswirkungen ausloest. Erneutes Klicken waehrend eines aktiven Peeks
+        verlaengert ihn einfach um weitere 30 Minuten."""
+        overlay = getattr(self, "standby_overlay", None)
+        if overlay is None:
+            return
+        try:
+            overlay.hide()
+        except Exception:
+            pass
+        if getattr(self, "_standby_peek_after_id", None) is not None:
+            try:
+                self.root.after_cancel(self._standby_peek_after_id)
+            except Exception:
+                pass
+        try:
+            self._standby_peek_after_id = self.root.after(30 * 60 * 1000, self._standby_peek_expire)
+        except Exception:
+            self._standby_peek_after_id = None
+
+    def _standby_peek_expire(self) -> None:
+        self._standby_peek_after_id = None
+        # Nur wieder einblenden, wenn laut letztem HA-Poll immer noch
+        # "nicht zuhause" gilt - falls der Nutzer inzwischen wirklich
+        # zuhause angekommen ist, hat _set_standby_active(False) den
+        # Overlay laengst korrekt versteckt.
+        if getattr(self, "_standby_active", False):
+            overlay = getattr(self, "standby_overlay", None)
+            if overlay is not None:
+                try:
+                    overlay.show()
+                except Exception:
+                    pass
 
     # strftime("%A") haengt vom System-Locale ab, das auf dem Pi nicht auf
     # Deutsch gesetzt ist - deshalb stand im Header bisher "Monday" statt
@@ -960,17 +1011,20 @@ class MainApp:
             segmented = getattr(self.tabview, "_segmented_button", None)
             if segmented is None:
                 return
-            # Feedback "Tabauswahl zu klein": Höhe (reiner Touch-Target-Zuwachs,
-            # kostet keine horizontale Breite) wieder auf 70/64px angehoben.
-            # Die Schriftgröße bleibt bewusst bei 15/14pt, NICHT wieder auf
-            # 17/16pt - das war (zusammen mit der Höhe) der eigentliche Grund
-            # für das früher gemeldete Ueberlaufen der Tab-Leiste bei 10-11
-            # Tabs (Energie/Licht/HomeA/Spotify/Raum/Kalender/Historie/Ertrag/
-            # Tagesprod./Status/Health): mehr Schriftbreite = mehr Breite pro
-            # Tab = Ueberlauf rechts. Reine Höhe verändert die Breite nicht.
+            # Feedback "Tabauswahl zu klein" (zuletzt: beim Betrachten per
+            # Fernzugriff auf einem iPhone nochmal "allgemein etwas
+            # groesser" gewuenscht): Hoehe (reiner Touch-Target-Zuwachs,
+            # kostet keine horizontale Breite) weiter angehoben, 70/76 ->
+            # 78/84px. Die Schriftgroesse bleibt bewusst bei 15/14pt, NICHT
+            # groesser - das war (zusammen mit der Hoehe) der eigentliche
+            # Grund fuer das frueher gemeldete Ueberlaufen der Tab-Leiste bei
+            # 10-11 Tabs (Energie/Licht/HomeA/Spotify/Raum/Kalender/Historie/
+            # Ertrag/Tagesprod./Status/Health): mehr Schriftbreite = mehr
+            # Breite pro Tab = Ueberlauf rechts. Reine Hoehe veraendert die
+            # Breite nicht.
             segmented.configure(
                 font=get_safe_font("Bahnschrift", 15 if getattr(self, "_portrait_screen", False) else 14, "bold"),
-                height=76 if getattr(self, "_portrait_screen", False) else 70,
+                height=84 if getattr(self, "_portrait_screen", False) else 78,
                 # 16 -> 18: etwas kräftigere Rundung passend zur größeren Höhe.
                 corner_radius=18,
                 border_width=1,

@@ -13,6 +13,46 @@ from ui.components.tab_shell import TabShell
 from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, emoji, get_safe_font
 
 
+def _prettify_label(raw: str) -> str:
+    """Manche Skripte/Automationen haben in HA keinen gepflegten
+    friendly_name und fallen auf die rohe entity_id zurueck (z.B.
+    'vorraum_bewegung_licht') - nur bei so einem Rohnamen (Unterstriche,
+    keine Leerzeichen) in eine lesbare Form bringen; echte, bereits
+    gepflegte Namen bleiben unveraendert."""
+    text = str(raw or "").strip()
+    if "_" in text and " " not in text:
+        words = [w for w in text.split("_") if w]
+        text = " ".join(w if w.isupper() else w.capitalize() for w in words)
+    return text or str(raw or "")
+
+
+# 37 flache Buttons in einer Liste waren kaum scanbar - Automationen/
+# Skripte stattdessen grob nach Themen gruppieren. Die Reihenfolge hier
+# ist Prioritaet bei der Zuordnung (spezifischere Themen zuerst), z.B.
+# damit "Heizung Schlafzimmer - AWAY" bei "Heizung" statt bei der
+# allgemeineren "Anwesenheit"-Gruppe landet.
+_GROUP_KEYWORDS = [
+    ("Tagesablauf", "🌅", ("aufwach", "wecker", "gute nacht", "duschen")),
+    ("Heizung", "🔥", ("heizung", "preheat")),
+    ("Licht", "💡", ("licht", "vorraum")),
+    ("Musik", "🎵", ("musik", "spotify", "lautstärke", "lautstaerke", "soundbar")),
+    ("Batterie", "🔋", ("batterie",)),
+    ("Anwesenheit", "🚶", ("away", "leaving", "coming", "override", "anwesenheit")),
+]
+_GROUP_FALLBACK = ("Sonstiges", "⚙️")
+# Anzeige-Reihenfolge der Gruppen im UI (unabhaengig von der obigen
+# Zuordnungs-Prioritaet) - alltagsrelevante Themen zuerst.
+_GROUP_DISPLAY_ORDER = ["Tagesablauf", "Anwesenheit", "Heizung", "Licht", "Musik", "Batterie", "Sonstiges"]
+
+
+def _categorize_action(label: str) -> tuple[str, str]:
+    text = label.lower()
+    for group, icon, keywords in _GROUP_KEYWORDS:
+        if any(kw in text for kw in keywords):
+            return group, icon
+    return _GROUP_FALLBACK
+
+
 class HomeAssistantActionsTab:
     """Home Assistant actions tab.
 
@@ -260,29 +300,53 @@ class HomeAssistantActionsTab:
             return
 
         cols = 2 if getattr(self, "_portrait_layout", False) else 3
-        grid = ctk.CTkFrame(self._actions_body, fg_color="transparent")
-        grid.pack(fill=tk.BOTH, expand=True)
-        self._actions_grid = grid
-        for c in range(cols):
-            grid.grid_columnconfigure(c, weight=1, uniform="ha_btn")
 
-        for idx, action in enumerate(self._actions):
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        group_icons: Dict[str, str] = {}
+        for action in self._actions:
             label = str(action.get("label") or "").strip() or "Aktion"
+            group, icon = _categorize_action(label)
+            groups.setdefault(group, []).append(action)
+            group_icons[group] = icon
 
-            r, c = divmod(idx, cols)
-            ctk.CTkButton(
-                grid,
-                text=label,
-                font=("Segoe UI", 11),
-                fg_color=COLOR_CARD,
-                text_color=COLOR_TEXT,
-                hover_color=COLOR_BORDER,
-                border_width=1,
-                border_color=COLOR_BORDER,
-                corner_radius=16,
-                height=52,
-                command=lambda a=action: self._trigger_action_async(a),
-            ).grid(row=r, column=c, sticky="ew", padx=8, pady=6)
+        order = [g for g in _GROUP_DISPLAY_ORDER if g in groups]
+        order += sorted(g for g in groups if g not in _GROUP_DISPLAY_ORDER)
+
+        self._action_group_grids = []
+        for gi, group in enumerate(order):
+            group_actions = groups[group]
+
+            header = ctk.CTkLabel(
+                self._actions_body,
+                text=f"{group_icons[group]}  {group}",
+                font=get_safe_font("Bahnschrift", 13, "bold"),
+                text_color=COLOR_SUBTEXT,
+            )
+            header.pack(anchor="w", pady=(18 if gi else 0, 6))
+
+            grid = ctk.CTkFrame(self._actions_body, fg_color="transparent")
+            grid.pack(fill=tk.BOTH, expand=True)
+            self._action_group_grids.append(grid)
+            for c in range(cols):
+                grid.grid_columnconfigure(c, weight=1, uniform="ha_btn")
+
+            for idx, action in enumerate(group_actions):
+                label = _prettify_label(str(action.get("label") or "").strip() or "Aktion")
+
+                r, c = divmod(idx, cols)
+                ctk.CTkButton(
+                    grid,
+                    text=label,
+                    font=("Segoe UI", 11),
+                    fg_color=COLOR_CARD,
+                    text_color=COLOR_TEXT,
+                    hover_color=COLOR_BORDER,
+                    border_width=1,
+                    border_color=COLOR_BORDER,
+                    corner_radius=16,
+                    height=52,
+                    command=lambda a=action: self._trigger_action_async(a),
+                ).grid(row=r, column=c, sticky="ew", padx=8, pady=6)
 
     def set_portrait_layout(self, portrait: bool) -> None:
         """Use a narrower two-column action grid in portrait mode."""
@@ -290,16 +354,17 @@ class HomeAssistantActionsTab:
             self._portrait_layout = portrait
             if hasattr(self, "_shell"):
                 self._shell.set_portrait_layout(portrait)
-            grid = getattr(self, "_actions_grid", None)
-            if grid is None:
+            grids = getattr(self, "_action_group_grids", None)
+            if not grids:
                 return
-            buttons = list(grid.winfo_children())
             columns = 2 if portrait else 3
-            for col in range(3):
-                grid.grid_columnconfigure(col, weight=1 if col < columns else 0)
-            for index, button in enumerate(buttons):
-                button.grid_configure(row=index // columns, column=index % columns)
-                button.configure(height=60 if portrait else 52, font=("Segoe UI", 14 if portrait else 13))
+            for grid in grids:
+                buttons = list(grid.winfo_children())
+                for col in range(3):
+                    grid.grid_columnconfigure(col, weight=1 if col < columns else 0)
+                for index, button in enumerate(buttons):
+                    button.grid_configure(row=index // columns, column=index % columns)
+                    button.configure(height=60 if portrait else 52, font=("Segoe UI", 14 if portrait else 13))
         except Exception:
             pass
 

@@ -21,8 +21,51 @@ from typing import Any, Dict, List, Optional
 import customtkinter as ctk
 
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
+from ui.components.card import Card
 from ui.components.tab_shell import TabShell
 from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, COLOR_WARNING, get_safe_font, emoji
+
+
+def _prettify_scene_name(raw: str) -> str:
+    """HA-Szenen ohne eigenen 'friendly_name' liefern nur den rohen
+    Objekt-Teil der entity_id (z.B. 'schlafzimmer_vor_blinken') - das wirkt
+    im UI wie ein Debug-Wert statt einem Szenennamen. Nur bei so einem
+    Rohnamen (Unterstriche, keine Leerzeichen) in eine lesbare Form bringen;
+    echte, bereits in HA gepflegte Namen (z.B. 'Alles hell', 'chill')
+    bleiben unveraendert."""
+    text = str(raw or "").strip()
+    if text.lower().startswith("scene."):
+        text = text.split(".", 1)[1]
+    if "_" in text and " " not in text:
+        words = [w for w in text.split("_") if w]
+        text = " ".join(w if w.isupper() else w.capitalize() for w in words)
+    return text or str(raw or "")
+
+
+# Szenen kommen dynamisch aus Home Assistant (keine feste, bekannte Liste),
+# daher hier nur eine grobe Zuordnung ueber Schluesselwoerter statt eigener
+# Icon-Assets pro Szene.
+_SCENE_ICONS = [
+    (frozenset({"aus"}), "🌑"),
+    (frozenset({"ein", "hell", "an"}), "💡"),
+    (frozenset({"nacht", "nachtlicht"}), "🌙"),
+    (frozenset({"chill", "relax"}), "🛋️"),
+    (frozenset({"pc", "arbeit", "office"}), "🖥️"),
+    (frozenset({"vorraum"}), "🚪"),
+    (frozenset({"schlafzimmer", "schlaf", "bett"}), "🛏️"),
+    (frozenset({"blinken", "blink"}), "✨"),
+]
+
+
+def _scene_icon(raw: str) -> str:
+    text = str(raw or "").strip()
+    if text.lower().startswith("scene."):
+        text = text.split(".", 1)[1]
+    tokens = set(text.lower().replace("-", "_").split("_")) | set(text.lower().split())
+    for keywords, icon in _SCENE_ICONS:
+        if tokens & keywords:
+            return icon
+    return "🎬"
 
 
 class _HomeAssistantBridgeAdapter:
@@ -494,9 +537,19 @@ class HueTab:
                 pass
         self._scene_buttons.clear()
 
+        # Szenen-Grid in eine Card mit Titel gepackt statt lose Buttons auf
+        # dem nackten Root-Hintergrund - gleicher "Glas"-Look wie die
+        # anderen Karten in diesem Tab (Dimmer/Vorraum) und im Energie-Tab.
+        card = Card(self._scroll_window, padding=16)
+        card.pack(fill="both", expand=True, padx=2, pady=2)
+        card.add_title("Szenen", icon="🎬")
+
+        grid = ctk.CTkFrame(card.content(), fg_color="transparent")
+        grid.pack(fill="both", expand=True, pady=(14, 0))
+
         if not self._scenes:
             lbl = ctk.CTkLabel(
-                self._scroll_window,
+                grid,
                 text="Keine Szenen gefunden.",
                 font=get_safe_font("Bahnschrift", 14, "bold"),
                 text_color=COLOR_SUBTEXT,
@@ -506,24 +559,26 @@ class HueTab:
 
         cols = 2 if getattr(self, "_portrait_layout", False) else 3
         for i in range(cols):
-            self._scroll_window.grid_columnconfigure(i, weight=1)
+            grid.grid_columnconfigure(i, weight=1)
 
         for idx, sc in enumerate(self._scenes):
-            name = sc.get("name") or sc.get("entity_id") or "(unbenannt)"
+            raw_name = sc.get("name") or sc.get("entity_id") or "(unbenannt)"
+            name = _prettify_scene_name(raw_name)
+            icon = _scene_icon(raw_name)
             ent = sc.get("entity_id") or ""
             r = idx // cols
             c = idx % cols
             b = ctk.CTkButton(
-                self._scroll_window,
-                text=name,
+                grid,
+                text=f"{icon}  {name}",
                 command=lambda e=ent: self._activate_scene_async(e),
-                fg_color=COLOR_CARD,
+                fg_color=COLOR_ROOT,
                 hover_color=COLOR_BORDER,
                 border_color=COLOR_BORDER,
                 border_width=1,
                 text_color=COLOR_TEXT,
                 corner_radius=16,
-                height=64,
+                height=68,
                 font=get_safe_font("Bahnschrift", 14, "bold"),
             )
             b.grid(row=r, column=c, sticky="ew", padx=6, pady=6)

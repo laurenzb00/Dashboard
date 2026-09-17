@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
 import numpy as np
@@ -267,9 +267,35 @@ class EnergyChart(MatplotlibCanvasResizeMixin):
             self.canvas.draw_idle()
             return
 
-        xs = [p.timestamp for p in points]
-        pv = np.array([p.pv_power for p in points], dtype=float)
-        cons = np.array([p.house_consumption for p in points], dtype=float)
+        xs_raw = [p.timestamp for p in points]
+        pv_raw = [p.pv_power for p in points]
+        cons_raw = [p.house_consumption for p in points]
+
+        # Datenluecken (z.B. Fronius-Ausfall ueber mehrere Tage) nicht
+        # ueberbruecken - sonst verbinden fill_between()/plot() den letzten
+        # Punkt vor der Luecke direkt mit dem ersten danach und erzeugen ein
+        # spitzes Dreieck quer durch den eigentlich leeren Bereich (so im
+        # 30-Tage-Ertrag-Chart sichtbar). Ab mehr als dem 3-fachen des in
+        # diesem Datensatz ueblichen Punktabstands (mind. aber 3h) gilt eine
+        # Luecke als "echt" - dort einen NaN-Punkt einfuegen, den
+        # matplotlib als Linien-/Flaechen-Unterbrechung behandelt.
+        xs, pv_list, cons_list = xs_raw[:1], pv_raw[:1], cons_raw[:1]
+        if len(xs_raw) > 1:
+            deltas = [(xs_raw[i + 1] - xs_raw[i]).total_seconds() for i in range(len(xs_raw) - 1)]
+            deltas_sorted = sorted(deltas)
+            typical = deltas_sorted[len(deltas_sorted) // 2]
+            gap_threshold = max(typical * 3, 3 * 3600)
+            for i in range(1, len(xs_raw)):
+                if (xs_raw[i] - xs_raw[i - 1]).total_seconds() > gap_threshold:
+                    xs.append(xs_raw[i - 1] + timedelta(seconds=1))
+                    pv_list.append(float("nan"))
+                    cons_list.append(float("nan"))
+                xs.append(xs_raw[i])
+                pv_list.append(pv_raw[i])
+                cons_list.append(cons_raw[i])
+
+        pv = np.array(pv_list, dtype=float)
+        cons = np.array(cons_list, dtype=float)
 
         self._timestamps = xs
         self._x_num = mdates.date2num(xs)

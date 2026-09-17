@@ -64,6 +64,11 @@ class CalendarTab:
         self._shell.pack(fill=tk.BOTH, expand=True)
         content = self._shell.body
         content.grid_columnconfigure(0, weight=1)
+        # content ist TabShell.body, dessen eigenes __init__ Zeile 0 auf weight=1 setzt
+        # (fuer das urspruengliche Single-Child-Layout) - hier zuruecksetzen, sonst
+        # konkurriert die Nav-Header-Zeile mit der Kalender-Zeile um zusaetzliche Hoehe
+        # und wird vertikal zentriert mit leerem Raum darueber/darunter (wie bei ertrag.py).
+        content.grid_rowconfigure(0, weight=0)
         content.grid_rowconfigure(1, weight=1)
 
         # Header mit Navigation - modernere Buttons

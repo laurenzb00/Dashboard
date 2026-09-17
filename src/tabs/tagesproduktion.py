@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import queue
+import threading
 import tkinter as tk
 from tkinter import ttk
 from datetime import date, datetime, timedelta
@@ -66,6 +68,13 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
         }
         self._period_buttons: dict[str, object] = {}
         self.after_job = None
+        # Zeitraum-Wechsel liess bisher die DB-Abfrage synchron im Tk-Main-
+        # Thread laufen ("Diagramme laden sehr langsam" - dabei friert die
+        # GESAMTE App kurz ein, nicht nur der Chart). Gleiches Muster wie
+        # tabs/hue.py: Worker-Thread + Queue-Pump statt direktem Tk-Zugriff
+        # aus dem Thread heraus.
+        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._loading_token = 0
 
         # Only add to notebook if not using provided tab_frame
         if tab_frame is None:
@@ -83,6 +92,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
         self._resize_job = None
         self._last_synced_wh = (0, 0)
         self._build_ui()
+        self._start_ui_pump()
         self.after(180, self._update_plot)
         # Belt-and-suspenders: the figure has been observed stuck at its
         # figsize=(10.0, 4.8) default (1000x480px) even though chart_frame
@@ -250,6 +260,38 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
         self._metric_tiles["peak"].set_value(_fmt(peak))
         self._metric_tiles["last"].set_value(_fmt(last_val))
 
+    def _start_ui_pump(self) -> None:
+        def pump() -> None:
+            try:
+                if not self.winfo_exists():
+                    return
+            except Exception:
+                return
+            try:
+                while True:
+                    cb = self._ui_queue.get_nowait()
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+            except queue.Empty:
+                pass
+            try:
+                self.after(200, pump)
+            except Exception:
+                pass
+
+        try:
+            self.after(0, pump)
+        except Exception:
+            pass
+
+    def _post_ui(self, callback) -> None:
+        try:
+            self._ui_queue.put(callback)
+        except Exception:
+            pass
+
     def _select_period(self, period: str) -> None:
         self._period_var.set(period)
         self._update_period_button_colors()
@@ -391,9 +433,33 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
 
     def _update_plot(self) -> None:
         window_days = int(self._period_map.get(self._period_var.get(), 30))
-        raw = self._load_daily_pv(window_days)
-        xs, ys = self._with_gaps_daily(raw, window_days)
+        # Token statt Bool-Flag: falls der Nutzer waehrend des Ladens noch
+        # einen anderen Zeitraum anklickt, verwirft die aeltere (dann
+        # veraltete) Worker-Antwort sich selbst anhand des Tokens, statt
+        # das neuere Ergebnis wieder zu ueberschreiben.
+        self._loading_token += 1
+        token = self._loading_token
 
+        def worker() -> None:
+            raw = self._load_daily_pv(window_days)
+            xs, ys = self._with_gaps_daily(raw, window_days)
+
+            def apply() -> None:
+                if token != self._loading_token:
+                    return
+                self._render_plot(window_days, raw, xs, ys)
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _render_plot(
+        self,
+        window_days: int,
+        raw: list[tuple[datetime, float]],
+        xs: list[datetime],
+        ys: np.ndarray,
+    ) -> None:
         # Keep the render buffer aligned with the widget size before clearing/plotting.
         try:
             self._clear_tk_canvas()

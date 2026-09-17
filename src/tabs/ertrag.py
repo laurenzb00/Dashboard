@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 from datetime import date
+import queue
+import threading
 import tkinter as tk
 from tkinter import ttk
 import customtkinter as ctk
@@ -40,6 +42,12 @@ class ErtragTab:
         self.notebook = notebook
         self.alive = True
         self._update_task_id = None  # Track scheduled update to prevent stacking
+        # Zeitraum-Wechsel lief bisher synchron im Tk-Main-Thread (DB-Query +
+        # kWh-Integration + Monats-Query) - die ganze App fror dabei kurz ein.
+        # Gleiches Worker-Thread+Queue-Muster wie tabs/hue.py.
+        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._update_token = 0
+        self._start_ui_pump()
 
         # Tab Frame - Use provided frame or create legacy one
         if tab_frame is not None:
@@ -380,6 +388,37 @@ class ErtragTab:
             series.append((ts, float(pv_kwh)))
         return series
 
+    def _start_ui_pump(self) -> None:
+        def pump() -> None:
+            if not self.alive:
+                return
+            try:
+                while True:
+                    cb = self._ui_queue.get_nowait()
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+            except queue.Empty:
+                pass
+            try:
+                self.root.after(200, pump)
+            except Exception:
+                pass
+
+        try:
+            self.root.after(0, pump)
+        except Exception:
+            pass
+
+    def _post_ui(self, callback) -> None:
+        try:
+            if not self.alive:
+                return
+            self._ui_queue.put(callback)
+        except Exception:
+            pass
+
     def _select_period(self, period: str) -> None:
         """Wechselt Zeitraum und aktualisiert Button-Farben."""
         self._period_var.set(period)
@@ -419,6 +458,14 @@ class ErtragTab:
             bucket_expr = (
                 f"datetime((CAST(strftime('%s', datetime(timestamp)) AS INTEGER) / {bucket_seconds}) * {bucket_seconds}, 'unixepoch')"
             )
+            # War "WHERE datetime(timestamp) >= datetime(?)" - das datetime()-
+            # Wrapping der indizierten timestamp-Spalte (siehe idx_fronius_ts
+            # in datastore.py) macht das Predicate nicht-sargable: SQLite
+            # kann den Index dafuer nicht nutzen und scannt bei jedem
+            # Zeitraum-Wechsel die komplette Tabelle. Andere Queries in
+            # datastore.py (z.B. get_recent_fronius) vergleichen denselben
+            # "%Y-%m-%d %H:%M:%S"-Cutoff bereits direkt/unwrapped gegen
+            # timestamp - hier genauso, um den Index nutzen zu koennen.
             sql = (
                 "SELECT "
                 + bucket_expr
@@ -427,7 +474,7 @@ class ErtragTab:
                 + "AVG(ABS(load_power)) AS load_avg, "
                 + "AVG(grid_power) AS grid_avg "
                 + "FROM fronius "
-                + "WHERE datetime(timestamp) >= datetime(?) "
+                + "WHERE timestamp >= ? "
                 + "GROUP BY bucket_ts "
                 + "ORDER BY bucket_ts ASC"
             )
@@ -505,16 +552,77 @@ class ErtragTab:
         else:
             bin_minutes = 360
 
-        data = self._load_energy_flow(window_days, bin_minutes=bin_minutes)
+        # War bisher alles synchron hier im Tk-Main-Thread (DB-Query in
+        # _load_energy_flow, kWh-Integration, Monats-Query) - dadurch fror
+        # bei jedem Zeitraum-Wechsel kurz die GESAMTE App ein, nicht nur der
+        # Chart. Jetzt: Query + reine Python-Berechnung im Worker-Thread,
+        # nur noch die Tk-/Matplotlib-Anwendung des Ergebnisses in apply().
+        self._update_token += 1
+        token = self._update_token
 
-        last = data[-1] if data else None
-        key = (
-            len(data),
-            (last.get("timestamp") if last else None),
-            (float(last.get("pv_power")) if last else None),
-            (float(last.get("house_consumption")) if last else None),
-        )
+        def worker() -> None:
+            data = self._load_energy_flow(window_days, bin_minutes=bin_minutes)
 
+            last = data[-1] if data else None
+            key = (
+                len(data),
+                (last.get("timestamp") if last else None),
+                (float(last.get("pv_power")) if last else None),
+                (float(last.get("house_consumption")) if last else None),
+            )
+
+            # Integrate kW to kWh over the visible window (trapezoid), for the footer stats.
+            pv_kwh = 0.0
+            load_kwh = 0.0
+            grid_import_kwh = 0.0
+            grid_export_kwh = 0.0
+            try:
+                if len(data) >= 2:
+                    max_gap_h = max(6.0, (float(bin_minutes) / 60.0) * 4.0)
+                    for a, b in zip(data, data[1:]):
+                        ta = a.get("timestamp")
+                        tb = b.get("timestamp")
+                        if not isinstance(ta, datetime) or not isinstance(tb, datetime):
+                            continue
+                        dt_h = (tb - ta).total_seconds() / 3600.0
+                        if dt_h <= 0 or dt_h > max_gap_h:
+                            continue
+                        pv_kwh += (float(a.get("pv_power", 0.0)) + float(b.get("pv_power", 0.0))) / 2.0 * dt_h
+                        load_kwh += (float(a.get("house_consumption", 0.0)) + float(b.get("house_consumption", 0.0))) / 2.0 * dt_h
+                        # Grid: positive = import, negative = export
+                        g_a = float(a.get("grid_power", 0.0))
+                        g_b = float(b.get("grid_power", 0.0))
+                        g_avg = (g_a + g_b) / 2.0
+                        if g_avg > 0:
+                            grid_import_kwh += g_avg * dt_h
+                        else:
+                            grid_export_kwh += abs(g_avg) * dt_h
+            except Exception:
+                pv_kwh = 0.0
+                load_kwh = 0.0
+                grid_import_kwh = 0.0
+                grid_export_kwh = 0.0
+
+            # Monatsvergleich (last 3 months)
+            try:
+                monthly = self.store.get_monthly_totals(months=3) if self.store else []
+            except Exception:
+                monthly = []
+
+            def apply() -> None:
+                if not self.alive or token != self._update_token:
+                    return
+                self._apply_update_result(
+                    data, key, bin_minutes, pv_kwh, load_kwh, grid_import_kwh, grid_export_kwh, monthly
+                )
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_update_result(
+        self, data, key, bin_minutes, pv_kwh, load_kwh, grid_import_kwh, grid_export_kwh, monthly
+    ) -> None:
         if key == self._last_key:
             # Data unchanged, but still re-sync the figure size every tick.
             # render() would normally do this, but it's skipped below when
@@ -528,38 +636,6 @@ class ErtragTab:
         self._last_key = key
 
         self.energy_chart.render(data)
-
-        # Integrate kW to kWh over the visible window (trapezoid), for the footer stats.
-        pv_kwh = 0.0
-        load_kwh = 0.0
-        grid_import_kwh = 0.0
-        grid_export_kwh = 0.0
-        try:
-            if len(data) >= 2:
-                max_gap_h = max(6.0, (float(bin_minutes) / 60.0) * 4.0)
-                for a, b in zip(data, data[1:]):
-                    ta = a.get("timestamp")
-                    tb = b.get("timestamp")
-                    if not isinstance(ta, datetime) or not isinstance(tb, datetime):
-                        continue
-                    dt_h = (tb - ta).total_seconds() / 3600.0
-                    if dt_h <= 0 or dt_h > max_gap_h:
-                        continue
-                    pv_kwh += (float(a.get("pv_power", 0.0)) + float(b.get("pv_power", 0.0))) / 2.0 * dt_h
-                    load_kwh += (float(a.get("house_consumption", 0.0)) + float(b.get("house_consumption", 0.0))) / 2.0 * dt_h
-                    # Grid: positive = import, negative = export
-                    g_a = float(a.get("grid_power", 0.0))
-                    g_b = float(b.get("grid_power", 0.0))
-                    g_avg = (g_a + g_b) / 2.0
-                    if g_avg > 0:
-                        grid_import_kwh += g_avg * dt_h
-                    else:
-                        grid_export_kwh += abs(g_avg) * dt_h
-        except Exception:
-            pv_kwh = 0.0
-            load_kwh = 0.0
-            grid_import_kwh = 0.0
-            grid_export_kwh = 0.0
 
         diff_kwh = pv_kwh - load_kwh
         label = self._period_var.get()
@@ -590,19 +666,14 @@ class ErtragTab:
             self.var_ersparnis.set("Ersparnis: -- €")
             self._set_tile("ersparnis", "-- €")
 
-        # Monatsvergleich (last 3 months)
-        try:
-            monthly = self.store.get_monthly_totals(months=3) if self.store else []
-            if monthly:
-                parts = []
-                for m in monthly[-3:]:
-                    month_str = m.get("month", "")[:7]  # YYYY-MM
-                    kwh = float(m.get("pv_kwh", 0.0))
-                    parts.append(f"{month_str}: {kwh:.0f} kWh")
-                self.var_monthly.set(" | ".join(parts))
-            else:
-                self.var_monthly.set("")
-        except Exception:
+        if monthly:
+            parts = []
+            for m in monthly[-3:]:
+                month_str = m.get("month", "")[:7]  # YYYY-MM
+                kwh = float(m.get("pv_kwh", 0.0))
+                parts.append(f"{month_str}: {kwh:.0f} kWh")
+            self.var_monthly.set(" | ".join(parts))
+        else:
             self.var_monthly.set("")
 
         self._update_task_id = self.root.after(60 * 1000, self._update_plot)

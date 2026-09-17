@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import queue
+import threading
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
@@ -68,6 +70,12 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
         # Compatibility hooks used elsewhere in app.py
         self._last_key = None
         self._latest_data = None
+        # Zeitraum-Wechsel lud bisher synchron im Tk-Main-Thread ALLE
+        # Rohdatenpunkte (bei 90d/180d/365d besonders spuerbar, siehe
+        # _update_plot) und fror dabei die ganze App ein. Gleiches Worker-
+        # Thread+Queue-Muster wie tabs/hue.py.
+        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._update_token = 0
 
         # Only add to notebook if not using provided tab_frame
         if tab_frame is None:
@@ -85,6 +93,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
         self._resize_job = None
         self._last_synced_wh = (0, 0)
         self._build_ui()
+        self._start_ui_pump()
         self.after(180, self._update_plot)
         # Belt-and-suspenders: the figure has been observed stuck at its
         # figsize=(10.0, 4.8) default (1000x480px) even though chart_frame
@@ -270,6 +279,38 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
         except Exception:
             return None
 
+    def _start_ui_pump(self) -> None:
+        def pump() -> None:
+            try:
+                if not self.winfo_exists():
+                    return
+            except Exception:
+                return
+            try:
+                while True:
+                    cb = self._ui_queue.get_nowait()
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+            except queue.Empty:
+                pass
+            try:
+                self.after(200, pump)
+            except Exception:
+                pass
+
+        try:
+            self.after(0, pump)
+        except Exception:
+            pass
+
+    def _post_ui(self, callback) -> None:
+        try:
+            self._ui_queue.put(callback)
+        except Exception:
+            pass
+
     def _select_period(self, period: str) -> None:
         """Wechselt Zeitraum und aktualisiert Button-Farben."""
         self._period_var.set(period)
@@ -423,64 +464,118 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
     def _update_plot(self) -> None:
         hours = self._period_map.get(self._period_var.get(), 24)
         period_label = self._period_var.get() or f"{hours}h"
-        now = datetime.now()
-        cutoff = now - timedelta(hours=hours)
 
-        try:
-            rows = self.datastore.get_recent_heating(hours=hours, limit=None) if self.datastore else []
-            using_archive = False
-            if not rows and self.datastore:
-                rows = self.datastore.get_recent_heating(hours=None, limit=None)
-                using_archive = bool(rows)
-        except Exception:
-            rows = []
-            using_archive = False
+        # War bisher komplett synchron im Tk-Main-Thread: DB-Query OHNE Limit/
+        # SQL-Aggregation + Plausibilitaets-Filterung ueber ALLE Rohpunkte,
+        # bevor der Grossteil beim Downsampling unten wieder verworfen wird -
+        # bei 90d/180d/365d der spuerbarste Bremsklotz der drei Chart-Tabs
+        # ("Diagramme laden sehr langsam"), und die ganze App fror dabei mit
+        # ein. Jetzt: Laden + reine Python-Aufbereitung im Worker-Thread, nur
+        # noch die Matplotlib-/Tk-Anwendung des fertigen Ergebnisses in
+        # _render_plot() auf dem Main-Thread.
+        self._update_token += 1
+        token = self._update_token
 
-        if using_archive and rows:
-            archive_now = self._parse_ts(rows[-1].get("timestamp")) or now
-            now = archive_now
+        def worker() -> None:
+            now = datetime.now()
             cutoff = now - timedelta(hours=hours)
 
-        times: list[datetime] = []
-        series = {
-            "top": [],
-            "mid": [],
-            "bot": [],
-            "kessel": [],
-            "warm": [],
-            "outdoor": [],
-        }
+            try:
+                rows = self.datastore.get_recent_heating(hours=hours, limit=None) if self.datastore else []
+                using_archive = False
+                if not rows and self.datastore:
+                    rows = self.datastore.get_recent_heating(hours=None, limit=None)
+                    using_archive = bool(rows)
+            except Exception:
+                rows = []
+                using_archive = False
 
-        for row in rows:
-            ts = self._parse_ts((row or {}).get("timestamp"))
-            if ts is None:
-                continue
-            if ts < cutoff or ts > now + timedelta(seconds=60):
-                continue
-            times.append(ts)
+            if using_archive and rows:
+                archive_now = self._parse_ts(rows[-1].get("timestamp")) or now
+                now = archive_now
+                cutoff = now - timedelta(hours=hours)
 
-            for key in series.keys():
-                val = self._as_float((row or {}).get(key))
-                if val is None:
-                    series[key].append(np.nan)
+            times: list[datetime] = []
+            series = {
+                "top": [],
+                "mid": [],
+                "bot": [],
+                "kessel": [],
+                "warm": [],
+                "outdoor": [],
+            }
+
+            for row in rows:
+                ts = self._parse_ts((row or {}).get("timestamp"))
+                if ts is None:
                     continue
+                if ts < cutoff or ts > now + timedelta(seconds=60):
+                    continue
+                times.append(ts)
 
-                # Plausibility filtering; keep outdoor wider and allow 0°C.
-                if key == "outdoor":
-                    if not (-40.0 <= val <= 60.0):
+                for key in series.keys():
+                    val = self._as_float((row or {}).get(key))
+                    if val is None:
+                        series[key].append(np.nan)
+                        continue
+
+                    # Plausibility filtering; keep outdoor wider and allow 0°C.
+                    if key == "outdoor":
+                        if not (-40.0 <= val <= 60.0):
+                            series[key].append(np.nan)
+                        else:
+                            series[key].append(val)
+                        continue
+
+                    # Heating temps: treat 0.0 as missing (common placeholder), and clamp plausible range.
+                    if val == 0.0:
+                        series[key].append(np.nan)
+                    elif not (-40.0 <= val <= 120.0):
                         series[key].append(np.nan)
                     else:
                         series[key].append(val)
-                    continue
 
-                # Heating temps: treat 0.0 as missing (common placeholder), and clamp plausible range.
-                if val == 0.0:
-                    series[key].append(np.nan)
-                elif not (-40.0 <= val <= 120.0):
-                    series[key].append(np.nan)
-                else:
-                    series[key].append(val)
+            times_sorted: list[datetime] = []
+            ordered_series: dict[str, np.ndarray] = {}
+            if times:
+                order = np.argsort(np.array(times, dtype="datetime64[ns]"))
+                times_sorted = [times[i] for i in order]
 
+                def _ordered(arr):
+                    a = np.array(arr, dtype=float)
+                    return a[order]
+
+                ordered_series = {key: _ordered(series[key]) for key in series.keys()}
+
+                # Downsample for long ranges to reduce noise and improve readability.
+                bin_hours = 0
+                if hours >= 720:
+                    bin_hours = 24
+                elif hours >= 168:
+                    bin_hours = 3
+
+                if bin_hours:
+                    times_sorted, ordered_series = self._downsample_timeseries(times_sorted, ordered_series, bin_hours)
+
+            def apply() -> None:
+                if token != self._update_token:
+                    return
+                self._render_plot(hours, period_label, now, cutoff, using_archive, times_sorted, ordered_series)
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _render_plot(
+        self,
+        hours: int,
+        period_label: str,
+        now: datetime,
+        cutoff: datetime,
+        using_archive: bool,
+        times_sorted: list[datetime],
+        ordered_series: dict[str, np.ndarray],
+    ) -> None:
         # Defensive: rebuild axes to avoid accidental overlay of multiple axes
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
@@ -517,7 +612,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
         except Exception:
             pass
 
-        if not times:
+        if not times_sorted:
             self.ax.text(
                 0.5,
                 0.5,
@@ -546,26 +641,8 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, tk.Frame):
             self._schedule_update()
             return
 
-        # Sort by time (DB text order may be inconsistent)
-        order = np.argsort(np.array(times, dtype="datetime64[ns]"))
-        times_sorted = [times[i] for i in order]
-
-        def _ordered(arr):
-            a = np.array(arr, dtype=float)
-            return a[order]
-
-        ordered_series = {key: _ordered(series[key]) for key in series.keys()}
-
-        # Downsample for long ranges to reduce noise and improve readability.
-        bin_hours = 0
-        if hours >= 720:
-            bin_hours = 24
-        elif hours >= 168:
-            bin_hours = 3
-
-        if bin_hours:
-            times_sorted, ordered_series = self._downsample_timeseries(times_sorted, ordered_series, bin_hours)
-
+        # Sortierung + Downsampling passieren bereits im Worker-Thread (siehe
+        # _update_plot) - times_sorted/ordered_series kommen hier fertig an.
         self._update_metric_tiles(ordered_series)
 
         plot_defs = [

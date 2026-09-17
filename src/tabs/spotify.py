@@ -17,6 +17,8 @@ from ui.styles import (
     COLOR_SUBTEXT,
     COLOR_TITLE,
     COLOR_SUCCESS,
+    COLOR_PRIMARY,
+    COLOR_DANGER,
     emoji,
     get_safe_font,
 )
@@ -80,11 +82,16 @@ class SpotifyTab:
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
         ).pack(anchor=W, pady=(2, 6))
-        ttk.Button(
+        ctk.CTkButton(
             header,
-            text="Geräte aktualisieren",
+            text="↻ Geräte aktualisieren",
             command=self._refresh_devices,
-            bootstyle="secondary-outline",
+            fg_color=COLOR_ROOT,
+            hover_color=COLOR_BORDER,
+            text_color=COLOR_TEXT,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=14,
         ).pack(anchor=W)
 
         body = tk.Frame(self.devices_frame, bg=COLOR_ROOT)
@@ -406,40 +413,59 @@ class SpotifyTab:
         # bg=COLOR_CARD statt COLOR_ROOT: dieser Frame sitzt jetzt innerhalb
         # der Card (Hintergrund COLOR_CARD statt COLOR_ROOT) - mit dem alten
         # Wert waere hier ein sichtbar falsch gefaerbtes Rechteck entstanden.
+        # Waren ttk.Button/ttk.Scale - fielen als helle/eckige Standard-Widgets
+        # aus dem dunklen CTk-Theme des restlichen Tabs heraus. Slider-Stil
+        # (fg_color/progress_color/button_color) an den Dimmer im Licht-Tab
+        # angelehnt (siehe tabs/hue.py).
         volume_controls = tk.Frame(volume_box, bg=COLOR_CARD)
         volume_controls.pack(fill=tk.X, pady=4)
-        ttk.Button(volume_controls, text="-", width=4, command=lambda: self._adjust_volume(-10), bootstyle="secondary").pack(side=LEFT, padx=3)
-        self.volume_scale = ttk.Scale(volume_controls, from_=0, to=100, orient=tk.HORIZONTAL,
-                                      command=self._on_volume_change, length=200)
-        self.volume_scale.pack(side=LEFT, expand=True, fill=tk.X)
-        ttk.Button(volume_controls, text="+", width=4, command=lambda: self._adjust_volume(10), bootstyle="secondary").pack(side=LEFT, padx=3)
+        ctk.CTkButton(
+            volume_controls, text="-", width=36, height=32, corner_radius=12,
+            fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_TEXT,
+            command=lambda: self._adjust_volume(-10),
+        ).pack(side=LEFT, padx=3)
+        self._volume_ctk_var = tk.DoubleVar(value=50)
+        self.volume_scale = ctk.CTkSlider(
+            volume_controls, from_=0, to=100, number_of_steps=100,
+            variable=self._volume_ctk_var, command=self._on_volume_change,
+            fg_color=COLOR_BORDER, progress_color=COLOR_PRIMARY,
+            button_color=COLOR_TEXT, button_hover_color=COLOR_TEXT,
+        )
+        self.volume_scale.pack(side=LEFT, expand=True, fill=tk.X, padx=6)
+        ctk.CTkButton(
+            volume_controls, text="+", width=36, height=32, corner_radius=12,
+            fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_TEXT,
+            command=lambda: self._adjust_volume(10),
+        ).pack(side=LEFT, padx=3)
 
         quick_card = Card(right, padding=12)
         quick_card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         quick_card.add_title("Schnellaktionen", icon="⚡")
         quick_box = quick_card.content()
         self.shuffle_var = tk.BooleanVar(value=False)
-        toggle_style = self.safe_toggle_style("round-toggle")
-        try:
-            if toggle_style:
-                ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
-                                command=self._set_shuffle, bootstyle=toggle_style).pack(side=LEFT, padx=8)
-            else:
-                ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
-                                command=self._set_shuffle).pack(side=LEFT, padx=8)
-        except Exception:
-            ttk.Checkbutton(quick_box, text="Shuffle", variable=self.shuffle_var,
-                            command=self._set_shuffle).pack(side=LEFT, padx=8)
+        ctk.CTkCheckBox(
+            quick_box, text="Shuffle", variable=self.shuffle_var, command=self._set_shuffle,
+            fg_color=COLOR_PRIMARY, hover_color=COLOR_PRIMARY, border_color=COLOR_BORDER,
+            checkmark_color=COLOR_TEXT, text_color=COLOR_TEXT,
+        ).pack(side=LEFT, padx=8)
         self.repeat_mode = tk.StringVar(value="off")
-        self.repeat_button = ttk.Button(
+        self.repeat_button = ctk.CTkButton(
             quick_box,
             text="Repeat: off",
             command=self._cycle_repeat,
-            bootstyle="outline-secondary",
+            fg_color=COLOR_ROOT,
+            hover_color=COLOR_BORDER,
+            text_color=COLOR_TEXT,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            corner_radius=14,
         )
         self.repeat_button.pack(side=LEFT, padx=8)
-        self.like_button = ttk.Button(quick_box, text="❤ Like", command=self._toggle_like,
-                                      bootstyle="outline-success")
+        self.like_button = ctk.CTkButton(
+            quick_box, text="❤ Like", command=self._toggle_like,
+            fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_SUCCESS,
+            border_width=1, border_color=COLOR_SUCCESS, corner_radius=14,
+        )
         self.like_button.pack(side=LEFT, padx=8)
 
         # Progress bar and controls now below quick actions
@@ -738,9 +764,13 @@ class SpotifyTab:
 
     def _sync_like_button(self) -> None:
         if self._liked_track:
-            self.like_button.configure(text="❤ Gespeichert", bootstyle="success")
+            self.like_button.configure(
+                text="❤ Gespeichert", fg_color=COLOR_SUCCESS, text_color=COLOR_ROOT, border_color=COLOR_SUCCESS
+            )
         else:
-            self.like_button.configure(text="❤ Like", bootstyle="outline-success")
+            self.like_button.configure(
+                text="❤ Like", fg_color=COLOR_ROOT, text_color=COLOR_SUCCESS, border_color=COLOR_SUCCESS
+            )
 
     # ------------------------------------------------------------------
     # Controls
@@ -840,24 +870,64 @@ class SpotifyTab:
         wrapper = tk.Frame(self._shell.body, bg=COLOR_ROOT)
         wrapper.pack(fill=BOTH, expand=True)
 
-        self.content_notebook = ttk.Notebook(wrapper, bootstyle="dark")
+        # War ein ttk.Notebook (bootstyle="dark") - die einzige Stelle in
+        # der App, an der die Sub-Tab-Leiste eines Tabs noch die alten
+        # eckigen ttk-Reiter statt des App-weiten CTkTabview-Looks nutzte
+        # (siehe app.py MainApp._style_tabview_buttons fuer die oberste
+        # Tab-Leiste, an die sich das hier bewusst anlehnt).
+        self.content_notebook = ctk.CTkTabview(
+            wrapper,
+            fg_color=COLOR_ROOT,
+            border_color=COLOR_ROOT,
+            segmented_button_fg_color=COLOR_ROOT,
+            segmented_button_selected_color=COLOR_PRIMARY,
+            segmented_button_selected_hover_color=COLOR_PRIMARY,
+            segmented_button_unselected_color=COLOR_CARD,
+            segmented_button_unselected_hover_color=COLOR_BORDER,
+            text_color=COLOR_TEXT,
+            text_color_disabled=COLOR_SUBTEXT,
+            command=self._on_subtab_changed,
+        )
         self.content_notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
 
-        self.now_playing_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
-        self.library_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
-        self.devices_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
-        self.status_frame = tk.Frame(self.content_notebook, bg=COLOR_ROOT)
         # Add tabs in desired order: Status last
-        self.content_notebook.add(self.now_playing_frame, text="Now Playing")
-        self.content_notebook.add(self.library_frame, text="Playlists")
-        self.content_notebook.add(self.devices_frame, text="Geräte")
-        self.content_notebook.add(self.status_frame, text="Status")
+        self.content_notebook.add("Now Playing")
+        self.content_notebook.add("Playlists")
+        self.content_notebook.add("Geräte")
+        self.content_notebook.add("Status")
+
+        self.now_playing_frame = self.content_notebook.tab("Now Playing")
+        self.library_frame = self.content_notebook.tab("Playlists")
+        self.devices_frame = self.content_notebook.tab("Geräte")
+        self.status_frame = self.content_notebook.tab("Status")
+
+        try:
+            segmented = getattr(self.content_notebook, "_segmented_button", None)
+            if segmented is not None:
+                segmented.configure(
+                    font=get_safe_font("Bahnschrift", 13, "bold"),
+                    height=44,
+                    corner_radius=14,
+                    border_width=1,
+                    border_color=COLOR_BORDER,
+                )
+        except Exception:
+            pass
 
         self._build_status_tab()
         self._build_now_playing_tab()
         self._build_library_tab()
         self._build_devices_tab()
-        self._bind_tab_refresh()
+
+    def _on_subtab_changed(self) -> None:
+        """Ersetzt die alte ttk.Notebook <<NotebookTabChanged>>-Bindung
+        (_bind_tab_refresh) - CTkTabview feuert dieses Event nicht, bietet
+        aber den gleichwertigen command=-Callback."""
+        try:
+            if self.content_notebook.get() == "Playlists":
+                self._refresh_playlists()
+        except Exception:
+            pass
 
     def _build_status_tab(self) -> None:
         frame = self.status_frame
@@ -879,12 +949,21 @@ class SpotifyTab:
         ).pack(anchor=W, pady=(2, 0))
         control_frame = tk.Frame(frame, bg=COLOR_ROOT)
         control_frame.pack(fill=tk.X, pady=(10, 10), padx=12)
-        ttk.Button(control_frame, text="Browser-Login öffnen", command=self._open_browser_login,
-                   bootstyle="success-outline").pack(side=LEFT, padx=4)
-        ttk.Button(control_frame, text="Status aktualisieren", command=self._refresh_status,
-                   bootstyle="secondary-outline").pack(side=LEFT, padx=4)
-        ttk.Button(control_frame, text="Logout", command=self._logout,
-                   bootstyle="danger-outline").pack(side=LEFT, padx=4)
+        ctk.CTkButton(
+            control_frame, text="Browser-Login öffnen", command=self._open_browser_login,
+            fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_SUCCESS,
+            border_width=1, border_color=COLOR_SUCCESS, corner_radius=14,
+        ).pack(side=LEFT, padx=4)
+        ctk.CTkButton(
+            control_frame, text="Status aktualisieren", command=self._refresh_status,
+            fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_TEXT,
+            border_width=1, border_color=COLOR_BORDER, corner_radius=14,
+        ).pack(side=LEFT, padx=4)
+        ctk.CTkButton(
+            control_frame, text="Logout", command=self._logout,
+            fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_DANGER,
+            border_width=1, border_color=COLOR_DANGER, corner_radius=14,
+        ).pack(side=LEFT, padx=4)
 
         # Login link UI and browser logic removed for local-only use
         tk.Label(frame, textvariable=self.redirect_var, font=get_safe_font("Bahnschrift", 9), bg=COLOR_ROOT, fg=COLOR_SUBTEXT).pack(anchor=W, padx=12)
@@ -921,16 +1000,22 @@ class SpotifyTab:
 
         active_id = next((dev.get("id") for dev in devices if dev.get("is_active")), None)
         for idx, dev in enumerate(devices):
-            bootstyle = "primary" if dev.get("id") == active_id else "secondary"
+            is_active = dev.get("id") == active_id
             text = f"{dev.get('name', 'Gerät')}\n{dev.get('type', '')}"
             row = idx // col_count
             col = idx % col_count
-            ttk.Button(
+            ctk.CTkButton(
                 self.device_container,
                 text=text,
-                width=22,
+                height=56,
                 command=lambda d=dev: self._activate_device(d),
-                bootstyle=bootstyle,
+                fg_color=COLOR_PRIMARY if is_active else COLOR_CARD,
+                hover_color=COLOR_PRIMARY if is_active else COLOR_BORDER,
+                text_color=COLOR_TEXT,
+                border_width=1,
+                border_color=COLOR_PRIMARY if is_active else COLOR_BORDER,
+                corner_radius=14,
+                font=get_safe_font("Bahnschrift", 12, "bold"),
             ).grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
 
     def _activate_device(self, device: dict):
