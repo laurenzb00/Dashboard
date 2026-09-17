@@ -40,9 +40,10 @@ except ImportError:
 
 
 POLL_INTERVAL_MS = 5000
-# War (260, 260) - deutlich kleiner als die linke Haelfte des Now-Playing-Cards,
-# wirkte dadurch verloren mit viel leerem Rand drumherum.
-COVER_SIZE = (380, 380)
+# War (260, 260), dann (380, 380) - auf Wunsch nochmal groesser. Die linke
+# Haelfte des Now-Playing-Cards hat bei typischer Fensterbreite genug Platz
+# fuer ~480px, ohne in die rechte Spalte (Titel/Buttons) zu ragen.
+COVER_SIZE = (480, 480)
 PLAYLIST_IMAGE_SIZE = (96, 96)
 
 

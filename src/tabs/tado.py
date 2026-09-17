@@ -1,5 +1,6 @@
 import threading
 import os
+import socket
 import time
 import logging
 import importlib
@@ -247,6 +248,21 @@ class TadoTab:
         )
         self._open_url_btn.pack(side=tk.RIGHT, padx=(10, 0))
         self._open_url_btn.configure(state="disabled")
+        # Manueller Reset-Weg fuer eine moeglicherweise beschaedigte/alte
+        # Token-Datei, die den Geraete-Code-Flow blockiert - ohne Konsolen-/
+        # SSH-Zugriff auf den Pi war das bisher nur per Hand im Dateisystem
+        # loesbar. Wirkt erst nach einem manuellen Neustart (siehe
+        # _reset_tado_token).
+        self._reset_token_btn = ctk.CTkButton(
+            hint,
+            text="Token zurücksetzen",
+            width=170,
+            height=48,
+            fg_color=COLOR_DANGER,
+            hover_color="#B91C1C",
+            command=self._reset_tado_token,
+        )
+        self._reset_token_btn.pack(side=tk.RIGHT, padx=(10, 0))
 
         content = ctk.CTkFrame(container, fg_color="transparent")
         content.pack(fill=tk.BOTH, expand=True)
@@ -419,6 +435,47 @@ class TadoTab:
             self.root.after(0, lambda: fn(*args, **kwargs))
         except Exception:
             pass
+
+    def _check_tado_reachable(self) -> str:
+        """Simpler TCP-Connect-Test auf den Tado-OAuth-Host (siehe Aufrufstelle).
+
+        Kein HTTP-Request, keine neue Abhaengigkeit noetig - reicht als grober
+        Netzwerk-Check (DNS-Aufloesung + TCP-Handshake auf Port 443).
+        """
+        try:
+            socket.create_connection(("login.tado.com", 443), timeout=4).close()
+            return "erreichbar"
+        except Exception as e:
+            return f"NICHT erreichbar ({type(e).__name__}: {e})"
+
+    def _reset_tado_token(self) -> None:
+        """Loescht die lokal gecachte Tado-Token-Datei.
+
+        Reiner Datei-Delete, keine Aenderung an der eigentlichen Login-Logik.
+        Sinnvoll als Diagnose-/Reparaturschritt, falls eine alte/beschaedigte
+        Token-Datei aus einem frueheren (fehlgeschlagenen) Login-Versuch den
+        Geraete-Code-Flow dauerhaft blockiert. Der bereits laufende Login-
+        Hintergrund-Thread haelt sein Tado(...)-Objekt weiter im Speicher -
+        wirkt also erst nach einem manuellen Neustart des Dashboards, daher
+        hier bewusst kein Versuch, den laufenden Thread zu unterbrechen.
+        """
+        try:
+            if os.path.exists(TADO_TOKEN_FILE):
+                os.remove(TADO_TOKEN_FILE)
+                logging.info("[TADO] Token-Datei gelöscht: %s", TADO_TOKEN_FILE)
+                self._ui_set(
+                    self.var_hint,
+                    "Token-Datei gelöscht. Bitte Dashboard neu starten, damit die Aktivierung neu beginnt.",
+                )
+            else:
+                logging.info("[TADO] Keine Token-Datei zum Löschen gefunden: %s", TADO_TOKEN_FILE)
+                self._ui_set(
+                    self.var_hint,
+                    "Keine Token-Datei gefunden (schon leer). Bitte Dashboard trotzdem neu starten.",
+                )
+        except Exception as e:
+            logging.error("[TADO] Token-Reset fehlgeschlagen: %s", e)
+            self._ui_set(self.var_hint, f"Token-Reset fehlgeschlagen: {e}")
 
     def _open_device_url(self) -> None:
         url = self._device_url
@@ -914,8 +971,20 @@ class TadoTab:
                                     device_url=url,
                                 )
                             else:
+                                # Status bleibt hier oft dauerhaft NOT_STARTED, ohne dass
+                                # Tado(...) oder device_activation_status() eine Exception
+                                # werfen - kann u.a. daran liegen, dass der eigentliche
+                                # Registrierungs-Request von PyTado
+                                # (POST https://login.tado.com/oauth2/device_authorize,
+                                # lt. PyTado-Quelltext) den Pi wegen eines Netzwerk-/DNS-/
+                                # Firewall-Problems gar nicht erst erreicht. Ohne Konsolen-
+                                # /SSH-Zugriff auf den Pi war das bisher nicht von einem
+                                # "wartet einfach noch" zu unterscheiden - ein einfacher
+                                # TCP-Connect-Test auf denselben Host macht das sichtbar.
+                                reachability = self._check_tado_reachable()
                                 self._set_hint(
-                                    f"Warte auf Aktivierungs-Link von Tado ... (Status: {status})",
+                                    f"Warte auf Aktivierungs-Link von Tado ... (Status: {status}, "
+                                    f"login.tado.com: {reachability})",
                                     device_url=None,
                                 )
                             self._ui_set(self.var_temp_ist, "N/A")

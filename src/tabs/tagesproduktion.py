@@ -419,6 +419,31 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
             ys.append(by_day.get(d, float("nan")))
         return xs, np.array(ys, dtype=float)
 
+    @staticmethod
+    def _rolling_mean_nan(ys: np.ndarray, window: int) -> np.ndarray:
+        """Zentrierter gleitender Mittelwert, der Luecken (NaN-Tage) ignoriert.
+
+        Bei 180 Tagen/1 Jahr sind die reinen Tageswerte (sonnig vs. bewoelkt
+        schwankt leicht um den Faktor 5-10) ein dichtes Zickzack, in dem der
+        eigentlich interessante saisonale Trend kaum zu erkennen ist (mit
+        synthetischen Testdaten nachgebildet und verglichen, bevor das hier
+        umgesetzt wurde). Ein gleitender Mittelwert ueber ein paar Tage
+        glaettet das Wetter-Rauschen weg, ohne wie beim Ertrag-Chart die
+        Tagesaufloesung in der Datenbank-Abfrage selbst zu verlieren - die
+        Tageswerte bleiben im Hintergrund weiterhin sichtbar.
+        """
+        n = len(ys)
+        out = np.full(n, np.nan)
+        half = max(1, int(window)) // 2
+        for i in range(n):
+            lo = max(0, i - half)
+            hi = min(n, i + half + 1)
+            seg = ys[lo:hi]
+            valid = seg[np.isfinite(seg)]
+            if valid.size > 0:
+                out[i] = float(valid.mean())
+        return out
+
     def _style_axes(self) -> None:
         self.ax.set_facecolor(COLOR_ROOT)
         self.ax.spines["top"].set_visible(False)
@@ -490,18 +515,50 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
             self._schedule_update()
             return
 
+        # Ab 180 Tagen zusaetzlich einen gleitenden Mittelwert einblenden -
+        # sonst verschwindet der saisonale Trend im Tag-zu-Tag-Wetterrauschen
+        # (siehe _rolling_mean_nan). 7 Tage bei "180 Tage", 14 Tage bei
+        # "1 Jahr" (etwas staerkere Glaettung, da mehr Tage/Rauschen).
+        avg_window = 0
+        if window_days > 180:
+            avg_window = 14
+        elif window_days > 30:
+            avg_window = 7
+
         # Plot: daily line with markers so individual days are easy to see.
+        # Wenn ein gleitender Mittelwert dazukommt, treten die Rohwerte als
+        # duennere/blassere Linie in den Hintergrund - der Mittelwert ist
+        # dann die eigentlich lesbare Kurve.
         self.ax.plot(
             xs,
             ys,
             color=COLOR_WARNING,
-            linewidth=2.0,
-            alpha=0.9,
+            linewidth=0.8 if avg_window else 2.0,
+            alpha=0.35 if avg_window else 0.9,
             marker="o",
-            markersize=3.5,
+            markersize=1.8 if avg_window else 3.5,
             markerfacecolor=COLOR_WARNING,
             markeredgewidth=0.0,
+            label="Tageswerte" if avg_window else None,
         )
+        if avg_window:
+            avg_ys = self._rolling_mean_nan(ys, avg_window)
+            self.ax.plot(
+                xs,
+                avg_ys,
+                color=COLOR_PRIMARY,
+                linewidth=2.2,
+                alpha=0.95,
+                label=f"{avg_window}-Tage-Mittel",
+            )
+            self.ax.legend(
+                loc="upper right",
+                fontsize=8,
+                facecolor=COLOR_CARD,
+                edgecolor=COLOR_BORDER,
+                labelcolor=COLOR_TEXT,
+                framealpha=0.85,
+            )
 
         # Make day boundaries visible for short windows.
         if window_days <= 30:
