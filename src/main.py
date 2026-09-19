@@ -309,9 +309,14 @@ def main():
         logging.warning("[DB] Initial import skipped: %s", exc)
 
     try:
-        datastore.cleanup_old_records(retention_days=365)
+        # War cleanup_old_records(retention_days=365) - hat alte Rohdaten
+        # nach einem Jahr endgueltig geloescht. Jetzt stattdessen: Rohdaten
+        # aelter als 90 Tage zu Stundenmittelwerten verdichten (kein
+        # Datenverlust mehr, nur Detailgrad reduziert). Siehe
+        # DataStore.compact_old_records() fuer Details.
+        datastore.compact_old_records(older_than_days=90, bucket_seconds=3600)
     except Exception as exc:
-        logging.warning("[DB] Retention cleanup skipped: %s", exc)
+        logging.warning("[DB] Verdichtung alter Daten uebersprungen: %s", exc)
 
     env_scale = os.getenv("UI_SCALING")
 

@@ -693,7 +693,14 @@ class DataStore:
             self._last_ingest_dt = dt
 
     def cleanup_old_records(self, retention_days: int = 365) -> dict:
-        """Delete records older than retention_days. Returns counts of deleted rows."""
+        """Delete records older than retention_days. Returns counts of deleted rows.
+
+        NICHT MEHR automatisch beim Start aufgerufen (siehe main.py) - das
+        loescht Rohdaten unwiderruflich, was dem Wunsch "keine Daten
+        verlieren" widerspricht. compact_old_records() unten ersetzt das:
+        alte Rohdaten werden zu Stundenmittelwerten verdichtet statt
+        geloescht. Diese Methode bleibt fuer den Fall erhalten, dass mal
+        gezielt (manuell) wirklich geloescht werden soll."""
         cutoff = _hours_ago_iso(retention_days * 24)
         if not cutoff:
             return {"fronius": 0, "heating": 0}
@@ -710,6 +717,94 @@ class DataStore:
                     f" older than {retention_days} days deleted"
                 )
         return {"fronius": fr_count, "heating": ht_count}
+
+    def compact_old_records(self, older_than_days: int = 90, bucket_seconds: int = 3600) -> dict:
+        """Verdichte Rohdaten, die aelter als older_than_days sind: alle
+        Rohzeilen innerhalb eines Zeit-Buckets (Default 1h) werden durch
+        eine einzige Zeile mit den Mittelwerten ersetzt - statt sie wie
+        cleanup_old_records() komplett zu loeschen. Reduziert z.B. eine
+        Stunde mit ~360 Rohzeilen (10s-Takt) auf 1 Zeile, der Trendverlauf
+        (Mittelwert) bleibt aber dauerhaft erhalten statt verloren zu gehen.
+
+        Exakte Rohwerte/Spitzen aelterer Daten sind danach nicht mehr
+        einzeln abrufbar, nur noch der Stundenmittelwert - das ist der
+        bewusst akzeptierte Kompromiss (vs. komplettem Verlust vorher).
+        Fuer die Charts macht das keinen sichtbaren Unterschied: die zeigen
+        bei so langen Zeitraeumen ohnehin schon Mittelwerte an (siehe
+        get_heating_bucketed/_load_energy_flow).
+
+        Idempotent: ein Bucket, der bereits aus genau einer (vorher schon
+        verdichteten) Zeile besteht, wird beim naechsten Aufruf einfach auf
+        sich selbst gemittelt - kein fortlaufender Praezisionsverlust durch
+        wiederholtes Verdichten bei jedem App-Start.
+
+        Delete+Insert laufen in einer einzigen Transaktion: entweder werden
+        die Rohzeilen ersetzt, oder (bei einem Fehler) gar nichts geaendert -
+        nie ein Zwischenzustand mit geloeschten, aber nicht neu eingefuegten
+        Zeilen.
+        """
+        cutoff = _hours_ago_iso(older_than_days * 24)
+        if not cutoff:
+            return {"fronius": 0, "fronius_rows_before": 0, "heating": 0, "heating_rows_before": 0}
+        bucket_seconds = max(60, int(bucket_seconds))
+        bucket_expr = (
+            f"datetime((CAST(strftime('%s', datetime(timestamp)) AS INTEGER) / {bucket_seconds}) * {bucket_seconds}, 'unixepoch')"
+        )
+
+        def _compact_table(cursor, table: str, agg_cols: list[str]) -> tuple[int, int]:
+            """Fuer eine Tabelle: Buckets berechnen, dann in einer Transaktion
+            die alten Rohzeilen durch die gebuckten Mittelwert-Zeilen
+            ersetzen. Gibt (Zeilen vorher, Zeilen nachher) zurueck."""
+            select_cols = ", ".join(f"AVG({c})" for c in agg_cols)
+            rows = cursor.execute(
+                f"SELECT {bucket_expr} AS bucket_ts, {select_cols}, COUNT(*) "
+                f"FROM {table} WHERE timestamp < ? GROUP BY bucket_ts",
+                (cutoff,),
+            ).fetchall()
+            if not rows:
+                return (0, 0)
+            rows_before = sum(r[-1] for r in rows)
+            if rows_before <= len(rows):
+                # Schon vollstaendig verdichtet (jeder Bucket hat genau 1
+                # Zeile) - nichts zu tun, keine unnoetige Schreib-Transaktion.
+                return (rows_before, rows_before)
+            placeholders = ", ".join("?" for _ in agg_cols)
+            cursor.execute("BEGIN IMMEDIATE")
+            try:
+                cursor.execute(f"DELETE FROM {table} WHERE timestamp < ?", (cutoff,))
+                cursor.executemany(
+                    f"INSERT OR REPLACE INTO {table} (timestamp, {', '.join(agg_cols)}) "
+                    f"VALUES (?, {placeholders})",
+                    [(r[0], *r[1:-1]) for r in rows],
+                )
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            return (rows_before, len(rows))
+
+        with self._lock:
+            cursor = self.conn.cursor()
+            fr_before, fr_after = _compact_table(
+                cursor, "fronius", ["pv_power", "grid_power", "batt_power", "soc", "load_power"]
+            )
+            ht_before, ht_after = _compact_table(
+                cursor,
+                "heating",
+                ["kesseltemp", "aussentemp", "puffer_top", "puffer_mid", "puffer_bot", "warmwasser"],
+            )
+        if fr_before > fr_after or ht_before > ht_after:
+            logging.info(
+                f"[DB] Verdichtung: fronius {fr_before}->{fr_after} Zeilen, "
+                f"heating {ht_before}->{ht_after} Zeilen (aelter als {older_than_days}d, "
+                f"{bucket_seconds}s-Buckets)"
+            )
+        return {
+            "fronius": fr_before - fr_after,
+            "fronius_rows_before": fr_before,
+            "heating": ht_before - ht_after,
+            "heating_rows_before": ht_before,
+        }
 
     def seed_from_csv(self, data_dir: Optional[Path] = None) -> None:
         base = Path(data_dir) if data_dir else DATA_DIR
