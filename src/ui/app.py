@@ -170,6 +170,11 @@ try:
 except ImportError:
     HomeAssistantActionsTab = None
 
+try:
+    from tabs.help import HelpTab
+except ImportError:
+    HelpTab = None
+
 # StatusTab importieren
 try:
     from tabs.status import StatusTab
@@ -1099,20 +1104,33 @@ class MainApp:
                 logger.error("HueTab initialization failed: %s", e, exc_info=True)
                 self.hue_tab = None
 
-        # HomeA (Home Assistant Automationen/Skripte) soll als 3. Tab erscheinen
-        if HomeAssistantActionsTab:
+        # Help-Tab (an der Stelle, wo vorher der eigene "HomeA"-Tab war) -
+        # die Home-Assistant-Automationen/Skripte sind jetzt ein Reiter
+        # innerhalb des Help-Tabs statt eines eigenen obersten Tabs (siehe
+        # tabs/help.py). self.homeassistant_actions_tab bleibt als Alias auf
+        # die tatsaechliche Instanz erhalten, weil _apply_dashboard_
+        # orientation() (portrait/landscape-Umschaltung) und ggf. anderer
+        # Code weiterhin darueber darauf zugreift.
+        if HelpTab:
             try:
-                _dbg_print("[TABS] HomeAssistantActionsTab wird erstellt...")
-                self.tabview.add(emoji("🏠\nHomeA", "HomeA"))
-                ha_frame = self.tabview.tab(emoji("🏠\nHomeA", "HomeA"))
+                _dbg_print("[TABS] HelpTab wird erstellt...")
+                self.tabview.add(emoji("❓\nHelp", "Help"))
+                help_frame = self.tabview.tab(emoji("❓\nHelp", "Help"))
                 try:
-                    ha_frame.configure(fg_color=COLOR_ROOT)
+                    help_frame.configure(fg_color=COLOR_ROOT)
                 except:
                     pass
-                self.homeassistant_actions_tab = HomeAssistantActionsTab(self.root, self.notebook, tab_frame=ha_frame)
-                _dbg_print("[TABS] HomeAssistantActionsTab erfolgreich hinzugefügt.")
+                self.help_tab = HelpTab(
+                    self.root,
+                    self.notebook,
+                    tab_frame=help_frame,
+                    homeassistant_actions_cls=HomeAssistantActionsTab,
+                )
+                self.homeassistant_actions_tab = self.help_tab.homeassistant_actions_tab
+                _dbg_print("[TABS] HelpTab erfolgreich hinzugefügt.")
             except Exception as e:
-                logger.error("HomeAssistantActionsTab init failed: %s", e)
+                logger.error("HelpTab init failed: %s", e)
+                self.help_tab = None
                 self.homeassistant_actions_tab = None
         
         # Andere Tabs (Portierung zu CustomTkinter fortlaufend)
