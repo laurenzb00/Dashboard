@@ -387,13 +387,19 @@ class EnergyFlowView(tk.Frame):
         # DIESEM Radius abgeleitet (Kreisabstaende als 2r+min_gap), statt
         # umgekehrt. Bedingung fuer "passt vertikal":
         #   r (oberer Kreis-Radius bis zum margin_top)
-        #   + (2r + min_gap)   [PV/Grid-Reihe -> Haus]
-        #   + (2r + min_gap)   [Haus -> Batterie]
-        #   + (1.22r + Polster)  [Batterie-Ring + Bodenabstand]
+        #   + (2r + min_gap)               [PV/Grid-Reihe -> Haus]
+        #   + (2r + ring_gap + min_gap)    [Haus -> Batterie]
+        #   + (1.22r + Polster)            [Batterie-Ring + Bodenabstand]
         #   <= usable_h
-        # aufgeloest nach r: r <= (usable_h - 2*min_gap - Polster) / 6.22
+        # Der Haus->Batterie-Abstand braucht ring_gap (~0.22r) OBENDRAUF,
+        # nicht nur 2r+min_gap wie zwischen den anderen Reihen: der SoC-Ring
+        # wird als voller Kreis UM die Batterie gezeichnet und reicht damit
+        # auch nach OBEN ueber den Batterie-Kreis hinaus, Richtung Haus. Das
+        # hier zu uebersehen war genau der Bug, der den Ring sichtbar in den
+        # Haus-Kreis hat hineinragen lassen. aufgeloest nach r:
+        #   r <= (usable_h - 2*min_gap - Polster) / 6.44
         pad_bottom = _s(10)
-        max_r_vertical = int((usable_h - 2 * min_gap - pad_bottom) / 6.22)
+        max_r_vertical = int((usable_h - 2 * min_gap - pad_bottom) / 6.44)
 
         pv_x = margin_x + int((w - 2 * margin_x) * 0.20)
         grid_x = w - margin_x - int((w - 2 * margin_x) * 0.20)
@@ -414,23 +420,36 @@ class EnergyFlowView(tk.Frame):
         # must not crash.
         r = max(_s(8), r)
         self.node_radius = r
-        self.ring_gap = max(_s(6), int(r * 0.22))
+        ring_gap = max(_s(6), int(r * 0.22))
+        self.ring_gap = ring_gap
         # Scale in-node text with the node itself so the load-value label
         # under "Haus" and the SoC percentage stay inside their circle
         # instead of overflowing into the Haus<->Batterie gap.
         self._node_value_size = max(_s(16), int(r * 0.5))
         self._node_unit_size = max(_s(9), int(r * 0.2))
 
-        row_gap = 2 * r + min_gap
+        row_gap_top = 2 * r + min_gap
+        row_gap_bottom = 2 * r + ring_gap + min_gap  # +ring_gap: siehe oben
         top_y = margin_top + r
-        home_y = top_y + row_gap
-        battery_y = home_y + row_gap
+        home_y = top_y + row_gap_top
+        battery_y = home_y + row_gap_bottom
+
+        # Batterie nicht mehr exakt unter dem Haus-Knoten, sondern etwas
+        # nach links versetzt - mehr Luft zwischen Haus-Kreis und SoC-Ring,
+        # und die Verbindungslinie liegt nicht mehr genau auf der Geraden,
+        # auf der beide Kreise am naechsten beieinander waeren. Der
+        # tatsaechliche Mittelpunktabstand (Pythagoras aus row_gap_bottom
+        # und dem Versatz) ist dadurch automatisch groesser als
+        # row_gap_bottom allein - der Versatz kann die oben berechnete
+        # Mindest-Clearance also nur vergroessern, nie verkleinern.
+        battery_shift = int(r * 0.9)
+        battery_x = max(margin_x + r, home_x - battery_shift)
 
         return {
             "pv": (pv_x, top_y),
             "grid": (grid_x, top_y),
             "home": (home_x, home_y),
-            "battery": (home_x, battery_y),
+            "battery": (battery_x, battery_y),
         }
 
     def _render_background(self) -> Image.Image:
@@ -724,6 +743,7 @@ class EnergyFlowView(tk.Frame):
         color: str = COLOR_TEXT,
         outside: str | None = None,
         outside_pad: int = 0,
+        force_flat: bool = False,
     ):
         start, end = self._edge_points(src, dst, self.node_radius + 6)
         mx = (start[0] + end[0]) / 2
@@ -735,17 +755,26 @@ class EnergyFlowView(tk.Frame):
         nx, ny = -vy / length, vx / length
         ux, uy = vx / length, vy / length
 
-        # A (near-)vertical connector - the Haus<->Batterie line, since both
-        # nodes sit at the same x - has a perpendicular that is itself
-        # (near-)horizontal (ny ~ 0). That breaks two things below: the
-        # side-flip can never tell 'above' from 'below' apart (ny is never
-        # reliably >0 or <0), and the arrow-aligned rotation further down
-        # ends up close to +-90deg, rendering the value top-to-bottom -
-        # illegible at a glance, and (depending on charge/discharge
-        # direction flipping src/dst) sometimes overlapping the SoC ring.
-        # Special-case it: fixed side, enough clearance to always stay
-        # outside the SoC ring regardless of node size, and no rotation.
-        near_vertical = abs(vx) < 0.15 * length
+        # A (near-)vertical connector - the Haus<->Batterie line - has a
+        # perpendicular that is itself (near-)horizontal (ny ~ 0). That
+        # breaks two things below: the side-flip can never tell 'above'
+        # from 'below' apart (ny is never reliably >0 or <0), and the
+        # arrow-aligned rotation further down ends up close to +-90deg,
+        # rendering the value top-to-bottom - illegible at a glance, and
+        # (depending on charge/discharge direction flipping src/dst)
+        # sometimes overlapping the SoC ring. Special-case it: fixed side,
+        # enough clearance to always stay outside the SoC ring regardless
+        # of node size, and no rotation.
+        #
+        # force_flat lets the two Haus<->Batterie call sites opt into this
+        # treatment explicitly instead of relying on the geometric angle
+        # alone: the battery node is now offset a bit to the left instead
+        # of sitting exactly under Haus (see _define_nodes()), so the
+        # connector is no longer perfectly vertical and the abs(vx)-based
+        # heuristic below would otherwise stop catching it - even though
+        # the ring-clearance need this branch exists for hasn't changed at
+        # all just because the line tilted slightly.
+        near_vertical = force_flat or (abs(vx) < 0.15 * length)
 
         # Pick perpendicular side deterministically in screen space.
         # outside='above' => smaller y, outside='below' => larger y.
@@ -964,13 +993,13 @@ class EnergyFlowView(tk.Frame):
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, bat, home, COLOR_BATTERY_OK, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_dots(draw, bat, home, COLOR_BATTERY_OK, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, bat, home, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_BATTERY_OK, outside="below")
+            self._draw_flow_label(img, bat, home, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_BATTERY_OK, outside="below", force_flat=True)
         elif batt_w < -min_flow_w:
             # Laden: Haus -> Batterie
             pulse = self._anim_phase * flow_strength(batt_w)
             self._draw_arrow(draw, home, bat, COLOR_BATTERY_OK, thickness(batt_w), pulse=pulse, gap=8)
             self._draw_flow_dots(draw, home, bat, COLOR_BATTERY_OK, flow_strength(batt_w), gap=8)
-            self._draw_flow_label(img, home, bat, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_BATTERY_OK, outside="below")
+            self._draw_flow_label(img, home, bat, batt_w, offset=15, outside_pad=32, along=0, color=COLOR_BATTERY_OK, outside="below", force_flat=True)
         else:
             # Kein nennenswerter Lade-/Entladefluss (Batterie im Ruhezustand,
             # z.B. sehr niedriger SoC ohne Aktivität). Ohne diese Zeile fehlt
@@ -1003,8 +1032,10 @@ class EnergyFlowView(tk.Frame):
         )
 
         # SoC percentage next to/inside the ring - red only when critically low.
+        # War 0.45x - auf Wunsch vergroessert, damit die Prozentzahl in der
+        # Batterie-Bubble besser lesbar ist.
         soc_color = COLOR_BATTERY_LOW if soc < 20 else COLOR_TEXT
-        soc_font_size = max(_s(16), int(self.node_radius * 0.45))
+        soc_font_size = max(_s(18), int(self.node_radius * 0.58))
         self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=soc_font_size, color=soc_color, outline=True)
         return img
 
