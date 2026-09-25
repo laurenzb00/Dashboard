@@ -85,6 +85,9 @@ class EnergyFlowView(tk.Frame):
             if all(abs(a - b) < 0.01 for a, b in zip(values, last)):
                 return
         self._last_flows = values
+        self._soc_target = soc
+        if self._soc_display is None:
+            self._soc_display = soc
         # Check for canvas size changes
         cw = max(200, self.canvas.winfo_width())
         ch = max(200, self.canvas.winfo_height())
@@ -125,6 +128,14 @@ class EnergyFlowView(tk.Frame):
         self._anim_interval_ms = 900
         self._anim_job = None
         self._anim_phase = 0.0
+        # SoC-Ring/Icon/Prozentzahl sprangen bisher bei jedem neuen Messwert
+        # hart auf den neuen Stand. _soc_display naehert sich in _anim_tick()
+        # stattdessen schrittweise (Ease-out) an _soc_target an, sodass ein
+        # SoC-Sprung (z.B. 58% -> 61%) sichtbar durchlaeuft statt zu springen.
+        # None = noch kein echter Wert empfangen -> erster Wert wird direkt
+        # uebernommen (kein Hochzaehlen von 0% beim Start).
+        self._soc_display = None
+        self._soc_target = 0.0
         self.canvas = tk.Canvas(self, width=width, height=height, highlightthickness=0, bg=COLOR_ROOT)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self._resize_pending = False  # Debounce Configure events
@@ -171,11 +182,30 @@ class EnergyFlowView(tk.Frame):
         now = time.time()
         # Slow, subtle pulse: ~0.7 Hz
         self._anim_phase = 0.5 + 0.5 * math.sin(now * 2 * math.pi * 0.7)
+
+        # SoC sanft zum Zielwert bewegen (Ease-out: pro Tick ein Teil der
+        # Restdistanz einholen) statt beim naechsten Sensor-Update hart zu
+        # springen. soc_animating haelt den Idle-Skip unten davon ab, eine
+        # noch laufende SoC-Animation abzuschneiden, auch wenn gerade kein
+        # nennenswerter Leistungsfluss anliegt (z.B. Batterie im Ruhezustand
+        # bei einem sprunghaften SoC-Messwert).
+        soc_animating = False
+        if self._soc_display is not None:
+            delta = self._soc_target - self._soc_display
+            if abs(delta) > 0.05:
+                # 0.5: mit 0.3 dauerte ein groesserer Sprung (~20 Prozent-
+                # punkte) rund 17s bis zur exakten Konvergenz - fuehlte sich
+                # eher wie Nachziehen als wie eine fluessige Animation an.
+                self._soc_display += delta * 0.5
+                soc_animating = True
+            else:
+                self._soc_display = self._soc_target
+
         if self._last_flows:
             pv, load, grid, batt, soc = self._last_flows
             # Skip animation if power flow is minimal (idle state)
             # This saves significant CPU when the system is inactive
-            if max(abs(pv), abs(load), abs(grid), abs(batt)) < 50:
+            if max(abs(pv), abs(load), abs(grid), abs(batt)) < 50 and not soc_animating:
                 # Use longer interval during idle (1000ms instead of 500ms)
                 self._anim_job = self.after(1000, self._anim_tick)
                 return
@@ -1031,11 +1061,18 @@ class EnergyFlowView(tk.Frame):
             # Topologie, ohne einen aktiven Fluss vorzutäuschen.
             self._draw_static_connector(draw, home, bat, gap=8)
 
+        # SoC Ring/Icon/Prozentzahl nutzen den animierten Zwischenwert
+        # (_soc_display), nicht den rohen Zielwert (soc) - siehe
+        # _anim_tick()/_soc_display-Docstring in __init__ fuer die
+        # Ease-out-Animation. Vor dem allerersten Datenempfang (Startup-
+        # Frame) ist _soc_display noch None -> Fallback auf den rohen Wert.
+        display_soc = self._soc_display if self._soc_display is not None else soc
+
         # SoC Ring um Batterie
-        self._draw_soc_ring(draw, bat, soc)
+        self._draw_soc_ring(draw, bat, display_soc)
 
         # Battery icon with SOC fill
-        self._draw_battery_glyph(draw, bat, soc)
+        self._draw_battery_glyph(draw, bat, display_soc)
 
         # Hausverbrauch: Zahl dominant, Einheit sekundär. Offset scales with
         # node_radius so the label stays inside the Haus circle instead of
@@ -1055,9 +1092,9 @@ class EnergyFlowView(tk.Frame):
 
         # SoC percentage next to/inside the ring - red only when critically low.
         # War zuerst 0.45x, dann 0.58x - auf Wunsch nochmal deutlich groesser.
-        soc_color = COLOR_BATTERY_LOW if soc < 20 else COLOR_TEXT
+        soc_color = COLOR_BATTERY_LOW if display_soc < 20 else COLOR_TEXT
         soc_font_size = max(_s(20), int(self.node_radius * 0.78))
-        self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=soc_font_size, color=soc_color, outline=True)
+        self._text_center(draw, f"{display_soc:.0f}%", bat[0], bat[1], size=soc_font_size, color=soc_color, outline=True)
         return img
 
     def stop(self):

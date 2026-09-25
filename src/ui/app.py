@@ -14,7 +14,6 @@ from datetime import datetime, timedelta, timezone
 import logging
 import time
 import threading
-import queue
 import sys
 from tkinter import ttk
 
@@ -55,6 +54,7 @@ from ui.components.header import HeaderBar
 from ui.components.statusbar import StatusBar
 from ui.components.rounded import RoundedFrame
 from ui.components.standby_overlay import StandbyOverlay
+from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.views.energy_flow import EnergyFlowView
 from ui.views.buffer_storage import BufferStorageView
 from ui.views.pv_sparkline import PVSparklineView
@@ -183,55 +183,19 @@ except ImportError:
 
 
 
-class MainApp:
+class MainApp(UiQueuePumpMixin):
     """Main application class for the Smart Home Dashboard.
-    
+
     Coordinates all UI components, data sources, and tab management.
     Uses a background queue for thread-safe UI updates.
+
+    _start_ui_pump()/_post_ui(): siehe UiQueuePumpMixin
+    (ui/components/ui_dispatch.py) - waren zuvor hier, in tabs/hue.py,
+    tabs/ertrag.py, tabs/historical.py, tabs/tagesproduktion.py und
+    tabs/homeassistant_actions.py sechsfach unabhaengig voneinander
+    kopiert (siehe Docstring dort fuer die Historie, warum das ein
+    Problem war).
     """
-    
-    def _start_ui_pump(self) -> None:
-        """Start the UI queue pump for thread-safe updates."""
-        if getattr(self, "_ui_pump_started", False):
-            return
-        self._ui_pump_started = True
-
-        def pump() -> None:
-            try:
-                while True:
-                    cb = self._ui_queue.get_nowait()
-                    try:
-                        cb()
-                    except Exception:
-                        pass
-            except queue.Empty:
-                pass
-            try:
-                # War 1000ms (davor 100ms, extra verlangsamt "to reduce main
-                # thread load"). Laut Task-Manager-Screenshot lag die
-                # Python-App bei nur ~4.6% CPU/474MB RAM - der Pi hatte also
-                # deutlich Luft, waehrend ueber diese zentrale App-Queue
-                # laufende UI-Updates bis zu 1 volle Sekunde brauchen
-                # konnten, um anzukommen. Auf 200ms zurueckgesetzt - passt
-                # damit auch zu den pro-Tab-Queues (hue.py, calendar.py,
-                # ertrag.py, historical.py, tagesproduktion.py), die schon
-                # laenger mit 200ms laufen, ohne dass das je als Problem
-                # auffiel.
-                self.root.after(200, pump)
-            except Exception:
-                pass
-
-        try:
-            self.root.after(0, pump)
-        except Exception:
-            pass
-
-    def _post_ui(self, callback) -> None:
-        """Post a callback to be executed on the main thread."""
-        try:
-            self._ui_queue.put(callback)
-        except Exception:
-            pass
 
     def _compute_last_heating_event_dt(self) -> datetime | None:
         """Heuristik: letzte 'Einheiz'-Phase erkennen.
@@ -486,7 +450,7 @@ class MainApp:
         self._dbg_last_dump = 0.0  # Für Debug-Logging der Daten-Keys
 
         # Tkinter is not thread-safe; route background-thread UI updates via this queue.
-        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._init_ui_queue()
         self._start_ui_pump()
 
         # Shared DataStore wird beim Start bereitgestellt
