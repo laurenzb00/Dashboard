@@ -265,13 +265,18 @@ class EnergyFlowView(tk.Frame):
         """Scale node size with the available canvas height so a shorter
         (compressed) diagram doesn't overflow, while keeping nodes legible.
 
-        The cap was 58px, sized for when the card was badly oversized and
-        node positions were stretched thin across a lot of empty vertical
-        space. Now that the card gets a correctly-budgeted height, the
-        diagram has more headroom to use - a slightly bigger cap makes the
-        nodes read as bolder, more deliberate shapes instead of small icons
-        adrift in the frame."""
-        return max(_s(40), min(_s(66), int(self.height * 0.30)))
+        Cap history: 58px, then 66px - both sized for when this card stood
+        side-by-side with the Pufferspeicher-Karte and was therefore itself
+        limited in height. In a layout where Energiefluss gets a full,
+        much taller row of its own (e.g. Querformat), a 66px cap left the
+        four nodes looking like small dots adrift in a mostly empty card,
+        next to a Pufferspeicher-Karte that fills its whole height with
+        bold visuals - the "bubbles sehen mikrig aus" the card was too
+        cautious about growing into its actual available space. The real
+        overlap protection happens separately in _define_nodes() (vertical
+        AND horizontal spacing checks), so this cap only needs to be a
+        generous upper preference now, not a hard limit."""
+        return max(_s(44), min(_s(110), int(self.height * 0.34)))
 
     def _has_font(self, name: str) -> bool:
         try:
@@ -281,23 +286,40 @@ class EnergyFlowView(tk.Frame):
             return False
 
     def _load_icons(self):
-        """Load and cache PNG icons from icons directory."""
+        """Load and cache PNG icons from icons directory, resized to match
+        the current node_radius.
+
+        Wurde vorher nur einmal in __init__() aufgerufen - mit dem
+        node_radius, der zum allerersten Konstruktionszeitpunkt galt (der
+        Konstruktor bekommt oft nur eine kleine Platzhaltergroesse, bevor
+        Tkinter dem Widget seine echte Groesse zuweist). Danach wuchs
+        node_radius bei jedem echten Resize weiter (_define_nodes()), aber
+        die Icons blieben fuer die gesamte Laufzeit auf ihrer anfaenglichen,
+        oft viel kleineren Pixelgroesse eingefroren - ein wachsender Knoten-
+        Kreis um ein gleich gross bleibendes Icon haette den "mikrigen"
+        Eindruck eher verschlimmert statt behoben. Jetzt wird bei jedem
+        _render_background()-Aufruf (der ohnehin nur bei echten Groessen-
+        aenderungen laeuft) geprueft, ob sich die Ziel-Icongroesse seit dem
+        letzten Laden veraendert hat, und nur dann neu geladen/skaliert -
+        kein wiederholtes Disk-IO bei unveraenderter Groesse.
+        """
+        icon_size = int(self.node_radius * 1.25)  # Dynamic sizing based on node radius
+        if self._icons_pil and getattr(self, "_icons_loaded_size", None) == icon_size:
+            return
         elapsed = time.time() - self._start_time
-        
+
         # Nach Reorganisierung: icons in resources/icons
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))  # views -> ui -> src -> root
         icon_dir = os.path.join(project_root, "resources", "icons")
-        
+
         icon_files = {
             "pv": "pv.png",
             "grid": "grid.png",
             "home": "house.png",
             "battery": "battery.png",
         }
-        
-        icon_size = int(self.node_radius * 1.25)  # Dynamic sizing based on node radius
-        
+
         for icon_name, filename in icon_files.items():
             try:
                 icon_path = os.path.join(icon_dir, filename)
@@ -319,6 +341,7 @@ class EnergyFlowView(tk.Frame):
         if not self._icons_pil:
             if DEBUG_LOG:
                 print(f"[ICONS] WARNING: No icons loaded! Falling back to text labels.")
+        self._icons_loaded_size = icon_size
 
     def _find_emoji_font(self, size: int):
         """Find emoji font with multiple fallback paths for cross-platform support."""
@@ -346,39 +369,49 @@ class EnergyFlowView(tk.Frame):
         margin_top = _s(20)
         margin_bottom = _s(28)
         usable_h = max(1, h - margin_top - margin_bottom)
-
-        # Compact diamond: PV/Grid top corners, Haus in the middle, Batterie
-        # directly below Haus. Positions are fixed fractions of the usable
-        # band (independent of node_radius), and node_radius is then capped
-        # to whatever fits without the Haus/Batterie circles (plus the SoC
-        # ring drawn just outside the battery circle) overlapping each other
-        # or spilling past the canvas edges — this stays correct at any
-        # compression level instead of relying on tuned magic fractions.
-        top_y = margin_top + int(usable_h * 0.18)
-        home_y = margin_top + int(usable_h * 0.52)
-        battery_y = margin_top + int(usable_h * 0.86)
-
         min_gap = _s(10)
-        max_r_stack = int((battery_y - home_y - min_gap) / 2)
-        max_r_top = int((home_y - top_y - min_gap) / 2)
-        # The SoC ring extends node_radius by ring_gap, and the SoC percent
-        # text is centered on the battery node too; leave extra slack below
-        # the ring's outer edge (divisor > 1 + ring_ratio) so a centered
-        # label never touches the canvas's bottom edge.
-        max_r_bottom = int((h - margin_bottom - battery_y) / 1.6)
 
-        safe_r = min(max_r_stack, max_r_top, max_r_bottom)
-        r = min(self.node_radius, safe_r)
-        # Never let the legibility floor push the radius back past the
-        # collision-avoidance ceiling above - on a very short canvas that
-        # floor used to win outright and force Haus/Batterie labels to
-        # overlap.
-        r = max(min(_s(26), safe_r), r)
+        # Radius-first statt Positionen-first: frueher standen PV/Grid/Haus/
+        # Batterie auf FESTEN Bruchteilen von usable_h (0.18/0.52/0.86), und
+        # node_radius wurde danach so weit heruntergeklemmt, dass nichts
+        # ueberlappt oder unten rausragt. Das Problem dabei: der Bruchteil
+        # unterhalb der Batterie (fuer den SoC-Ring) war mit ~14% von
+        # usable_h fest verdrahtet und wuchs nicht im selben Verhaeltnis wie
+        # der in _compute_node_radius() gewuenschte Ziel-Radius (~34% von
+        # h) - auf einer hohen Karte blieb der Radius dadurch trotz viel
+        # mehr Platz weiterhin klein ("Bubbles sehen mikrig aus" neben der
+        # Pufferspeicher-Karte, die ihre ganze Hoehe ausnutzt).
+        #
+        # Jetzt wird der maximal moegliche Radius direkt aus der
+        # verfuegbaren Flaeche berechnet und die Positionen danach AUS
+        # DIESEM Radius abgeleitet (Kreisabstaende als 2r+min_gap), statt
+        # umgekehrt. Bedingung fuer "passt vertikal":
+        #   r (oberer Kreis-Radius bis zum margin_top)
+        #   + (2r + min_gap)   [PV/Grid-Reihe -> Haus]
+        #   + (2r + min_gap)   [Haus -> Batterie]
+        #   + (1.22r + Polster)  [Batterie-Ring + Bodenabstand]
+        #   <= usable_h
+        # aufgeloest nach r: r <= (usable_h - 2*min_gap - Polster) / 6.22
+        pad_bottom = _s(10)
+        max_r_vertical = int((usable_h - 2 * min_gap - pad_bottom) / 6.22)
+
+        pv_x = margin_x + int((w - 2 * margin_x) * 0.20)
+        grid_x = w - margin_x - int((w - 2 * margin_x) * 0.20)
+        home_x = w // 2
+        # PV/Grid sitzen diagonal zu Haus (unterschiedliches x UND y) - der
+        # tatsaechliche Mittelpunktabstand ist also groesser als die reine
+        # x-Distanz. Die x-Distanz allein als Grenze zu nehmen ist damit
+        # eine konservative (sichere), nicht exakte Naeherung, verhindert
+        # aber zuverlaessig ein Ueberlappen auf schmalen Karten.
+        max_r_horizontal = int((home_x - pv_x - min_gap) / 2)
+
+        r = min(self.node_radius, max_r_vertical, max_r_horizontal)
         # On a pathologically small/degenerate canvas (e.g. a mid-resize
-        # transient before Tkinter settles on the real size) safe_r itself
-        # can go to zero or negative, which would make every node/battery
-        # draw call below build an inverted box and raise. Nodes may overlap
-        # for that one transient frame, but the diagram must not crash.
+        # transient before Tkinter settles on the real size) the limits
+        # above can go to zero or negative, which would make every
+        # node/battery draw call below build an inverted box and raise.
+        # Nodes may overlap for that one transient frame, but the diagram
+        # must not crash.
         r = max(_s(8), r)
         self.node_radius = r
         self.ring_gap = max(_s(6), int(r * 0.22))
@@ -388,14 +421,24 @@ class EnergyFlowView(tk.Frame):
         self._node_value_size = max(_s(16), int(r * 0.5))
         self._node_unit_size = max(_s(9), int(r * 0.2))
 
+        row_gap = 2 * r + min_gap
+        top_y = margin_top + r
+        home_y = top_y + row_gap
+        battery_y = home_y + row_gap
+
         return {
-            "pv": (margin_x + int((w - 2 * margin_x) * 0.20), top_y),
-            "grid": (w - margin_x - int((w - 2 * margin_x) * 0.20), top_y),
-            "home": (w // 2, home_y),
-            "battery": (w // 2, battery_y),
+            "pv": (pv_x, top_y),
+            "grid": (grid_x, top_y),
+            "home": (home_x, home_y),
+            "battery": (home_x, battery_y),
         }
 
     def _render_background(self) -> Image.Image:
+        # Icons an aktuelle node_radius anpassen, bevor sie unten aufs Bild
+        # gepastet werden (siehe _load_icons()-Docstring) - jeder Aufrufer
+        # von _render_background() ist ohnehin schon ein echter
+        # Groessenwechsel, also kein zusaetzlicher Overhead im Normalbetrieb.
+        self._load_icons()
         img = self._draw_bg_gradient()
         draw = ImageDraw.Draw(img)
         # Draw node circles (background + effects)
