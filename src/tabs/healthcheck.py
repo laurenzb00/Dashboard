@@ -126,11 +126,20 @@ def _source_status_line(entry) -> tuple[str, str]:
 class HealthTab:
     """Simple health check + self-healing tools."""
 
-    def __init__(self, root: tk.Tk, notebook, datastore=None, app=None, tab_frame=None):
+    def __init__(self, root: tk.Tk, notebook, datastore=None, app=None, tab_frame=None, help_tab_cls=None, homeassistant_actions_cls=None):
         self.root = root
         self.notebook = notebook
         self.datastore = datastore
         self.app = app
+        self.help_tab = None
+        # help_tab_cls/homeassistant_actions_cls werden von app.py durch-
+        # gereicht (dort schon per try/except importiert), statt hier selbst
+        # zu importieren - ein fehlgeschlagener Import von tabs.help oder
+        # tabs.homeassistant_actions soll den Rest des Health-Tabs nicht mit
+        # reissen (gleiche Begruendung wie in tabs/help.py fuer
+        # homeassistant_actions_cls).
+        self._help_tab_cls = help_tab_cls
+        self._homeassistant_actions_cls = homeassistant_actions_cls
 
         if tab_frame is not None:
             self.tab_frame = tab_frame
@@ -171,7 +180,55 @@ class HealthTab:
         )
         self._refresh_btn.grid(row=0, column=1, rowspan=2, sticky="e", padx=18, pady=14)
 
-        grid = ctk.CTkFrame(container.body, fg_color="transparent")
+        # Sub-Tab-Leiste im Health-Tab: "Übersicht" (der bisherige Inhalt
+        # dieses Tabs) und "Help" (vorher ein eigener oberster Tab, jetzt
+        # hier als Reiter untergebracht - siehe tabs/help.py). Gleiches
+        # nested-CTkTabview-Muster wie im Spotify-Tab und im Help-Tab selbst.
+        self.content_notebook = ctk.CTkTabview(
+            container.body,
+            fg_color=COLOR_ROOT,
+            border_color=COLOR_ROOT,
+            segmented_button_fg_color=COLOR_ROOT,
+            segmented_button_selected_color=COLOR_PRIMARY,
+            segmented_button_selected_hover_color=COLOR_PRIMARY,
+            segmented_button_unselected_color=COLOR_CARD,
+            segmented_button_unselected_hover_color=COLOR_BORDER,
+            text_color=COLOR_TEXT,
+            text_color_disabled=COLOR_SUBTEXT,
+        )
+        self.content_notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.content_notebook.add("Übersicht")
+        uebersicht_frame = self.content_notebook.tab("Übersicht")
+
+        self.content_notebook.add("Help")
+        help_frame = self.content_notebook.tab("Help")
+
+        try:
+            segmented = getattr(self.content_notebook, "_segmented_button", None)
+            if segmented is not None:
+                segmented.configure(
+                    font=("Segoe UI", 13, "bold"),
+                    height=44,
+                    corner_radius=14,
+                    border_width=1,
+                    border_color=COLOR_BORDER,
+                )
+        except Exception:
+            pass
+
+        if self._help_tab_cls is not None:
+            try:
+                self.help_tab = self._help_tab_cls(
+                    self.root,
+                    self.content_notebook,
+                    tab_frame=help_frame,
+                    homeassistant_actions_cls=self._homeassistant_actions_cls,
+                )
+            except Exception:
+                self.help_tab = None
+
+        grid = ctk.CTkFrame(uebersicht_frame, fg_color="transparent")
         grid.pack(fill=tk.BOTH, expand=True)
         grid.grid_columnconfigure(0, weight=1)
         grid.grid_columnconfigure(1, weight=1)
@@ -277,7 +334,9 @@ class HealthTab:
         self._update_btn.grid(row=0, column=2, sticky="w", padx=(10, 0))
 
     def set_portrait_layout(self, portrait: bool) -> None:
-        """Stack health cards for portrait screens."""
+        """Stack health cards for portrait screens; forward to the nested
+        Help-Reiter (der wiederum an homeassistant_actions_tab weiterreicht -
+        siehe tabs/help.py) so beide Ebenen der Verschachtelung reagieren."""
         try:
             if hasattr(self, "_shell"):
                 self._shell.set_portrait_layout(portrait)
@@ -293,6 +352,13 @@ class HealthTab:
                 self.card_int.grid_configure(row=0, column=1, columnspan=1, padx=(6, 0), pady=0)
         except Exception:
             pass
+
+        setter = getattr(self.help_tab, "set_portrait_layout", None)
+        if callable(setter):
+            try:
+                setter(portrait)
+            except Exception:
+                pass
 
     def _build_source_row(self, parent, age_var: tk.StringVar, status_var: tk.StringVar, check_cmd, btn_attr: str) -> None:
         """Baut eine Zeile fuer eine Datenquelle (PV/Heizung): DB-Alter,

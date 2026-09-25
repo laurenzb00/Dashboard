@@ -1104,35 +1104,12 @@ class MainApp:
                 logger.error("HueTab initialization failed: %s", e, exc_info=True)
                 self.hue_tab = None
 
-        # Help-Tab (an der Stelle, wo vorher der eigene "HomeA"-Tab war) -
-        # die Home-Assistant-Automationen/Skripte sind jetzt ein Reiter
-        # innerhalb des Help-Tabs statt eines eigenen obersten Tabs (siehe
-        # tabs/help.py). self.homeassistant_actions_tab bleibt als Alias auf
-        # die tatsaechliche Instanz erhalten, weil _apply_dashboard_
-        # orientation() (portrait/landscape-Umschaltung) und ggf. anderer
-        # Code weiterhin darueber darauf zugreift.
-        if HelpTab:
-            try:
-                _dbg_print("[TABS] HelpTab wird erstellt...")
-                self.tabview.add(emoji("❓\nHelp", "Help"))
-                help_frame = self.tabview.tab(emoji("❓\nHelp", "Help"))
-                try:
-                    help_frame.configure(fg_color=COLOR_ROOT)
-                except:
-                    pass
-                self.help_tab = HelpTab(
-                    self.root,
-                    self.notebook,
-                    tab_frame=help_frame,
-                    homeassistant_actions_cls=HomeAssistantActionsTab,
-                )
-                self.homeassistant_actions_tab = self.help_tab.homeassistant_actions_tab
-                _dbg_print("[TABS] HelpTab erfolgreich hinzugefügt.")
-            except Exception as e:
-                logger.error("HelpTab init failed: %s", e)
-                self.help_tab = None
-                self.homeassistant_actions_tab = None
-        
+        # Help-Tab gibt es nicht mehr als eigenen obersten Tab - er ist jetzt
+        # ein Reiter innerhalb des Health-Tabs (siehe unten bei HealthTab
+        # und tabs/healthcheck.py). HelpTab/HomeAssistantActionsTab werden
+        # dafuer unten direkt an HealthTab durchgereicht statt hier separat
+        # instanziiert zu werden.
+
         # Andere Tabs (Portierung zu CustomTkinter fortlaufend)
         if SpotifyTab:
             try:
@@ -1271,7 +1248,15 @@ class MainApp:
                     health_frame.configure(fg_color=COLOR_ROOT)
                 except:
                     pass
-                self.health_tab = HealthTab(self.root, self.notebook, datastore=self.datastore, app=self, tab_frame=health_frame)
+                self.health_tab = HealthTab(
+                    self.root,
+                    self.notebook,
+                    datastore=self.datastore,
+                    app=self,
+                    tab_frame=health_frame,
+                    help_tab_cls=HelpTab,
+                    homeassistant_actions_cls=HomeAssistantActionsTab,
+                )
                 _dbg_print("[TABS] HealthTab erfolgreich hinzugefügt.")
             except Exception as e:
                 logger.error("HealthTab init failed: %s", e)
@@ -1736,11 +1721,17 @@ class MainApp:
                 return
             self._portrait_layout = portrait
 
+            # "homeassistant_actions_tab" ist absichtlich nicht mehr separat
+            # gelistet: seit Help ein Reiter innerhalb von Health ist (statt
+            # ein eigener oberster Tab), reicht HealthTab.set_portrait_
+            # layout() ueber seinen eigenen help_tab schon transitiv an
+            # HomeAssistantActionsTab weiter (siehe tabs/healthcheck.py und
+            # tabs/help.py) - ein zweiter direkter Eintrag hier wuerde
+            # denselben Aufruf nur doppelt ausloesen.
             for tab_name in (
                 "tado_tab",
                 "health_tab",
                 "status_tab",
-                "homeassistant_actions_tab",
                 "hue_tab",
                 "spotify_tab",
                 "system_tab",
