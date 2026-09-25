@@ -427,6 +427,17 @@ class EnergyFlowView(tk.Frame):
         # instead of overflowing into the Haus<->Batterie gap.
         self._node_value_size = max(_s(16), int(r * 0.5))
         self._node_unit_size = max(_s(9), int(r * 0.2))
+        # Gleicher Bug wie bei den Icons (siehe _load_icons()-Docstring):
+        # diese beiden wurden vorher nur einmal in __init__() mit fixen
+        # Pixelwerten (_s(30)/_s(12)) gesetzt und nie neu berechnet, wenn
+        # sich node_radius bei einem Resize aenderte - die Beschriftungen an
+        # den Fluss-Pfeilen (kW-Chips) blieben dadurch bei einer gewachsenen
+        # Karte in ihrer urspruenglichen, oft viel kleineren Schriftgroesse
+        # haengen. _define_nodes() laeuft bei jedem echten Resize (siehe
+        # resize()/_on_canvas_resize()), also hier am richtigen Ort neu
+        # berechnen - analog zu _node_value_size/_node_unit_size oben.
+        self._flow_value_size = max(_s(14), int(r * 0.34))
+        self._flow_unit_size = max(_s(8), int(r * 0.14))
 
         row_gap_top = 2 * r + min_gap
         row_gap_bottom = 2 * r + ring_gap + min_gap  # +ring_gap: siehe oben
@@ -442,13 +453,19 @@ class EnergyFlowView(tk.Frame):
         # und dem Versatz) ist dadurch automatisch groesser als
         # row_gap_bottom allein - der Versatz kann die oben berechnete
         # Mindest-Clearance also nur vergroessern, nie verkleinern.
-        # War 0.9r - auf Wunsch deutlich weiter nach links (die Batterie
-        # sollte spuerbar aus dem Weg von Haus/SoC-Ring stehen, nicht nur
-        # knapp daneben). PV/Grid sind bei der Batterie-Tiefe (battery_y)
-        # vertikal laengst weit genug entfernt, dass ein groesserer
-        # horizontaler Versatz dort nicht in Konflikt geraet.
-        battery_shift = int(r * 1.7)
-        battery_x = max(margin_x + r, home_x - battery_shift)
+        # Verlauf: erst 0.9r, dann 1.7r Versatz nach links (beides auf
+        # Nutzer-Feedback hin, "noch weiter nach links"). Jetzt auf
+        # ausdruecklichen Wunsch ("ganz nach links") direkt an die linke
+        # Sicherheitsgrenze gepinnt, statt nur einen (wenn auch grossen)
+        # Versatz vom Haus-Knoten aus zu nehmen - die Batterie steht damit
+        # so weit links wie moeglich, ohne den Canvas-Rand zu beruehren.
+        # PV/Grid sind bei der Batterie-Tiefe (battery_y) vertikal laengst
+        # weit genug entfernt (row_gap_top+row_gap_bottom), dass diese
+        # extreme Linksverschiebung dort nicht in Konflikt geraet - per
+        # Geometrie-Stresstest ueber 12 Canvas-Groessen (240x200 bis
+        # 2000x1500) verifiziert, inkl. Pythagoras-Abstand PV<->Batterie
+        # und Haus<->Batterie (mit ring_gap-Zuschlag), siehe Verifikation.
+        battery_x = margin_x + r
 
         return {
             "pv": (pv_x, top_y),

@@ -13,6 +13,7 @@ from matplotlib.ticker import FixedLocator
 
 from core.datastore import get_shared_datastore
 from core.schema import PV_POWER_KW
+from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 from ui.styles import (
     COLOR_ROOT,
     COLOR_BORDER,
@@ -47,7 +48,7 @@ def _sparkline_db_limit() -> int:
     return max(5000, min(500000, limit))
 
 
-class PVSparklineView(tk.Frame):
+class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
     """PV + Outdoor temperature sparkline for the energy tab."""
 
     def __init__(self, parent: tk.Widget, datastore=None):
@@ -75,12 +76,26 @@ class PVSparklineView(tk.Frame):
         self.spark_ax = self.spark_fig.add_subplot(111)
         self.spark_ax.set_facecolor(COLOR_ROOT)
         self.spark_canvas = FigureCanvasTkAgg(self.spark_fig, master=self)
+        # Alias fuer MatplotlibCanvasResizeMixin._sync_size(), das intern
+        # self.canvas.resize(...) aufruft (siehe chart_resize_mixin.py).
+        self.canvas = self.spark_canvas
         self._canvas_widget = self.spark_canvas.get_tk_widget()
         self._canvas_widget.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
         self.spark_ax.tick_params(axis='both', which='major', labelsize=9, colors=COLOR_SUBTEXT)
         self.spark_ax.set_axisbelow(True)
         self.spark_ax.grid(True, alpha=0.08, linewidth=0.5)
         self.spark_fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.22)
+
+        # Chart blieb bisher bei Groessenaenderungen der Karte (Resize,
+        # Portrait/Landscape-Wechsel) in seiner urspruenglichen Groesse
+        # eingefroren: es gab weder ein <Configure>-Binding noch die vom
+        # Rest des Codebase bereits etablierte (und ueber Trial-and-Error
+        # gefundene) korrekte Resize-Logik aus MatplotlibCanvasResizeMixin -
+        # siehe deren Docstring fuer die genaue Bug-Ursache. set_target_height()
+        # unten nutzte bisher ausserdem genau das dort beschriebene KAPUTTE
+        # Fix-Muster (set_size_inches()+draw_idle() ohne canvas.resize()).
+        self._last_synced_wh: tuple[int, int] = (0, 0)
+        self._canvas_widget.bind("<Configure>", self._on_resize)
 
         # On startup, render from persisted cache immediately so the sparkline
         # isn't empty after a restart. Then refresh from DB shortly after.
@@ -110,6 +125,35 @@ class PVSparklineView(tk.Frame):
 
         self.after(150, _initial_draw)
         self.after(4000, _refresh_from_db)
+
+    # _sync_size(): siehe MatplotlibCanvasResizeMixin (ui/views/chart_resize_mixin.py) -
+    # ruft intern canvas.resize() auf, was Figure-Groesse, Tk-PhotoImage-Groesse
+    # und Canvas-Image-Item in einem Schritt korrekt aktualisiert (im Gegensatz
+    # zum vorherigen set_size_inches()+draw_idle()-Muster hier, das genau den
+    # "Chart bleibt eingefroren"-Bug erzeugt, siehe Docstring dort).
+
+    def _apply_layout(self, height: int | None = None) -> None:
+        """Subplot-Raender ans aktuelle Canvas anpassen (schmaler bei wenig Hoehe)."""
+        try:
+            if height is None:
+                height = int(self._canvas_widget.winfo_height() or 0)
+            compact = height and height < 140
+            self.spark_fig.subplots_adjust(
+                left=0.06, right=0.98, top=0.90, bottom=0.26 if compact else 0.22
+            )
+        except Exception:
+            pass
+
+    def _on_resize(self, event) -> None:
+        try:
+            w = max(1, int(getattr(event, "width", 1)))
+            h = max(1, int(getattr(event, "height", 1)))
+            if not self._sync_size(w, h):
+                return
+            self._apply_layout(h)
+            self.spark_canvas.draw_idle()
+        except Exception:
+            pass
 
     def set_target_height(self, total_px: int) -> None:
         """Set a compact total height for the sparkline row.
@@ -147,15 +191,15 @@ class PVSparklineView(tk.Frame):
         except Exception:
             pass
 
+        # Das <Configure>-Event von configure(height=...) synct die Figure
+        # normalerweise selbst (ueber _on_resize -> _sync_size), kann aber
+        # verzoegert/uebersprungen werden (z.B. Widget noch nicht gemappt).
+        # Backstop: sofort mit der aktuellen Breite + neuer Hoehe syncen.
         try:
-            dpi = float(self.spark_fig.get_dpi() or 100)
-            cur_w_in, _cur_h_in = self.spark_fig.get_size_inches()
-            new_h_in = max(0.75, canvas_px / dpi)
-            self.spark_fig.set_size_inches(cur_w_in, new_h_in, forward=True)
-
-            # Tighter margins in compact mode.
-            self.spark_fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.26)
-            self.spark_canvas.draw_idle()
+            w = int(self._canvas_widget.winfo_width() or 0)
+            if self._sync_size(max(w, 1), canvas_px):
+                self._apply_layout(canvas_px)
+                self.spark_canvas.draw_idle()
         except Exception:
             pass
 
@@ -191,6 +235,17 @@ class PVSparklineView(tk.Frame):
             self._spark_history_temp.append((sample_time, outdoor))
 
     def _update_sparkline(self) -> None:
+        # Backstop: Render-Buffer mit der aktuellen Widget-Groesse syncen,
+        # falls das <Configure>-Event dafuer verpasst wurde (z.B. Tab war
+        # beim Resize gerade nicht sichtbar/gemappt).
+        try:
+            w = int(self._canvas_widget.winfo_width() or 0)
+            h = int(self._canvas_widget.winfo_height() or 0)
+            if (w, h) != self._last_synced_wh and self._sync_size(w, h):
+                self._apply_layout(h)
+        except Exception:
+            pass
+
         refresh_needed = (time.time() - self._spark_cache_ts) > 60.0
         if refresh_needed:
             prev_pv = list(self._spark_cache_pv)

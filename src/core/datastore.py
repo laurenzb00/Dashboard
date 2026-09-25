@@ -19,6 +19,20 @@ _DEFAULT_DB_PATH = Path(__file__).resolve().with_name("data.db")
 DB_PATH = Path(os.environ.get("DASHBOARD_DB_PATH", str(_DEFAULT_DB_PATH))).expanduser()
 DATA_DIR = DB_PATH.parent.parent.parent / "data"
 
+# VACUUM: gibt durch compact_old_records() frei gewordenen Speicherplatz an
+# das Dateisystem zurueck. Nur sinnvoll/noetig, wenn wirklich nennenswert
+# Zeilen verdichtet wurden, und gedrosselt (VACUUM schreibt die komplette
+# DB-Datei neu, braucht kurzzeitig ~2x DB-Groesse an freiem Platz).
+_VACUUM_MIN_FREED_ROWS = 500
+_VACUUM_MIN_INTERVAL_DAYS = 7.0
+
+# Backup: Online-Backup-API statt roher Dateikopie, weil die DB im
+# WAL-Modus laeuft (eine rohe Kopie von nur data.db koennte kuerzlich
+# committete Daten aus der -wal-Datei verpassen/inkonsistent sein).
+_BACKUP_DIR_NAME = "backups"
+_BACKUP_KEEP_DEFAULT = 7
+_BACKUP_MIN_INTERVAL_DAYS = 1.0
+
 _SHARED_LOCK = threading.Lock()
 _SHARED_STORE: Optional["DataStore"] = None
 
@@ -793,18 +807,136 @@ class DataStore:
                 "heating",
                 ["kesseltemp", "aussentemp", "puffer_top", "puffer_mid", "puffer_bot", "warmwasser"],
             )
+        freed_rows = (fr_before - fr_after) + (ht_before - ht_after)
         if fr_before > fr_after or ht_before > ht_after:
             logging.info(
                 f"[DB] Verdichtung: fronius {fr_before}->{fr_after} Zeilen, "
                 f"heating {ht_before}->{ht_after} Zeilen (aelter als {older_than_days}d, "
                 f"{bucket_seconds}s-Buckets)"
             )
+            try:
+                self.vacuum_if_needed(freed_rows)
+            except Exception as exc:
+                logging.warning("[DB] VACUUM-Pruefung fehlgeschlagen: %s", exc)
         return {
             "fronius": fr_before - fr_after,
             "fronius_rows_before": fr_before,
             "heating": ht_before - ht_after,
             "heating_rows_before": ht_before,
         }
+
+    def _vacuum_marker_path(self) -> Path:
+        db_path = Path(self.db_path)
+        return db_path.parent / (db_path.name + ".last_vacuum")
+
+    def _vacuum(self) -> bool:
+        """Fuehrt VACUUM aus, um durch Verdichtung frei gewordenen Platz an
+        das Dateisystem zurueckzugeben. VACUUM darf nicht innerhalb einer
+        offenen Transaktion laufen, deshalb erst commit() und danach kurz
+        auf Autocommit umschalten."""
+        with self._lock:
+            try:
+                self.conn.commit()
+                old_isolation = self.conn.isolation_level
+                self.conn.isolation_level = None
+                try:
+                    self.conn.execute("VACUUM")
+                finally:
+                    self.conn.isolation_level = old_isolation
+                logging.info("[DB] VACUUM abgeschlossen")
+                return True
+            except sqlite3.Error as exc:
+                logging.warning("[DB] VACUUM fehlgeschlagen: %s", exc)
+                return False
+
+    def vacuum_if_needed(
+        self,
+        freed_rows: int,
+        min_freed_rows: int = _VACUUM_MIN_FREED_ROWS,
+        min_interval_days: float = _VACUUM_MIN_INTERVAL_DAYS,
+    ) -> bool:
+        """Fuehrt VACUUM nur aus, wenn (a) die letzte Verdichtung wirklich
+        nennenswert Zeilen entfernt hat und (b) das letzte VACUUM lang genug
+        her ist (Marker-Datei). Verhindert, dass bei jedem App-Start ein
+        (bei groesserer DB langsames) VACUUM laeuft, obwohl kaum etwas
+        freigegeben wurde."""
+        if freed_rows < min_freed_rows:
+            return False
+        marker = self._vacuum_marker_path()
+        try:
+            if marker.exists():
+                last = datetime.fromtimestamp(marker.stat().st_mtime)
+                if datetime.now() - last < timedelta(days=min_interval_days):
+                    return False
+        except OSError:
+            pass
+        ok = self._vacuum()
+        if ok:
+            try:
+                marker.touch()
+            except OSError:
+                pass
+        return ok
+
+    def backup_database(
+        self,
+        keep: int = _BACKUP_KEEP_DEFAULT,
+        min_interval_days: float = _BACKUP_MIN_INTERVAL_DAYS,
+    ) -> Optional[Path]:
+        """Erstellt ein konsistentes Backup der SQLite-DB ueber die
+        Online-Backup-API (sqlite3.Connection.backup) - sicher auch waehrend
+        die DB im WAL-Modus aktiv beschrieben wird, im Gegensatz zu einer
+        rohen Dateikopie von nur data.db (koennte Daten aus der -wal-Datei
+        verpassen). Gedrosselt auf hoechstens einmal alle min_interval_days
+        und rotiert alte Backups (behaelt die letzten `keep`)."""
+        db_path = Path(self.db_path)
+        backup_dir = db_path.parent / _BACKUP_DIR_NAME
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logging.warning("[DB] Backup-Verzeichnis nicht verfuegbar: %s", exc)
+            return None
+
+        pattern = f"{db_path.stem}_*.db"
+        existing = sorted(backup_dir.glob(pattern))
+        if existing:
+            try:
+                last_mtime = existing[-1].stat().st_mtime
+                if datetime.now() - datetime.fromtimestamp(last_mtime) < timedelta(days=min_interval_days):
+                    return None
+            except OSError:
+                pass
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        target_path = backup_dir / f"{db_path.stem}_{timestamp}.db"
+
+        target_conn = None
+        try:
+            target_conn = sqlite3.connect(str(target_path))
+            with self._lock:
+                self.conn.commit()
+                self.conn.backup(target_conn)
+            logging.info("[DB] Backup erstellt: %s", target_path)
+        except sqlite3.Error as exc:
+            logging.warning("[DB] Backup fehlgeschlagen: %s", exc)
+            try:
+                if target_path.exists():
+                    target_path.unlink()
+            except OSError:
+                pass
+            return None
+        finally:
+            if target_conn is not None:
+                target_conn.close()
+
+        try:
+            all_backups = sorted(backup_dir.glob(pattern))
+            for old in all_backups[: max(0, len(all_backups) - keep)]:
+                old.unlink(missing_ok=True)
+        except OSError as exc:
+            logging.warning("[DB] Backup-Rotation fehlgeschlagen: %s", exc)
+
+        return target_path
 
     def seed_from_csv(self, data_dir: Optional[Path] = None) -> None:
         base = Path(data_dir) if data_dir else DATA_DIR

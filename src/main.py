@@ -318,6 +318,14 @@ def main():
     except Exception as exc:
         logging.warning("[DB] Verdichtung alter Daten uebersprungen: %s", exc)
 
+    try:
+        # Online-Backup der SQLite-DB (sqlite3 backup API, WAL-sicher).
+        # Intern gedrosselt (hoechstens 1x/Tag) und rotiert alte Backups -
+        # siehe DataStore.backup_database().
+        datastore.backup_database()
+    except Exception as exc:
+        logging.warning("[DB] Backup uebersprungen: %s", exc)
+
     env_scale = os.getenv("UI_SCALING")
 
     try:
