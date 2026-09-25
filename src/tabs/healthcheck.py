@@ -23,6 +23,14 @@ from ui.styles import (
 )
 from ui.components.card import Card
 from ui.components.tab_shell import TabShell
+from core.health import (
+    get_health_snapshot,
+    update_source_health,
+    check_tcp_reachable,
+    host_port_from_url,
+)
+from core import Wechselrichter
+from core import BMKDATEN
 
 
 def _fmt_age_minutes(dt: datetime | None) -> str:
@@ -66,6 +74,53 @@ def _max_gap_minutes(timestamps: list[str]) -> float | None:
     for a, b in zip(dts, dts[1:]):
         max_gap_s = max(max_gap_s, (b - a).total_seconds())
     return max_gap_s / 60.0
+
+
+def _fmt_age_local(dt: datetime | None) -> str:
+    """Wie _fmt_age_minutes(), aber fuer core.health-Zeitstempel.
+
+    core/health.py schreibt seine Zeitstempel mit dem lokalen, naiven
+    datetime.now() (nicht UTC wie die DB-Zeitstempel). Wuerde man hier
+    _fmt_age_minutes() wiederverwenden, wuerde das Alter um die lokale
+    UTC-Verschiebung falsch berechnet (in Oesterreich 1-2h daneben).
+    """
+    if not dt:
+        return "–"
+    now = datetime.now()
+    age_s = max(0.0, (now - dt).total_seconds())
+    if age_s < 120:
+        return f"{int(age_s)}s"
+    age_m = age_s / 60.0
+    if age_m < 120:
+        return f"{age_m:.0f}m"
+    age_h = age_m / 60.0
+    return f"{age_h:.1f}h"
+
+
+def _source_status_line(entry) -> tuple[str, str]:
+    """Formatiert einen core.health.SourceHealth-Eintrag zu (Icon, Text).
+
+    "Aktueller" Status = welches Ereignis (letzter Erfolg oder letzter
+    Fehler) zeitlich zuletzt aufgetreten ist. error_count zaehlt dagegen
+    kumulativ seit Programmstart und sagt fuer sich allein nichts darueber
+    aus, ob die Quelle gerade jetzt noch klemmt oder sich laengst wieder
+    erholt hat.
+    """
+    if entry is None or (entry.last_ok is None and entry.last_error is None):
+        return "⚪", "noch keine Daten seit Programmstart"
+
+    is_currently_ok = entry.last_ok is not None and (
+        entry.last_error is None or entry.last_ok >= entry.last_error
+    )
+    if is_currently_ok:
+        lat = f", {entry.last_latency_ms}ms" if entry.last_latency_ms is not None else ""
+        return "🟢", f"OK, letzte Daten vor {_fmt_age_local(entry.last_ok)}{lat}"
+
+    msg = f" – {entry.last_error_msg}" if entry.last_error_msg else ""
+    return "🔴", (
+        f"seit {_fmt_age_local(entry.last_error)} keine Verbindung{msg} "
+        f"({entry.error_count}x Fehler seit Programmstart)"
+    )
 
 
 class HealthTab:
@@ -130,10 +185,26 @@ class HealthTab:
         self.card_int.add_title("Integrationen", icon="🔌")
         self._health_grid = grid
 
+        # Integrations-Labels (Home Assistant/Tado/Spotify). War vorher aus
+        # Versehen in set_portrait_layout() statt hier - dadurch wurden bei
+        # jedem Wechsel Portrait/Landscape neue StringVars + Labels erzeugt
+        # und zusaetzlich in card_int gepackt, ohne die alten zu entfernen
+        # (unbegrenzt wachsende doppelte Zeilen bei jeder Drehung).
+        self.var_hue = tk.StringVar(value="Home Assistant: –")
+        self.var_tado = tk.StringVar(value="Tado: –")
+        self.var_spotify = tk.StringVar(value="Spotify: –")
+
+        body2 = ctk.CTkFrame(self.card_int.content(), fg_color="transparent")
+        body2.pack(fill=tk.BOTH, expand=True)
+        for v in (self.var_hue, self.var_tado, self.var_spotify):
+            ctk.CTkLabel(body2, textvariable=v, font=("Segoe UI", 12), text_color=COLOR_TEXT).pack(anchor="w", pady=2)
+
         # Data labels
         self.var_db = tk.StringVar(value="DB ingest: –")
         self.var_pv = tk.StringVar(value="PV: –")
         self.var_heat = tk.StringVar(value="Heizung: –")
+        self.var_pv_status = tk.StringVar(value="⚪ noch keine Daten seit Programmstart")
+        self.var_heat_status = tk.StringVar(value="⚪ noch keine Daten seit Programmstart")
         self.var_gap_pv = tk.StringVar(value="PV gap(24h): –")
         self.var_gap_heat = tk.StringVar(value="Heizung gap(24h): –")
         self.var_cache = tk.StringVar(value="Sparkline cache: –")
@@ -143,10 +214,16 @@ class HealthTab:
 
         body = ctk.CTkFrame(self.card_data.content(), fg_color="transparent")
         body.pack(fill=tk.BOTH, expand=True)
+
+        ctk.CTkLabel(body, textvariable=self.var_db, font=("Segoe UI", 14), text_color=COLOR_TEXT).pack(anchor="w", pady=4)
+
+        # PV/Heizung: Alterszeile + Live-Verbindungsstatus (core.health,
+        # von main.py's Polling-Threads befuellt) + "Jetzt prüfen"-Button,
+        # der einen echten Verbindungs-/Abrufversuch auf Knopfdruck anstoesst.
+        self._build_source_row(body, self.var_pv, self.var_pv_status, self._check_pv_now, "pv_check")
+        self._build_source_row(body, self.var_heat, self.var_heat_status, self._check_heating_now, "heat_check")
+
         for v in (
-            self.var_db,
-            self.var_pv,
-            self.var_heat,
             self.var_gap_pv,
             self.var_gap_heat,
             self.var_cache,
@@ -155,7 +232,7 @@ class HealthTab:
             self.var_last_update,
         ):
             ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 14), text_color=COLOR_TEXT).pack(anchor="w", pady=4)
-        
+
         # Load last update info on startup
         self._load_last_update_info()
 
@@ -217,15 +294,126 @@ class HealthTab:
         except Exception:
             pass
 
-        # Integration labels
-        self.var_hue = tk.StringVar(value="Home Assistant: –")
-        self.var_tado = tk.StringVar(value="Tado: –")
-        self.var_spotify = tk.StringVar(value="Spotify: –")
+    def _build_source_row(self, parent, age_var: tk.StringVar, status_var: tk.StringVar, check_cmd, btn_attr: str) -> None:
+        """Baut eine Zeile fuer eine Datenquelle (PV/Heizung): DB-Alter,
+        Live-Verbindungsstatus aus core.health und einen "Jetzt prüfen"-
+        Button, der einen echten Erreichbarkeits-/Abrufversuch anstoesst."""
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill=tk.X, pady=4)
+        row.grid_columnconfigure(0, weight=1)
 
-        body2 = ctk.CTkFrame(self.card_int.content(), fg_color="transparent")
-        body2.pack(fill=tk.BOTH, expand=True)
-        for v in (self.var_hue, self.var_tado, self.var_spotify):
-            ctk.CTkLabel(body2, textvariable=v, font=("Segoe UI", 12), text_color=COLOR_TEXT).pack(anchor="w", pady=2)
+        labels = ctk.CTkFrame(row, fg_color="transparent")
+        labels.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(labels, textvariable=age_var, font=("Segoe UI", 14), text_color=COLOR_TEXT).pack(anchor="w")
+        ctk.CTkLabel(labels, textvariable=status_var, font=("Segoe UI", 12), text_color=COLOR_SUBTEXT).pack(anchor="w")
+
+        btn = ctk.CTkButton(
+            row,
+            text="Jetzt prüfen",
+            fg_color=COLOR_CARD,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER,
+            command=check_cmd,
+            width=130,
+            height=36,
+            font=("Segoe UI", 12),
+        )
+        btn.grid(row=0, column=1, sticky="e", padx=(10, 0))
+        setattr(self, btn_attr + "_btn", btn)
+
+    def _check_pv_now(self) -> None:
+        self._check_source_now(
+            status_var=self.var_pv_status,
+            btn=getattr(self, "pv_check_btn", None),
+            host_url=Wechselrichter.FRONIUS_URL,
+            fetch_fn=Wechselrichter.abrufen_und_speichern,
+            health_name="pv",
+            label="PV",
+        )
+
+    def _check_heating_now(self) -> None:
+        self._check_source_now(
+            status_var=self.var_heat_status,
+            btn=getattr(self, "heat_check_btn", None),
+            host_url=BMKDATEN.BMK_URL,
+            fetch_fn=BMKDATEN.abrufen_und_speichern,
+            health_name="heating",
+            label="Heizung",
+        )
+
+    def _check_source_now(self, status_var: tk.StringVar, btn, host_url: str, fetch_fn, health_name: str, label: str) -> None:
+        """Manueller "Jetzt prüfen"-Check: erst TCP-Erreichbarkeit testen,
+        dann bei Erreichbarkeit einen echten Abrufversuch ueber dieselbe
+        Funktion wie das normale Polling ausfuehren. So bekommt der Nutzer
+        sofort eine Antwort ("Geraet nicht im Netz erreichbar" vs. "Geraet
+        erreichbar, aber Abruf/Parsing schlaegt fehl") statt nur auf den
+        naechsten 10s-Polling-Zyklus warten zu muessen."""
+        running_attr = f"_{health_name}_check_running"
+        if getattr(self, running_attr, False):
+            return
+        setattr(self, running_attr, True)
+        try:
+            status_var.set("⏳ Verbindungstest läuft…")
+        except Exception:
+            pass
+        try:
+            if btn is not None:
+                btn.configure(state="disabled")
+        except Exception:
+            pass
+
+        def worker() -> None:
+            # abrufen_und_speichern() selbst ruft core.health NICHT auf -
+            # das macht sonst nur der main.py-Polling-Thread. Ein manueller
+            # Check muss den core.health-Eintrag also in jedem Zweig
+            # (Erfolg wie Fehlschlag) selbst nachtragen, sonst wuerde die
+            # Statuszeile nach einem erfolgreichen "Jetzt prüfen" weiterhin
+            # den alten (roten) Zustand zeigen.
+            host, port = host_port_from_url(host_url)
+            reachable, latency_ms = check_tcp_reachable(host, port, timeout=3.0)
+            fetch_ok = False
+            fetch_error = None
+            if reachable:
+                try:
+                    result = fetch_fn()
+                    fetch_ok = result is not None
+                    if not fetch_ok:
+                        fetch_error = "Abruf lieferte keine Daten (siehe Log)"
+                except Exception as exc:
+                    fetch_error = f"{type(exc).__name__}: {exc}"
+            else:
+                fetch_error = f"Host {host}:{port} nicht erreichbar"
+
+            if fetch_ok:
+                update_source_health(health_name, ok=True, latency_ms=latency_ms)
+            else:
+                update_source_health(health_name, ok=False, error=fetch_error)
+
+            def apply() -> None:
+                try:
+                    if reachable and fetch_ok:
+                        lat = f", {latency_ms}ms" if latency_ms is not None else ""
+                        status_var.set(f"🟢 Verbindungstest OK{lat}, Abruf erfolgreich")
+                    elif reachable and not fetch_ok:
+                        status_var.set(f"🟡 Host erreichbar, aber Abruf fehlgeschlagen – {fetch_error}")
+                    else:
+                        status_var.set(f"🔴 {fetch_error}")
+                except Exception:
+                    pass
+                try:
+                    if btn is not None:
+                        btn.configure(state="normal")
+                except Exception:
+                    pass
+                setattr(self, running_attr, False)
+                self.refresh()
+
+            try:
+                self.root.after(0, apply)
+            except Exception:
+                setattr(self, running_attr, False)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_homeassistant_async(self) -> None:
         if getattr(self, "_ha_check_running", False):
@@ -714,6 +902,25 @@ class HealthTab:
             self.var_heat.set(f"Heizung last: {_fmt_age_minutes(dt)}")
         except Exception:
             self.var_heat.set("Heizung last: –")
+
+        # Live-Verbindungsstatus aus core.health (von main.py's Polling-
+        # Threads bei jedem Zyklus befuellt) - zeigt WARUM eine Quelle ggf.
+        # keine frischen Daten liefert (Verbindung verloren, Timeout, ...),
+        # statt nur wie alt der letzte DB-Eintrag ist.
+        try:
+            snapshot = get_health_snapshot()
+        except Exception:
+            snapshot = {}
+        try:
+            icon, detail = _source_status_line(snapshot.get("pv"))
+            self.var_pv_status.set(f"{icon} {detail}")
+        except Exception:
+            pass
+        try:
+            icon, detail = _source_status_line(snapshot.get("heating"))
+            self.var_heat_status.set(f"{icon} {detail}")
+        except Exception:
+            pass
 
         # Gap detection (24h)
         try:

@@ -8,6 +8,13 @@ from core.datastore import get_shared_datastore
 # Reuse TCP connections across requests
 _session = requests.Session()
 
+# Als Modul-Konstante herausgezogen (war vorher nur eine lokale Variable in
+# abrufen_und_speichern()), damit tabs/healthcheck.py denselben Host fuer
+# den Erreichbarkeits-Check ("anpingen") verwenden kann, statt die IP ein
+# zweites Mal separat zu hinterlegen (Gefahr, dass beide Stellen bei einer
+# IP-Aenderung auseinanderlaufen).
+FRONIUS_URL = "http://192.168.1.202/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
+
 
 def _resilient_get(url, timeout):
     """GET with automatic session recovery on connection errors."""
@@ -20,7 +27,7 @@ def _resilient_get(url, timeout):
 
 
 def abrufen_und_speichern():
-    url = "http://192.168.1.202/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
+    url = FRONIUS_URL
     # Throttle for timeout and warning logs
     if not hasattr(abrufen_und_speichern, "_last_timeout_log"):
         abrufen_und_speichern._last_timeout_log = 0
