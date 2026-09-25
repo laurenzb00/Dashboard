@@ -36,6 +36,22 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _first_present(raw_values: dict[str, Any], *keys: str) -> Any:
+    """Return the value of the first key that is actually present (not None).
+
+    Vorher wurde hier `raw_values.get(a) or raw_values.get(b)` verwendet -
+    das behandelt einen echten Messwert von 0/0.0 (z.B. ein unkonfigurierter
+    Puffer-Sensor oder eine reale 0-Grad-Ablesung) als "falsy" und ersetzt
+    ihn faelschlich durch den Fallback-Key/Default, obwohl der Primaerwert
+    da war. `is not None` prueft stattdessen wirklich auf Anwesenheit.
+    """
+    for key in keys:
+        value = raw_values.get(key)
+        if value is not None:
+            return value
+    return None
+
+
 def normalize_fronius(raw_json: dict[str, Any]) -> dict[str, float]:
     """Normalize Fronius inverter API JSON to schema keys.
     
@@ -76,20 +92,20 @@ def normalize_bmk(raw_values: dict[str, Any]) -> dict[str, float]:
         {'bmk_kessel_c': 45.5, 'bmk_warmwasser_c': 55.0, ...}
     """
     warmwasser = _as_float(
-        raw_values.get("Warmwasser") or raw_values.get("Warmwassertemperatur")
+        _first_present(raw_values, "Warmwasser", "Warmwassertemperatur")
     )
     return {
         BMK_KESSEL_C: _as_float(
-            raw_values.get("Kessel") or raw_values.get("Kesseltemperatur")
+            _first_present(raw_values, "Kessel", "Kesseltemperatur")
         ),
         BMK_WARMWASSER_C: warmwasser,
         BUF_TOP_C: _as_float(
-            raw_values.get("Puffer_Oben") or raw_values.get("Pufferspeicher Oben")
+            _first_present(raw_values, "Puffer_Oben", "Pufferspeicher Oben")
         ),
         BUF_MID_C: _as_float(
-            raw_values.get("Puffer_Mitte") or raw_values.get("Pufferspeicher Mitte")
+            _first_present(raw_values, "Puffer_Mitte", "Pufferspeicher Mitte")
         ),
         BUF_BOTTOM_C: _as_float(
-            raw_values.get("Puffer_Unten") or raw_values.get("Pufferspeicher Unten")
+            _first_present(raw_values, "Puffer_Unten", "Pufferspeicher Unten")
         ),
     }

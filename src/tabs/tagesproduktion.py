@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import queue
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -33,10 +32,11 @@ from ui.styles import (
 )
 from ui.components.tab_shell import TabShell
 from ui.components.metric_tile import MetricTile
+from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 
 
-class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
+class TagesproduktionTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
     """Tagesproduktion (PV-kWh pro Tag) als Linien-Diagramm.
 
     Anforderungen:
@@ -73,7 +73,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
         # GESAMTE App kurz ein, nicht nur der Chart). Gleiches Muster wie
         # tabs/hue.py: Worker-Thread + Queue-Pump statt direktem Tk-Zugriff
         # aus dem Thread heraus.
-        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._init_ui_queue()
         self._loading_token = 0
 
         # Only add to notebook if not using provided tab_frame
@@ -92,7 +92,10 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
         self._resize_job = None
         self._last_synced_wh = (0, 0)
         self._build_ui()
-        self._start_ui_pump()
+        # after_func=self.after: diese Klasse ist selbst ein tk.Frame,
+        # nutzt also ihr eigenes .after() statt self.root.after() (dem
+        # Default in UiQueuePumpMixin) - identisch zum bisherigen Verhalten.
+        self._start_ui_pump(after_func=self.after)
         self.after(180, self._update_plot)
         # Belt-and-suspenders: the figure has been observed stuck at its
         # figsize=(10.0, 4.8) default (1000x480px) even though chart_frame
@@ -260,37 +263,10 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, tk.Frame):
         self._metric_tiles["peak"].set_value(_fmt(peak))
         self._metric_tiles["last"].set_value(_fmt(last_val))
 
-    def _start_ui_pump(self) -> None:
-        def pump() -> None:
-            try:
-                if not self.winfo_exists():
-                    return
-            except Exception:
-                return
-            try:
-                while True:
-                    cb = self._ui_queue.get_nowait()
-                    try:
-                        cb()
-                    except Exception:
-                        pass
-            except queue.Empty:
-                pass
-            try:
-                self.after(200, pump)
-            except Exception:
-                pass
-
-        try:
-            self.after(0, pump)
-        except Exception:
-            pass
-
-    def _post_ui(self, callback) -> None:
-        try:
-            self._ui_queue.put(callback)
-        except Exception:
-            pass
+    # _start_ui_pump()/_post_ui(): siehe UiQueuePumpMixin
+    # (ui/components/ui_dispatch.py) - war hier vorher unabhaengig
+    # dupliziert, siehe Docstring dort fuer die Historie. Liveness-Check
+    # nutzt automatisch winfo_exists() (kein self.alive auf dieser Klasse).
 
     def _select_period(self, period: str) -> None:
         self._period_var.set(period)

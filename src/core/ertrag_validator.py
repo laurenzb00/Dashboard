@@ -61,20 +61,35 @@ def reconstruct_ertrag_from_store(store: DataStore) -> List[dict]:
 
 
 def persist_ertrag_history(store: DataStore, rows: List[dict]) -> None:
+    """Ersetzt den kompletten Inhalt von ertrag_history durch `rows`.
+
+    DELETE+INSERT liefen vorher ohne explizites try/rollback: bricht
+    executemany() mittendrin ab (z.B. eine kaputte Zeile), bleibt die
+    Tabelle bereits geleert UND die Transaktion offen - store.conn haette
+    beim naechsten Schreibzugriff (auch auf eine ganz andere Tabelle) in
+    genau dieser halb-fertigen Transaktion weitergemacht, statt sauber neu
+    zu beginnen. Gleiches Muster wie DataStore._compact_table() in
+    datastore.py: bei einem Fehler explizit zurückrollen und den Fehler
+    weiterreichen, statt ihn stillschweigend offen zu lassen.
+    """
     with store._lock:  # noqa: SLF001 - blockiert parallele Writer sauber
         cursor = store.conn.cursor()
-        cursor.execute("DELETE FROM ertrag_history")
-        cursor.executemany(
-            """
-            INSERT INTO ertrag_history (date, total_ertrag, daily_ertrag)
-            VALUES (?, ?, ?)
-            """,
-            [
-                (row["date"], row["total_ertrag"], row["daily_ertrag"])
-                for row in rows
-            ],
-        )
-        store.conn.commit()
+        try:
+            cursor.execute("DELETE FROM ertrag_history")
+            cursor.executemany(
+                """
+                INSERT INTO ertrag_history (date, total_ertrag, daily_ertrag)
+                VALUES (?, ?, ?)
+                """,
+                [
+                    (row["date"], row["total_ertrag"], row["daily_ertrag"])
+                    for row in rows
+                ],
+            )
+            store.conn.commit()
+        except Exception:
+            store.conn.rollback()
+            raise
 
 
 def get_fronius_stats(store: DataStore) -> dict:

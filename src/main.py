@@ -61,12 +61,19 @@ def ensure_emoji_font():
             # Try to install fonts-noto-color-emoji on Linux/Raspberry Pi
             try:
                 subprocess.run(["dpkg", "-l"], capture_output=True, check=True, timeout=5)
-                # apt is available, check if emoji font is installed
+                # apt is available, check if emoji font is installed.
+                # War vorher subprocess.run(["dpkg","-l","|","grep",...], shell=True):
+                # bei shell=True + Listen-Argument wird nur das ERSTE Element als
+                # Shell-Befehl verwendet, der Rest landet ungenutzt als $0,$1,... -
+                # die Pipe zu grep lief also nie, der Check pruefte de facto nichts.
+                # dpkg-query -W -f='${Status}' braucht keine Pipe/kein shell=True
+                # und ist der fuer genau diesen Zweck vorgesehene dpkg-Befehl.
                 result = subprocess.run(
-                    ["dpkg", "-l", "|", "grep", "fonts-noto-color-emoji"],
-                    shell=True, capture_output=True, text=True, timeout=5
+                    ["dpkg-query", "-W", "-f=${Status}", "fonts-noto-color-emoji"],
+                    capture_output=True, text=True, timeout=5,
                 )
-                if result.returncode != 0:
+                already_installed = result.returncode == 0 and "installed" in result.stdout
+                if not already_installed:
                     print("[EMOJI] Installing fonts-noto-color-emoji...")
                     subprocess.run(
                         ["sudo", "apt-get", "install", "-y", "fonts-noto-color-emoji"],
@@ -451,8 +458,27 @@ def main():
             # Debug prints and placeholder code removed for production cleanup
 
 def run_with_restart():
-    """Run main() and restart on crash unless exit requested."""
+    """Run main() and restart on crash unless exit requested.
+
+    Retried vorher immer mit fixen 3s, egal wie oft main() direkt
+    hintereinander abstuerzt (z.B. Platte voll durch wachsende Logs, oder
+    ein Fehler gleich beim Start wie ein kaputter Tk/Display- oder DB-Open-
+    Aufruf) - eine dauerhafte Fehlerursache drehte sich damit endlos im
+    3s-Takt, statt sich zu "beruhigen". Jetzt: exponentieller Backoff
+    (3s, 6s, 12s, ... bis max. 5 Minuten), der sich zuruecksetzt, sobald
+    das Dashboard eine Weile (>5 Minuten) stabil lief - ein einzelner
+    seltener Absturz nach Tagen im Betrieb wird also weiterhin sofort mit
+    kurzem Delay neu gestartet, nur eine Crash-Schleife bremst sich selbst.
+    """
+    import time as _time
+
     exit_requested = False
+    base_delay = 3.0
+    max_delay = 300.0
+    stable_after_s = 300.0
+    consecutive_crashes = 0
+    last_crash_ts = None
+
     while not exit_requested:
         try:
             main()
@@ -460,14 +486,29 @@ def run_with_restart():
         except SystemExit:
             exit_requested = True  # Explicit exit (exit button, pkill, etc.)
         except Exception as e:
-            logger.error("Crash detected: %s. Restarting in 3 seconds...", e)
-            import time
-            time.sleep(3)
-            # Optionally log crash details here
+            now = _time.time()
+            if last_crash_ts is not None and (now - last_crash_ts) > stable_after_s:
+                consecutive_crashes = 0
+            consecutive_crashes += 1
+            last_crash_ts = now
+            delay = min(max_delay, base_delay * (2 ** (consecutive_crashes - 1)))
+            logger.error(
+                "Crash detected (#%d in a row): %s. Restarting in %.0f seconds...",
+                consecutive_crashes, e, delay,
+            )
+            _time.sleep(delay)
         except:
-            logger.critical("Fatal error. Restarting in 3 seconds...")
-            import time
-            time.sleep(3)
+            now = _time.time()
+            if last_crash_ts is not None and (now - last_crash_ts) > stable_after_s:
+                consecutive_crashes = 0
+            consecutive_crashes += 1
+            last_crash_ts = now
+            delay = min(max_delay, base_delay * (2 ** (consecutive_crashes - 1)))
+            logger.critical(
+                "Fatal error (#%d in a row). Restarting in %.0f seconds...",
+                consecutive_crashes, delay,
+            )
+            _time.sleep(delay)
 
 if __name__ == "__main__":
     run_with_restart()

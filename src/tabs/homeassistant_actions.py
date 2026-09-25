@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import queue
 import threading
 import tkinter as tk
 from typing import Any, Dict, List, Optional
@@ -10,6 +9,7 @@ import customtkinter as ctk
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.card import Card
 from ui.components.tab_shell import TabShell
+from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, emoji, get_safe_font
 
 
@@ -53,7 +53,7 @@ def _categorize_action(label: str) -> tuple[str, str]:
     return _GROUP_FALLBACK
 
 
-class HomeAssistantActionsTab:
+class HomeAssistantActionsTab(UiQueuePumpMixin):
     """Home Assistant actions tab.
 
     - If `actions` are configured in config/homeassistant.json, those are shown.
@@ -78,7 +78,7 @@ class HomeAssistantActionsTab:
         self.status_var = tk.StringVar(value="Home Assistant: –")
 
         # Tkinter is not thread-safe. Background workers must not call Tk APIs.
-        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._init_ui_queue()
 
         if tab_frame is not None:
             self.tab_frame = tab_frame
@@ -98,37 +98,10 @@ class HomeAssistantActionsTab:
     def cleanup(self) -> None:
         self.alive = False
 
-    def _start_ui_pump(self) -> None:
-        def pump() -> None:
-            if not self.alive:
-                return
-            try:
-                while True:
-                    cb = self._ui_queue.get_nowait()
-                    try:
-                        cb()
-                    except Exception:
-                        pass
-            except queue.Empty:
-                pass
-
-            try:
-                self.root.after(50, pump)
-            except Exception:
-                pass
-
-        try:
-            self.root.after(0, pump)
-        except Exception:
-            pass
-
-    def _post_ui(self, callback) -> None:
-        try:
-            if not self.alive:
-                return
-            self._ui_queue.put(callback)
-        except Exception:
-            pass
+    # _start_ui_pump()/_post_ui(): siehe UiQueuePumpMixin
+    # (ui/components/ui_dispatch.py) - war hier vorher (mit zuletzt 50ms
+    # Poll-Intervall, abweichend von den anderen Tabs) unabhaengig
+    # dupliziert, siehe Docstring dort fuer die Historie.
 
     def _build_ui(self) -> None:
         self._shell = TabShell(

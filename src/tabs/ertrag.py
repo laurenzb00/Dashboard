@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 from datetime import date
-import queue
 import threading
 import tkinter as tk
 from tkinter import ttk
 import customtkinter as ctk
 import numpy as np
 from core.datastore import get_shared_datastore
+from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -34,7 +34,7 @@ _STROMPREIS_EUR_KWH = 0.25
 _EINSPEISETARIF_EUR_KWH = 0.08
 
 
-class ErtragTab:
+class ErtragTab(UiQueuePumpMixin):
     """PV-Ertrag pro Tag über längeren Zeitraum."""
 
     def __init__(self, root: tk.Tk, notebook: ttk.Notebook, tab_frame=None):
@@ -45,7 +45,7 @@ class ErtragTab:
         # Zeitraum-Wechsel lief bisher synchron im Tk-Main-Thread (DB-Query +
         # kWh-Integration + Monats-Query) - die ganze App fror dabei kurz ein.
         # Gleiches Worker-Thread+Queue-Muster wie tabs/hue.py.
-        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._init_ui_queue()
         self._update_token = 0
         self._start_ui_pump()
 
@@ -388,36 +388,9 @@ class ErtragTab:
             series.append((ts, float(pv_kwh)))
         return series
 
-    def _start_ui_pump(self) -> None:
-        def pump() -> None:
-            if not self.alive:
-                return
-            try:
-                while True:
-                    cb = self._ui_queue.get_nowait()
-                    try:
-                        cb()
-                    except Exception:
-                        pass
-            except queue.Empty:
-                pass
-            try:
-                self.root.after(200, pump)
-            except Exception:
-                pass
-
-        try:
-            self.root.after(0, pump)
-        except Exception:
-            pass
-
-    def _post_ui(self, callback) -> None:
-        try:
-            if not self.alive:
-                return
-            self._ui_queue.put(callback)
-        except Exception:
-            pass
+    # _start_ui_pump()/_post_ui(): siehe UiQueuePumpMixin
+    # (ui/components/ui_dispatch.py) - war hier vorher unabhaengig
+    # dupliziert, siehe Docstring dort fuer die Historie.
 
     def _select_period(self, period: str) -> None:
         """Wechselt Zeitraum und aktualisiert Button-Farben."""

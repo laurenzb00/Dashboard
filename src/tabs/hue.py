@@ -10,7 +10,6 @@ The UI lists Home Assistant scenes (scene.*) and triggers `scene.turn_on`.
 
 from __future__ import annotations
 
-import queue
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -23,6 +22,7 @@ import customtkinter as ctk
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.card import Card
 from ui.components.tab_shell import TabShell
+from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import COLOR_BORDER, COLOR_CARD, COLOR_ROOT, COLOR_SUBTEXT, COLOR_TEXT, COLOR_WARNING, get_safe_font, emoji
 
 
@@ -107,7 +107,7 @@ class _HomeAssistantBridgeAdapter:
             return {"state": {"any_on": False}}
 
 
-class HueTab:
+class HueTab(UiQueuePumpMixin):
     """Home Assistant scenes controller (keeps HueTab name for compatibility)."""
 
     def __init__(self, root, notebook, tab_frame=None):
@@ -136,7 +136,7 @@ class HueTab:
 
         # Tkinter is not thread-safe. Background workers must not call Tk APIs.
         # We route UI updates through this queue and execute them on the main thread.
-        self._ui_queue: "queue.Queue[callable]" = queue.Queue()
+        self._init_ui_queue()
 
         if tab_frame is not None:
             self.tab_frame = tab_frame
@@ -151,43 +151,10 @@ class HueTab:
         self._refresh_vorraum_status_async()
         self._schedule_vorraum_poll()
 
-    def _start_ui_pump(self) -> None:
-        def pump() -> None:
-            if not self.alive:
-                return
-            try:
-                while True:
-                    cb = self._ui_queue.get_nowait()
-                    try:
-                        cb()
-                    except Exception:
-                        pass
-            except queue.Empty:
-                pass
-
-            try:
-                # War 200ms (davor 50ms, ebenfalls "to reduce main thread
-                # load" verlangsamt - siehe dieselbe Begruendung/Aenderung
-                # bei ui/app.py's zentraler UI-Queue). Laut Task-Manager
-                # deutlich Luft auf dem Pi (Python-Prozess nur ~4.6% CPU) -
-                # zurueck auf 50ms, konsistent mit homeassistant_actions.py,
-                # das schon laenger mit 50ms laeuft.
-                self.root.after(50, pump)
-            except Exception:
-                pass
-
-        try:
-            self.root.after(0, pump)
-        except Exception:
-            pass
-
-    def _post_ui(self, callback) -> None:
-        try:
-            if not self.alive:
-                return
-            self._ui_queue.put(callback)
-        except Exception:
-            pass
+    # _start_ui_pump()/_post_ui(): siehe UiQueuePumpMixin
+    # (ui/components/ui_dispatch.py) - war hier vorher (mit zuletzt 50ms
+    # Poll-Intervall, abweichend von den anderen Tabs) unabhaengig
+    # dupliziert, siehe Docstring dort fuer die Historie.
 
     # --- public API used by app.py ---
     def cleanup(self) -> None:

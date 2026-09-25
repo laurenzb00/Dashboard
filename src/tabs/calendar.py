@@ -1,3 +1,6 @@
+import json
+import logging
+import os
 import threading
 import queue
 import time
@@ -25,13 +28,34 @@ from ui.styles import (
 from ui.components.card import Card
 from ui.components.tab_shell import TabShell
 
+logger = logging.getLogger(__name__)
+
 # --- KONFIGURATION ---
-ICAL_URLS = [
-    "https://calendar.google.com/calendar/ical/laurenzbandzauner%40gmail.com/private-ee12d630b1b19a7f6754768f56f1a76c/basic.ics",
-    "https://calendar.google.com/calendar/ical/ukrkc67kki9lm9lllj6l0je1ag%40group.calendar.google.com/public/basic.ics",
-    "https://calendar.google.com/calendar/ical/h53q4om49cgioc2gff7j5r5pi4%40group.calendar.google.com/public/basic.ics",
-    "https://calendar.google.com/calendar/ical/pehhg3u2a6ha539oql87fuao0j9aqteu%40import.calendar.google.com/public/basic.ics"
-]
+# Die iCal-URLs (insbesondere die private mit eingebettetem Geheim-Token)
+# standen hier vorher direkt im Quellcode - wer Zugriff auf die Dateien
+# hatte, konnte damit den privaten Kalender lesen. Jetzt wie bei
+# BMKDATEN.py/homeassistant.py in config/calendar.json ausgelagert, die
+# (wie die anderen Config-Dateien mit Geheimnissen) per .gitignore vom
+# Repo ausgeschlossen ist. config/calendar.example.json zeigt das Format.
+_CONFIG_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "config", "calendar.json"
+)
+
+
+def _load_ical_urls() -> list[str]:
+    try:
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        urls = cfg.get("ical_urls", [])
+        if urls:
+            return list(urls)
+        logger.warning("config/calendar.json enthaelt keine ical_urls")
+    except Exception as e:
+        logger.warning(f"Konnte Kalender-Config nicht laden ({_CONFIG_PATH}): {e}")
+    return []
+
+
+ICAL_URLS = _load_ical_urls()
 
 class CalendarTab:
     """Moderne Kalenderansicht mit Card-Layout."""
