@@ -442,7 +442,12 @@ class EnergyFlowView(tk.Frame):
         # und dem Versatz) ist dadurch automatisch groesser als
         # row_gap_bottom allein - der Versatz kann die oben berechnete
         # Mindest-Clearance also nur vergroessern, nie verkleinern.
-        battery_shift = int(r * 0.9)
+        # War 0.9r - auf Wunsch deutlich weiter nach links (die Batterie
+        # sollte spuerbar aus dem Weg von Haus/SoC-Ring stehen, nicht nur
+        # knapp daneben). PV/Grid sind bei der Batterie-Tiefe (battery_y)
+        # vertikal laengst weit genug entfernt, dass ein groesserer
+        # horizontaler Versatz dort nicht in Konflikt geraet.
+        battery_shift = int(r * 1.7)
         battery_x = max(margin_x + r, home_x - battery_shift)
 
         return {
@@ -1032,10 +1037,9 @@ class EnergyFlowView(tk.Frame):
         )
 
         # SoC percentage next to/inside the ring - red only when critically low.
-        # War 0.45x - auf Wunsch vergroessert, damit die Prozentzahl in der
-        # Batterie-Bubble besser lesbar ist.
+        # War zuerst 0.45x, dann 0.58x - auf Wunsch nochmal deutlich groesser.
         soc_color = COLOR_BATTERY_LOW if soc < 20 else COLOR_TEXT
-        soc_font_size = max(_s(18), int(self.node_radius * 0.58))
+        soc_font_size = max(_s(20), int(self.node_radius * 0.78))
         self._text_center(draw, f"{soc:.0f}%", bat[0], bat[1], size=soc_font_size, color=soc_color, outline=True)
         return img
 
