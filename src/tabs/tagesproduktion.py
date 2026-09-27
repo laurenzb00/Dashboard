@@ -29,10 +29,12 @@ from ui.styles import (
     BUTTON_HEIGHT_SECONDARY,
     PADDING_SECTION,
     emoji,
+    get_safe_font,
 )
 from ui.components.tab_shell import TabShell
 from ui.components.metric_tile import MetricTile
 from ui.components.ui_dispatch import UiQueuePumpMixin
+from ui.components.chart_style import apply_chart_style
 from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 
 
@@ -124,7 +126,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame
             text="Zeitraum:",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            font=("Segoe UI", FONT_SIZE_SUBTITLE),
+            font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE),
         ).pack(side=tk.LEFT, padx=(0, 8))
 
         import customtkinter as ctk
@@ -133,7 +135,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame
             btn = ctk.CTkButton(
                 period_frame,
                 text=period,
-                font=("Segoe UI", FONT_SIZE_BODY, "bold"),
+                font=get_safe_font("Bahnschrift", FONT_SIZE_BODY, "bold"),
                 width=100,
                 height=BUTTON_HEIGHT_SECONDARY,
                 corner_radius=14,
@@ -216,7 +218,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame
             text="",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            font=("Segoe UI", 11),
+            font=get_safe_font("Bahnschrift", 11),
             anchor="w",
             justify=tk.LEFT,
         )
@@ -421,16 +423,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame
         return out
 
     def _style_axes(self) -> None:
-        self.ax.set_facecolor(COLOR_ROOT)
-        self.ax.spines["top"].set_visible(False)
-        self.ax.spines["right"].set_visible(False)
-        self.ax.spines["left"].set_color(COLOR_BORDER)
-        self.ax.spines["bottom"].set_color(COLOR_BORDER)
-        self.ax.spines["left"].set_linewidth(0.6)
-        self.ax.spines["bottom"].set_linewidth(0.6)
-        self.ax.tick_params(axis="both", which="major", labelsize=9, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        self.ax.grid(True, axis="y", color=COLOR_BORDER, alpha=0.08, linewidth=0.6)
-        self.ax.grid(False, axis="x")
+        apply_chart_style(self.ax, grid_axis="y")
 
     def _update_plot(self) -> None:
         window_days = int(self._period_map.get(self._period_var.get(), 30))

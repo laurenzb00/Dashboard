@@ -97,7 +97,7 @@ class SystemTab:
     def _create_cpu_card(self, parent) -> Card:
         """CPU Usage Card with circular progress."""
         card = Card(parent, padding=16)
-        card.add_title("CPU", icon="⚙️")
+        card.add_title("CPU", glyph="gear")
         
         # Canvas for circular progress
         self.cpu_canvas = tk.Canvas(card.content(), width=100, height=100, 
@@ -117,7 +117,7 @@ class SystemTab:
     def _create_ram_card(self, parent) -> Card:
         """RAM Usage Card with circular progress."""
         card = Card(parent, padding=16)
-        card.add_title("RAM", icon="💾")
+        card.add_title("RAM", glyph="chip")
         
         # Canvas for circular progress
         self.ram_canvas = tk.Canvas(card.content(), width=100, height=100, 
@@ -137,7 +137,7 @@ class SystemTab:
     def _create_disk_card(self, parent) -> Card:
         """Disk Usage Card with circular progress."""
         card = Card(parent, padding=16)
-        card.add_title("SD-Karte", icon="💿")
+        card.add_title("SD-Karte", glyph="sdcard")
         
         # Canvas for circular progress
         self.disk_canvas = tk.Canvas(card.content(), width=100, height=100, 
@@ -157,7 +157,7 @@ class SystemTab:
     def _create_temp_card(self, parent) -> Card:
         """Temperature Card."""
         card = Card(parent, padding=16)
-        card.add_title("Temperatur", icon="🌡️")
+        card.add_title("Temperatur", glyph="thermometer")
         
         temp_label = tk.Label(card.content(), textvariable=self.var_temp, 
                               font=("Segoe UI", 28, "bold"), fg=COLOR_WARNING, bg=COLOR_CARD)
@@ -168,7 +168,7 @@ class SystemTab:
     def _create_uptime_card(self, parent) -> Card:
         """Uptime Card."""
         card = Card(parent, padding=16)
-        card.add_title("Uptime", icon="⏱️")
+        card.add_title("Uptime", glyph="clock")
         
         uptime_label = tk.Label(card.content(), textvariable=self.var_uptime, 
                                 font=("Segoe UI", 18, "bold"), fg=COLOR_SUCCESS, bg=COLOR_CARD)
@@ -187,7 +187,7 @@ class SystemTab:
     def _create_network_card(self, parent) -> Card:
         """Network Traffic Card."""
         card = Card(parent, padding=16)
-        card.add_title("Netzwerk", icon="📡")
+        card.add_title("Netzwerk", glyph="antenna")
         
         # Upload
         upload_frame = tk.Frame(card.content(), bg=COLOR_CARD)

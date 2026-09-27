@@ -24,6 +24,7 @@ from ui.styles import (
     BUTTON_HEIGHT_SECONDARY,
     PADDING_SECTION,
     emoji,
+    get_safe_font,
 )
 from ui.views.energy_chart import build_energy_chart
 from ui.components.tab_shell import TabShell
@@ -79,7 +80,6 @@ class ErtragTab(UiQueuePumpMixin):
         # Portrait-only metrics panel; hidden (minsize=0) until set_portrait_layout(True).
         self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
         self.tab_frame.grid_rowconfigure(2, weight=1)
-        self.tab_frame.grid_rowconfigure(3, minsize=40)
         self.tab_frame.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self.tab_frame, bg=COLOR_CARD)
@@ -88,7 +88,7 @@ class ErtragTab(UiQueuePumpMixin):
         # Zeitraum-Wahl: Touch-freundliche Buttons statt Combobox
         period_frame = tk.Frame(topbar, bg=COLOR_CARD)
         period_frame.pack(side=tk.RIGHT, padx=(0, 12))
-        tk.Label(period_frame, text="Zeitraum:", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE)).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Label(period_frame, text="Zeitraum:", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE)).pack(side=tk.LEFT, padx=(0, 10))
         
         # Touch-freundliche Button-Gruppe - war zuvor rohes tk.Button ohne
         # jede Rundung (einziger noch eckiger Zeitraum-Wahlschalter, waehrend
@@ -99,7 +99,7 @@ class ErtragTab(UiQueuePumpMixin):
             btn = ctk.CTkButton(
                 period_frame,
                 text=period,
-                font=("Segoe UI", FONT_SIZE_BODY, "bold"),
+                font=get_safe_font("Bahnschrift", FONT_SIZE_BODY, "bold"),
                 width=100,
                 height=BUTTON_HEIGHT_SECONDARY,
                 corner_radius=14,
@@ -109,12 +109,18 @@ class ErtragTab(UiQueuePumpMixin):
             self._period_buttons[period] = btn
         self._update_period_button_colors()
 
-        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_SUBTITLE, "bold"))
+        self.topbar_status = tk.Label(topbar, text="", bg=COLOR_CARD, fg=COLOR_SUBTEXT, font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE, "bold"))
         self.topbar_status.pack(side=tk.RIGHT)
 
-        # Portrait-only metrics panel: mirrors the stats_frame values below so
-        # the extra vertical height in portrait mode isn't left empty. Built
-        # eagerly but not gridded until set_portrait_layout(True) grids it.
+        # Portrait-only metrics panel (gleiches Muster wie historical.py/
+        # tagesproduktion.py). Zeigte bisher nur 5 der 6 Kennzahlen - die
+        # Monatsvergleich-Zahl lief separat ueber die stats_frame-Zeile
+        # unten, die es NUR in ertrag.py gab (in historical.py/
+        # tagesproduktion.py gibt es in Landscape gar keine zweite,
+        # textbasierte Kennzahlen-Zeile). Diese Redundanz aus zwei
+        # unterschiedlich gestalteten Leisten fuer dieselben Werte wirkte
+        # uneinheitlich - jetzt gibt es nur noch die MetricTile-Reihe, dafuer
+        # mit dem Monatsvergleich als 6. Kachel statt eigener Zeile.
         self.metrics_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         for col in range(3):
             self.metrics_frame.grid_columnconfigure(col, weight=1)
@@ -127,6 +133,7 @@ class ErtragTab(UiQueuePumpMixin):
             ("diff", "Differenz", COLOR_SUBTEXT),
             ("autarkie", "Autarkie", COLOR_SUCCESS),
             ("ersparnis", "Ersparnis", COLOR_PRIMARY),
+            ("monthly", "Monatsvergleich", COLOR_SUBTEXT),
         ]
         for idx, (key, caption, color) in enumerate(tile_specs):
             tile = MetricTile(self.metrics_frame, caption, value_color=color)
@@ -167,29 +174,6 @@ class ErtragTab(UiQueuePumpMixin):
         # <Configure> alone isn't a reliable signal for that transition.
         self.energy_chart.canvas_widget.bind("<Map>", lambda _event: self.energy_chart.refresh_size())
 
-        # Six labels packed side=LEFT/RIGHT in one row with no wrapping: on a
-        # narrow portrait width they simply overflow past the window edge
-        # instead of shrinking, which looks like the UI is "abgeschnitten".
-        # The portrait metrics_frame above already shows the same numbers as
-        # tiles, so this row is redundant there anyway - hide it in portrait
-        # (see set_portrait_layout) instead of trying to make six
-        # side-by-side labels wrap.
-        stats_frame = tk.Frame(self.tab_frame, bg=COLOR_CARD, highlightthickness=1, highlightbackground=COLOR_BORDER)
-        self.stats_frame = stats_frame
-        stats_frame.grid(row=3, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
-        self.var_sum = tk.StringVar(value="PV: -- kWh")
-        self.var_avg = tk.StringVar(value="Verbrauch: -- kWh")
-        self.var_last = tk.StringVar(value="Δ: -- kWh")
-        self.var_autarkie = tk.StringVar(value="Autarkie: --%")
-        self.var_ersparnis = tk.StringVar(value="Ersparnis: -- €")
-        self.var_monthly = tk.StringVar(value="")
-        tk.Label(stats_frame, textvariable=self.var_sum, bg=COLOR_ROOT, fg=COLOR_TEXT, font=("Segoe UI", FONT_SIZE_BODY, "bold")).pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(stats_frame, textvariable=self.var_avg, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_BODY)).pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(stats_frame, textvariable=self.var_last, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_BODY)).pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(stats_frame, textvariable=self.var_autarkie, bg=COLOR_ROOT, fg=COLOR_SUCCESS, font=("Segoe UI", FONT_SIZE_BODY, "bold")).pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(stats_frame, textvariable=self.var_ersparnis, bg=COLOR_ROOT, fg=COLOR_PRIMARY, font=("Segoe UI", FONT_SIZE_BODY, "bold")).pack(side=tk.LEFT, padx=(0, 16))
-        tk.Label(stats_frame, textvariable=self.var_monthly, bg=COLOR_ROOT, fg=COLOR_SUBTEXT, font=("Segoe UI", FONT_SIZE_BODY)).pack(side=tk.RIGHT, padx=(16, 0))
-
         self._last_key = None
         self.store = get_shared_datastore()
         self._update_task_id = self.root.after(100, self._update_plot)
@@ -207,19 +191,9 @@ class ErtragTab(UiQueuePumpMixin):
         if portrait:
             self.tab_frame.grid_rowconfigure(1, minsize=150, weight=0)
             self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
-            # stats_frame duplicates these same numbers as plain packed
-            # labels that don't wrap on a narrow width - hide it in portrait
-            # (metrics_frame already covers it) and give that row back to
-            # the chart instead of leaving an overflowing/clipped row.
-            if hasattr(self, "stats_frame"):
-                self.stats_frame.grid_remove()
-                self.tab_frame.grid_rowconfigure(3, minsize=0, weight=0)
         else:
             self.metrics_frame.grid_remove()
             self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
-            if hasattr(self, "stats_frame"):
-                self.stats_frame.grid(row=3, column=0, sticky="ew", padx=PADDING_SECTION, pady=(8, PADDING_SECTION))
-                self.tab_frame.grid_rowconfigure(3, minsize=40, weight=0)
         # Row 1/3 changing size changes how tall row 2 (the chart) ends up -
         # force a resize pass instead of hoping a <Configure> event cascades
         # down reliably.
@@ -623,9 +597,6 @@ class ErtragTab(UiQueuePumpMixin):
         diff_kwh = pv_kwh - load_kwh
         label = self._period_var.get()
         self.topbar_status.config(text=label)
-        self.var_sum.set(f"PV ({label}): {pv_kwh:.1f} kWh")
-        self.var_avg.set(f"Verbrauch: {load_kwh:.1f} kWh")
-        self.var_last.set(f"Δ: {diff_kwh:+.1f} kWh")
         self._set_tile("pv", f"{pv_kwh:.1f} kWh")
         self._set_tile("verbrauch", f"{load_kwh:.1f} kWh")
         self._set_tile("diff", f"{diff_kwh:+.1f} kWh")
@@ -633,20 +604,16 @@ class ErtragTab(UiQueuePumpMixin):
         # Autarkiegrad: 1 - (Netzbezug / Gesamtverbrauch)
         if load_kwh > 0.1:
             autarkie_pct = max(0.0, min(100.0, (1.0 - grid_import_kwh / load_kwh) * 100.0))
-            self.var_autarkie.set(f"Autarkie: {autarkie_pct:.0f}%")
             self._set_tile("autarkie", f"{autarkie_pct:.0f}%")
         else:
-            self.var_autarkie.set("Autarkie: --%")
             self._set_tile("autarkie", "--%")
 
         # Kostenersparnis: Eigenverbrauch × Strompreis + Einspeisung × Einspeisetarif
         eigenverbrauch_kwh = max(0.0, pv_kwh - grid_export_kwh)
         ersparnis_eur = eigenverbrauch_kwh * _STROMPREIS_EUR_KWH + grid_export_kwh * _EINSPEISETARIF_EUR_KWH
         if pv_kwh > 0.1:
-            self.var_ersparnis.set(f"Ersparnis: {ersparnis_eur:.2f} €")
             self._set_tile("ersparnis", f"{ersparnis_eur:.2f} €")
         else:
-            self.var_ersparnis.set("Ersparnis: -- €")
             self._set_tile("ersparnis", "-- €")
 
         if monthly:
@@ -655,9 +622,9 @@ class ErtragTab(UiQueuePumpMixin):
                 month_str = m.get("month", "")[:7]  # YYYY-MM
                 kwh = float(m.get("pv_kwh", 0.0))
                 parts.append(f"{month_str}: {kwh:.0f} kWh")
-            self.var_monthly.set(" | ".join(parts))
+            self._set_tile("monthly", " | ".join(parts))
         else:
-            self.var_monthly.set("")
+            self._set_tile("monthly", "--")
 
         self._update_task_id = self.root.after(60 * 1000, self._update_plot)
 

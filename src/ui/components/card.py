@@ -30,19 +30,46 @@ class Card(ctk.CTkFrame):
         """Gibt den inneren Container zurück."""
         return self.inner
 
-    def add_title(self, text: str, icon: str | None = None) -> ctk.CTkFrame:
+    def add_title(
+        self,
+        text: str,
+        icon: str | None = None,
+        glyph: str | None = None,
+        glyph_color: str | None = None,
+    ) -> ctk.CTkFrame:
+        """Baut die Titel-Zeile einer Card.
+
+        `icon` ist ein rohes Emoji-Zeichen (Rueckwaerts-kompatibel zu allen
+        bestehenden Aufrufen). `glyph` nimmt stattdessen den Namen einer
+        gezeichneten Glyphe aus glyph_icon.py (gleiche "Glas"-Optik wie die
+        Header-Aktions-Icons) - hochwertiger als ein rohes Systememoji und
+        in `glyph_color` einfaerbbar (Default: COLOR_TITLE, wie der Text).
+        Beide Label-Referenzen haengen als header.icon_label/.title_label
+        am zurueckgegebenen Frame, falls ein Aufrufer sie spaeter (z.B. zum
+        Umfaerben) braucht.
+        """
         header = ctk.CTkFrame(self.inner, fg_color="transparent")
         header.pack(fill=tk.X, pady=0, padx=0)
 
-        if icon:
+        icon_label = None
+        if glyph:
+            from ui.components.glyph_icon import ctk_icon
+            image = ctk_icon(glyph, glyph_color or COLOR_TITLE, size=20)
+            icon_label = ctk.CTkLabel(header, image=image, text="")
+            icon_label.pack(side=tk.LEFT, padx=(0, 6))
+        elif icon:
             icon_text = emoji(icon, "")
             if icon_text:
-                ctk.CTkLabel(header, text=icon_text, font=get_safe_font("Bahnschrift", 17), text_color=COLOR_TITLE).pack(side=tk.LEFT, padx=(0, 6))
+                icon_label = ctk.CTkLabel(header, text=icon_text, font=get_safe_font("Bahnschrift", 17), text_color=COLOR_TITLE)
+                icon_label.pack(side=tk.LEFT, padx=(0, 6))
 
-        ctk.CTkLabel(
+        title_label = ctk.CTkLabel(
             header,
             text=text,
             font=get_safe_font("Bahnschrift", 17, "bold"),
             text_color=COLOR_TITLE,
-        ).pack(side=tk.LEFT)
+        )
+        title_label.pack(side=tk.LEFT)
+        header.icon_label = icon_label
+        header.title_label = title_label
         return header

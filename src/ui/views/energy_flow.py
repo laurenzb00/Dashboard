@@ -998,6 +998,54 @@ class EnergyFlowView(tk.Frame):
         if extent > 0:
             draw.arc(bbox, start=-90, end=-90 + extent, fill=color, width=6)
 
+    def _draw_autarky_chip(self, draw: ImageDraw.ImageDraw, x: int, y: int, load_w: float, grid_w: float) -> None:
+        """Kleiner Kennzahlen-Chip unten rechts, spiegelbildlich zur Batterie
+        unten links. Seit die Batterie "ganz nach links" gepinnt wurde (statt
+        zentriert unter dem Haus-Knoten, siehe _define_nodes()), blieb der
+        untere rechte Quadrant der Karte leer und die Komposition wirkte
+        unausbalanciert. Zeigt den aktuellen Autarkiegrad (nicht taeglich
+        akkumuliert - diese View hat nur Momentanleistungen, keine
+        Tagesenergie wie ertrag.py) als kompakte, klar von den Fluss-Knoten
+        abgesetzte Rechteck-Karte statt eines weiteren Kreises, damit sie
+        nicht wie ein zusaetzlicher (unverbundener) Energiefluss-Knoten
+        missverstanden wird.
+        """
+        r = self.node_radius
+        chip_w = r * 2.3
+        chip_h = r * 1.3
+        box = [x - chip_w / 2, y - chip_h / 2, x + chip_w / 2, y + chip_h / 2]
+        radius = min(chip_h, chip_w) * 0.28
+        draw.rounded_rectangle(
+            box,
+            radius=radius,
+            fill=self._with_alpha(COLOR_CARD, 235),
+            outline=self._with_alpha(COLOR_BORDER, 220),
+            width=2,
+        )
+
+        grid_import_w = max(0.0, grid_w)
+        if load_w > 50:
+            autarky_pct = max(0.0, min(100.0, (1.0 - grid_import_w / load_w) * 100.0))
+        else:
+            # Kaum/kein Hausverbrauch: Netzbezug (falls doch vorhanden) waere
+            # unplausibel gross relativ zur Last - konservativ 0% statt einer
+            # Division nahe Null, die sonst wild schwankende Werte ergibt.
+            autarky_pct = 100.0 if grid_import_w <= 50 else 0.0
+
+        value_size = max(_s(16), int(r * 0.42))
+        unit_size = max(_s(8), int(r * 0.17))
+        self._draw_value_unit(
+            draw,
+            f"{autarky_pct:.0f}%",
+            "Autarkie",
+            x,
+            y,
+            value_size=value_size,
+            unit_size=unit_size,
+            value_color=COLOR_BATTERY_OK if autarky_pct >= 50 else COLOR_TEXT,
+            unit_color=COLOR_SUBTEXT,
+        )
+
     def render_frame(self, pv_w: float, load_w: float, grid_w: float, batt_w: float, soc: float) -> Image.Image:
         img = self._base_img.copy()
         draw = ImageDraw.Draw(img)
@@ -1095,6 +1143,14 @@ class EnergyFlowView(tk.Frame):
         soc_color = COLOR_BATTERY_LOW if display_soc < 20 else COLOR_TEXT
         soc_font_size = max(_s(20), int(self.node_radius * 0.78))
         self._text_center(draw, f"{display_soc:.0f}%", bat[0], bat[1], size=soc_font_size, color=soc_color, outline=True)
+
+        # Autarkie-Chip unten rechts, spiegelbildlich zur Batterie unten
+        # links (siehe _draw_autarky_chip()-Docstring) - fuellt den seit dem
+        # Links-Pin der Batterie leeren Quadranten.
+        margin_x = int(self.width * 0.05)
+        chip_x = self.width - margin_x - self.node_radius
+        chip_y = bat[1]
+        self._draw_autarky_chip(draw, chip_x, chip_y, load_w, grid_w)
         return img
 
     def stop(self):

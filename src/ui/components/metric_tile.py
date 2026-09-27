@@ -58,10 +58,13 @@ class MetricTile(ctk.CTkFrame):
         header = ctk.CTkFrame(inner, fg_color="transparent")
         header.pack(anchor="w", fill=tk.X)
 
+        # War bisher Segoe UI - Bruch mit dem Rest der Kachel (Caption/Wert
+        # laufen beide in Bahnschrift). Zusaetzlich 11->13, da der Punkt aus
+        # ein paar Metern Kiosk-Betrachtungsabstand kaum auffiel.
         self.accent_label = ctk.CTkLabel(
             header,
             text=(icon or "●"),
-            font=get_safe_font("Segoe UI", 11),
+            font=get_safe_font("Bahnschrift", 13),
             text_color=value_color,
             width=16,
         )

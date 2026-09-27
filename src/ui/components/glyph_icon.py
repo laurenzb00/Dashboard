@@ -8,6 +8,8 @@ procedurally instead of shipped as static PNG assets so they can be
 recolored/resized at call time (e.g. the "Weg" button swapping between its
 normal and active tint) without needing extra asset files on disk.
 """
+import math
+
 import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -289,6 +291,134 @@ def draw_skip_next(d, S, col, w):
     d.polygon(pts, fill=fill)
 
 
+def draw_lightning(d, S, col, w):
+    """Fuer Card-Titel wie "Energiefluss" - ersetzt das rohe Emoji-Blitz-Symbol."""
+    fill = (*col, 255)
+    pts = [
+        (S * 0.58, S * 0.08), (S * 0.28, S * 0.56), (S * 0.48, S * 0.56),
+        (S * 0.40, S * 0.92), (S * 0.74, S * 0.42), (S * 0.54, S * 0.42),
+    ]
+    d.polygon(pts, fill=fill)
+
+
+def draw_flame(d, S, col, w):
+    """Fuer Card-Titel wie "Wärmespeicher"/Heizung - Aussenkontur + hellerer Kern."""
+    fill = (*col, 255)
+    outer = [
+        (S * 0.50, S * 0.08), (S * 0.66, S * 0.30), (S * 0.60, S * 0.38),
+        (S * 0.74, S * 0.58), (S * 0.62, S * 0.90), (S * 0.38, S * 0.90),
+        (S * 0.26, S * 0.58), (S * 0.40, S * 0.38), (S * 0.34, S * 0.30),
+        (S * 0.50, S * 0.08),
+    ]
+    d.line(outer, fill=fill, width=w, joint="curve")
+    inner = [
+        (S * 0.50, S * 0.36), (S * 0.58, S * 0.52), (S * 0.54, S * 0.58),
+        (S * 0.60, S * 0.72), (S * 0.50, S * 0.82), (S * 0.40, S * 0.72),
+        (S * 0.46, S * 0.58), (S * 0.42, S * 0.52), (S * 0.50, S * 0.36),
+    ]
+    d.polygon(inner, fill=(*col, 130))
+
+
+def draw_gear(d, S, col, w):
+    """Fuer Card-Titel "CPU" (system.py)."""
+    fill = (*col, 255)
+    cx, cy = S * 0.5, S * 0.5
+    r_outer, r_inner = S * 0.28, S * 0.16
+    teeth, tooth_len, tooth_w = 8, S * 0.10, max(3, int(S * 0.09))
+    for i in range(teeth):
+        angle = (2 * math.pi / teeth) * i
+        x0, y0 = cx + math.cos(angle) * r_outer, cy + math.sin(angle) * r_outer
+        x1, y1 = cx + math.cos(angle) * (r_outer + tooth_len), cy + math.sin(angle) * (r_outer + tooth_len)
+        d.line([(x0, y0), (x1, y1)], fill=fill, width=tooth_w)
+    d.ellipse([cx - r_outer, cy - r_outer, cx + r_outer, cy + r_outer], outline=fill, width=w)
+    d.ellipse([cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner], outline=fill, width=w)
+
+
+def draw_chip(d, S, col, w):
+    """Fuer Card-Titel "RAM" (system.py)."""
+    fill = (*col, 255)
+    body = [S * 0.30, S * 0.30, S * 0.70, S * 0.70]
+    d.rounded_rectangle(body, radius=S * 0.03, outline=fill, width=w)
+    d.rectangle([S * 0.42, S * 0.42, S * 0.58, S * 0.58], outline=fill, width=max(1, w - 1))
+    for p in (0.38, 0.5, 0.62):
+        y = S * p
+        d.line([(S * 0.16, y), (S * 0.30, y)], fill=fill, width=w)
+        d.line([(S * 0.70, y), (S * 0.84, y)], fill=fill, width=w)
+        x = S * p
+        d.line([(x, S * 0.16), (x, S * 0.30)], fill=fill, width=w)
+        d.line([(x, S * 0.70), (x, S * 0.84)], fill=fill, width=w)
+
+
+def draw_sdcard(d, S, col, w):
+    """Fuer Card-Titel "SD-Karte" (system.py)."""
+    fill = (*col, 255)
+    card = [S * 0.28, S * 0.12, S * 0.72, S * 0.88]
+    d.polygon(
+        [(card[0], card[1] + S * 0.12), (card[0] + S * 0.12, card[1]), (card[2], card[1]),
+         (card[2], card[3]), (card[0], card[3])],
+        outline=fill, width=w,
+    )
+    for i in range(4):
+        x0 = card[0] + S * 0.08 + i * S * 0.10
+        d.line([(x0, card[1] + S * 0.08), (x0, card[1] + S * 0.26)], fill=fill, width=max(2, w - 1))
+
+
+def draw_clock(d, S, col, w):
+    """Fuer Card-Titel "Uptime" (system.py)."""
+    fill = (*col, 255)
+    cx, cy, r = S * 0.5, S * 0.54, S * 0.32
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=fill, width=w)
+    d.line([(cx, cy), (cx, cy - r * 0.55)], fill=fill, width=w)
+    d.line([(cx, cy), (cx + r * 0.42, cy + r * 0.18)], fill=fill, width=w)
+    d.line([(cx - S * 0.05, S * 0.14), (cx + S * 0.05, S * 0.14)], fill=fill, width=w)
+
+
+def draw_antenna(d, S, col, w):
+    """Fuer Card-Titel "Netzwerk" (system.py) und "Quelle" (status.py)."""
+    fill = (*col, 255)
+    cx, cy = S * 0.32, S * 0.76
+    r_dot = S * 0.055
+    d.ellipse([cx - r_dot, cy - r_dot, cx + r_dot, cy + r_dot], fill=fill)
+    for r in (S * 0.16, S * 0.28, S * 0.40):
+        bbox = [cx - r, cy - r, cx + r, cy + r]
+        d.arc(bbox, start=225, end=315, fill=fill, width=max(2, w - 1))
+
+
+def draw_database(d, S, col, w):
+    """Fuer Card-Titel "DB" (status.py)."""
+    fill = (*col, 255)
+    cx = S * 0.5
+    rx, ry = S * 0.26, S * 0.09
+    top_y, bot_y = S * 0.22, S * 0.78
+    d.ellipse([cx - rx, top_y - ry, cx + rx, top_y + ry], outline=fill, width=w)
+    d.line([(cx - rx, top_y), (cx - rx, bot_y)], fill=fill, width=w)
+    d.line([(cx + rx, top_y), (cx + rx, bot_y)], fill=fill, width=w)
+    d.arc([cx - rx, bot_y - ry, cx + rx, bot_y + ry], start=0, end=180, fill=fill, width=w)
+    mid_y = (top_y + bot_y) / 2
+    d.arc([cx - rx, mid_y - ry, cx + rx, mid_y + ry], start=0, end=180, fill=fill, width=max(2, w - 1))
+
+
+def draw_sun(d, S, col, w):
+    """Fuer Card-Titel "PV" (status.py)."""
+    fill = (*col, 255)
+    cx, cy, r = S * 0.5, S * 0.5, S * 0.17
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=fill, width=w)
+    for i in range(8):
+        angle = (2 * math.pi / 8) * i
+        x0, y0 = cx + math.cos(angle) * (r + S * 0.07), cy + math.sin(angle) * (r + S * 0.07)
+        x1, y1 = cx + math.cos(angle) * (r + S * 0.19), cy + math.sin(angle) * (r + S * 0.19)
+        d.line([(x0, y0), (x1, y1)], fill=fill, width=w)
+
+
+def draw_checkmark(d, S, col, w):
+    """Fuer Card-Titel "Status" (status.py)."""
+    fill = (*col, 255)
+    d.line(
+        [(S * 0.22, S * 0.52), (S * 0.42, S * 0.72), (S * 0.80, S * 0.28)],
+        fill=fill, width=int(w * 1.4), joint="curve",
+    )
+
+
 _GLYPHS = {
     "door_exit": draw_door_exit,
     "house": draw_house,
@@ -299,6 +429,16 @@ _GLYPHS = {
     "pause": draw_pause,
     "skip_prev": draw_skip_prev,
     "skip_next": draw_skip_next,
+    "lightning": draw_lightning,
+    "flame": draw_flame,
+    "gear": draw_gear,
+    "chip": draw_chip,
+    "sdcard": draw_sdcard,
+    "clock": draw_clock,
+    "antenna": draw_antenna,
+    "database": draw_database,
+    "sun": draw_sun,
+    "checkmark": draw_checkmark,
 }
 
 _icon_cache: dict = {}

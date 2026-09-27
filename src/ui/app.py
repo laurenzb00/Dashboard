@@ -595,7 +595,7 @@ class MainApp(UiQueuePumpMixin):
         _dbg_print("[INIT] MainApp: EnergyCard und EnergyView werden erstellt...")
         self.energy_card = Card(self.body, padding=0)
         self.energy_card.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
-        self.energy_card.add_title("Energiefluss", icon="⚡")
+        self.energy_card.add_title("Energiefluss", glyph="lightning")
         self.energy_view = EnergyFlowView(self.energy_card.content(), width=200, height=180)
         self.energy_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
@@ -608,7 +608,7 @@ class MainApp(UiQueuePumpMixin):
         # darunter beschriftet die beiden Gefaesse zusaetzlich selbst noch
         # einmal mit "PUFFER"/"WARMWASSER". Der alte Kartentitel war dadurch
         # sowohl ungenau als auch redundant zur eigenen Grafik-Beschriftung.
-        self.buffer_card.add_title("Wärmespeicher", icon="🔥")
+        self.buffer_card.add_title("Wärmespeicher", glyph="flame")
         self.buffer_view = BufferStorageView(self.buffer_card.content(), height=320, datastore=self.datastore)
         self.buffer_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
@@ -1188,8 +1188,11 @@ class MainApp(UiQueuePumpMixin):
         if StatusTab and SHOW_STATUS_TAB:
             try:
                 _dbg_print("[TABS] StatusTab wird erstellt...")
-                self.tabview.add("Status")
-                status_frame = self.tabview.tab("Status")
+                # War zuvor der einzige Tab ohne Icon/Zeilenumbruch-Layout
+                # (nackter "Status"-String) - fiel in der Tableiste neben
+                # den emoji()-Tabs wie ein unfertiger Rest auf.
+                self.tabview.add(emoji("📶\nStatus", "Status"))
+                status_frame = self.tabview.tab(emoji("📶\nStatus", "Status"))
                 try:
                     status_frame.configure(fg_color=COLOR_ROOT)
                 except:

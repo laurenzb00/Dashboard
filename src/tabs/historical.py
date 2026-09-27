@@ -32,10 +32,12 @@ from ui.styles import (
     BUTTON_HEIGHT_SECONDARY,
     PADDING_SECTION,
     emoji,
+    get_safe_font,
 )
 from ui.components.tab_shell import TabShell
 from ui.components.metric_tile import MetricTile
 from ui.components.ui_dispatch import UiQueuePumpMixin
+from ui.components.chart_style import apply_chart_style
 from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 
 
@@ -123,7 +125,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
             text="",
             bg=COLOR_ROOT,
             fg=COLOR_TITLE,
-            font=("Segoe UI", FONT_SIZE_SUBTITLE, "bold"),
+            font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE, "bold"),
         )
         self.topbar_status.pack(side=tk.RIGHT)
 
@@ -135,7 +137,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
             text="Zeitraum:",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            font=("Segoe UI", FONT_SIZE_SUBTITLE),
+            font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE),
         ).pack(side=tk.LEFT, padx=(0, 8))
         
         # Touch-freundliche Button-Gruppe mit CustomTkinter
@@ -145,7 +147,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
             btn = ctk.CTkButton(
                 period_frame,
                 text=period,
-                font=("Segoe UI", FONT_SIZE_BODY, "bold"),
+                font=get_safe_font("Bahnschrift", FONT_SIZE_BODY, "bold"),
                 width=68,
                 height=BUTTON_HEIGHT_SECONDARY,
                 corner_radius=14,
@@ -229,7 +231,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
             text="",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            font=("Segoe UI", 11),
+            font=get_safe_font("Bahnschrift", 11),
             anchor="w",
             justify=tk.LEFT,
         )
@@ -379,17 +381,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
             return False
 
     def _style_axes(self) -> None:
-        self.ax.set_facecolor(COLOR_ROOT)
-        # Sparkline-like minimal frame
-        self.ax.spines["top"].set_visible(False)
-        self.ax.spines["right"].set_visible(False)
-        self.ax.spines["left"].set_color(COLOR_BORDER)
-        self.ax.spines["bottom"].set_color(COLOR_BORDER)
-        self.ax.spines["left"].set_linewidth(0.5)
-        self.ax.spines["bottom"].set_linewidth(0.5)
-
-        self.ax.grid(True, color=COLOR_BORDER, alpha=0.20, linewidth=0.6)
-        self.ax.tick_params(axis="both", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=3, width=0.5)
+        apply_chart_style(self.ax, grid_axis="both")
         # X-Achsen-Labels mit Padding, damit sie nicht abgeschnitten werden
         self.ax.tick_params(axis="x", pad=5)
         self.ax.set_ylabel("°C", fontsize=9, color=COLOR_INFO, rotation=0, labelpad=10, va="center")

@@ -23,8 +23,10 @@ from ui.styles import (
     COLOR_DANGER,
     COLOR_TITLE,
     emoji,
+    get_safe_font,
 )
 from ui.components.card import Card
+from ui.components.metric_tile import MetricTile
 
 class StatusTab(ctk.CTkFrame):
     def _get_ha_client(self):
@@ -96,27 +98,35 @@ class StatusTab(ctk.CTkFrame):
 
 
     def _build_layout(self):
-        """Minimalistisches Status-Dashboard mit großen Kacheln."""
+        """Status-Dashboard im "Datenreich"-Stil der anderen Tabs.
+
+        War bisher der einzige Tab mit grossen rohen Emoji-Kacheln (22-28pt,
+        Icon-oben/Label-darunter ohne Card-Header) statt der ueberall sonst
+        verwendeten MetricTile-Kacheln bzw. Card.add_title()-Header - wirkte
+        dadurch wie aus einer anderen App. Jetzt: Card-Header (Glyphe+Titel)
+        fuer die Ampel-/Licht-Kacheln, MetricTile fuer die Energie-/
+        Heizungswerte, durchgaengig Bahnschrift statt Segoe UI.
+        """
         self.configure(fg_color=COLOR_ROOT)
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill=tk.X, padx=12, pady=(12, 6))
         ctk.CTkLabel(
             header,
             text="Systemstatus",
-            font=("Segoe UI", 18, "bold"),
+            font=get_safe_font("Bahnschrift", 18, "bold"),
             text_color=COLOR_TITLE,
         ).pack(anchor="w")
         self.summary_label = ctk.CTkLabel(
             header,
             text="Warte auf Daten...",
-            font=("Segoe UI", 13),
+            font=get_safe_font("Bahnschrift", 13),
             text_color=COLOR_SUBTEXT,
         )
         self.summary_label.pack(anchor="w", pady=(2, 0))
         self.detail_label = ctk.CTkLabel(
             header,
             text="",
-            font=("Segoe UI", 11),
+            font=get_safe_font("Bahnschrift", 11),
             text_color=COLOR_SUBTEXT,
         )
         self.detail_label.pack(anchor="w")
@@ -128,16 +138,17 @@ class StatusTab(ctk.CTkFrame):
         health_row.grid_columnconfigure(1, weight=1)
 
         self.health_labels = {}
+        health_glyphs = {"pv": "antenna", "heating": "flame"}
         for idx, key in enumerate(("pv", "heating")):
             card = Card(health_row, padding=16)
             card.grid(row=0, column=idx, sticky="nsew", padx=4)
-            card.add_title("Quelle" if key == "pv" else "Heizung", icon="📡" if key == "pv" else "🔥")
+            card.add_title("Quelle" if key == "pv" else "Heizung", glyph=health_glyphs[key])
 
-            status = ctk.CTkLabel(card.content(), text="Letzter OK: --", font=("Segoe UI", 13), text_color=COLOR_TEXT)
+            status = ctk.CTkLabel(card.content(), text="Letzter OK: --", font=get_safe_font("Bahnschrift", 13), text_color=COLOR_TEXT)
             status.pack(anchor="w")
-            latency = ctk.CTkLabel(card.content(), text="Latenz: --", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT)
+            latency = ctk.CTkLabel(card.content(), text="Latenz: --", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT)
             latency.pack(anchor="w", pady=(2, 0))
-            errors = ctk.CTkLabel(card.content(), text="Fehler: --", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT)
+            errors = ctk.CTkLabel(card.content(), text="Fehler: --", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT)
             errors.pack(anchor="w", pady=(2, 0))
 
             self.health_labels[key] = {"status": status, "latency": latency, "errors": errors}
@@ -145,43 +156,44 @@ class StatusTab(ctk.CTkFrame):
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
         self._status_main = main
-        
+
         # Grid: 3 Zeilen × 4 Spalten
         for i in range(4):
             main.grid_columnconfigure(i, weight=1, uniform="status")
         for i in range(3):
             main.grid_rowconfigure(i, weight=1, uniform="status")
-        
-        # Zeile 1: System-Status Ampeln (DB, PV, Heizung, Warnung)
+
+        # Zeile 1: System-Status Ampeln (DB, PV, Heizung, Warnung) - jetzt
+        # mit demselben Card.add_title()-Header (Glyphe + Titel) wie jede
+        # andere Card im Programm, statt freistehendem Icon+Label ohne
+        # eigene Titel-Zeile.
         self.ampel_cards = []
         ampel_specs = [
-            ("DB", "🗄️", 0),
-            ("PV", "☀️", 1),
-            ("Heizung", "🔥", 2),
-            ("Status", "✓", 3),
+            ("DB", "database", 0),
+            ("PV", "sun", 1),
+            ("Heizung", "flame", 2),
+            ("Status", "checkmark", 3),
         ]
-        for label, icon, col in ampel_specs:
-            card = Card(main, padding=18)
+        for label, glyph, col in ampel_specs:
+            card = Card(main, padding=14)
             card.grid(row=0, column=col, sticky="nsew", padx=4, pady=4)
+            card.add_title(label, glyph=glyph)
             inner = card.content()
-            
-            # Icon
-            icon_lbl = ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 28), text_color=COLOR_TEXT)
-            icon_lbl.pack(pady=(8, 4))
-            # Label
-            ctk.CTkLabel(inner, text=label, font=("Segoe UI", 12, "bold"), text_color=COLOR_TITLE).pack(pady=(0, 4))
-            # Status-Ampel
-            lamp = tk.Canvas(inner, width=24, height=24, bg=COLOR_ROOT, highlightthickness=0)
-            lamp.pack(pady=(4, 8))
 
-            status_lbl = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 11, "bold"), text_color=COLOR_TEXT)
+            lamp = tk.Canvas(inner, width=22, height=22, bg=COLOR_CARD, highlightthickness=0)
+            lamp.pack(pady=(6, 4))
+
+            status_lbl = ctk.CTkLabel(inner, text="--", font=get_safe_font("Bahnschrift", 11, "bold"), text_color=COLOR_TEXT)
             status_lbl.pack(pady=(0, 2))
-            age_lbl = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT)
+            age_lbl = ctk.CTkLabel(inner, text="--", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT)
             age_lbl.pack(pady=(0, 2))
-            
-            self.ampel_cards.append({"label": label, "lamp": lamp, "icon": icon_lbl, "status": status_lbl, "age": age_lbl})
-        
-        # Zeile 2: Energie-Werte (PV, Grid, Batterie, Batterie-SOC)
+
+            self.ampel_cards.append({"label": label, "lamp": lamp, "status": status_lbl, "age": age_lbl})
+
+        # Zeile 2: Energie-Werte (PV, Grid, Batterie, Batterie-SOC) - jetzt
+        # als MetricTile (gleicher "Datenreich"-Stil wie Ertrag/Historie/
+        # Tagesproduktion inkl. sanfter Hochzaehl-Animation bei
+        # Wertaenderung) statt grosser freistehender 22pt-Emoji-Kacheln.
         self.snapshot_labels = {}
         energy_specs = [
             (PV_POWER_KW, "PV", "☀️", "kW", 0),
@@ -190,59 +202,50 @@ class StatusTab(ctk.CTkFrame):
             (BATTERY_SOC_PCT, "SOC", "🔋", "%", 3),
         ]
         for key, label, icon, unit, col in energy_specs:
-            card = Card(main, padding=18)
-            card.grid(row=1, column=col, sticky="nsew", padx=4, pady=4)
-            inner = card.content()
-            
-            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 22), text_color=COLOR_PRIMARY).pack(pady=(6, 2))
-            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
-            val.pack(pady=(0, 2))
-            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
-            
-            self.snapshot_labels[key] = val
-        
-        # Zeile 3: Heizungs-Werte (Kessel, Warmwasser, Puffer oben/mitte/unten kombiniert, Außentemp)
+            tile = MetricTile(main, label, value=f"-- {unit}", value_color=COLOR_PRIMARY, icon=icon)
+            tile.grid(row=1, column=col, sticky="nsew", padx=4, pady=4)
+            self.snapshot_labels[key] = tile
+
+        # Zeile 3: Heizungs-Werte (Kessel, Warmwasser, Puffer oben) - selbe
+        # MetricTile-Umstellung wie Zeile 2.
         heating_specs = [
             (BMK_KESSEL_C, "Kessel", "🔥", "°C", 0),
             (BMK_WARMWASSER_C, "Warmwasser", "💧", "°C", 1),
             (BUF_TOP_C, "Puffer", "⬆️", "°C", 2),  # Zeigt Top-Wert
         ]
         for key, label, icon, unit, col in heating_specs:
-            card = Card(main, padding=18)
-            card.grid(row=2, column=col, sticky="nsew", padx=4, pady=4)
-            inner = card.content()
-            
-            ctk.CTkLabel(inner, text=icon, font=("Segoe UI", 22), text_color=COLOR_WARNING).pack(pady=(6, 2))
-            val = ctk.CTkLabel(inner, text="--", font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT)
-            val.pack(pady=(0, 2))
-            ctk.CTkLabel(inner, text=f"{label} ({unit})", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(pady=(0, 6))
-            
-            self.snapshot_labels[key] = val
-        
+            tile = MetricTile(main, label, value=f"-- {unit}", value_color=COLOR_WARNING, icon=icon)
+            tile.grid(row=2, column=col, sticky="nsew", padx=4, pady=4)
+            self.snapshot_labels[key] = tile
+
         # Zusätzliche Puffer-Werte (versteckt in den Daten, werden aber nicht explizit angezeigt)
         # Wir initialisieren die Labels trotzdem für update_data
         for key in [BUF_MID_C, BUF_BOTTOM_C]:
             dummy_label = ctk.CTkLabel(main, text="--")
             self.snapshot_labels[key] = dummy_label
 
-        # Zeile 3, Spalte 3: Licht-Steuerung
-        light_card = Card(main, padding=18)
+        # Zeile 3, Spalte 3: Licht-Steuerung - ebenfalls mit Card-Header
+        # statt zentriertem Icon+Label oberhalb der Buttons.
+        light_card = Card(main, padding=14)
         light_card.grid(row=2, column=3, sticky="nsew", padx=4, pady=4)
-        self._status_cards = [child for child in main.winfo_children() if isinstance(child, Card)]
+        # Card- UND MetricTile-Kacheln zaehlen jetzt beide als "Status-
+        # Kachel" fuer die Portrait-Umsortierung unten (vorher nur Card,
+        # da Zeile 2/3 selbst noch Cards waren) - sonst wuerden die neuen
+        # MetricTiles beim Umschalten auf Portrait nicht mit umsortiert.
+        self._status_cards = [child for child in main.winfo_children() if isinstance(child, (Card, MetricTile))]
+        light_header = light_card.add_title("Licht", icon="💡")
+        self.light_icon = light_header.icon_label
+        self.light_icon.configure(text_color=COLOR_SUBTEXT)
         light_inner = light_card.content()
 
-        self.light_icon = ctk.CTkLabel(light_inner, text="💡", font=("Segoe UI", 22), text_color=COLOR_SUBTEXT)
-        self.light_icon.pack(pady=(6, 2))
-        ctk.CTkLabel(light_inner, text="Licht", font=("Segoe UI", 10, "bold"), text_color=COLOR_TITLE).pack(pady=(0, 6))
-
         btn_frame = ctk.CTkFrame(light_inner, fg_color="transparent")
-        btn_frame.pack(pady=(0, 6))
+        btn_frame.pack(pady=(6, 4))
         ctk.CTkButton(
             btn_frame,
             text="AN",
             width=60,
             height=32,
-            font=("Segoe UI", 11, "bold"),
+            font=get_safe_font("Bahnschrift", 11, "bold"),
             fg_color=COLOR_SUCCESS,
             hover_color=COLOR_PRIMARY,
             command=self._on_light_on,
@@ -252,7 +255,7 @@ class StatusTab(ctk.CTkFrame):
             text="AUS",
             width=60,
             height=32,
-            font=("Segoe UI", 11, "bold"),
+            font=get_safe_font("Bahnschrift", 11, "bold"),
             fg_color=COLOR_DANGER,
             hover_color="#992222",
             command=self._on_light_off,
@@ -387,10 +390,19 @@ class StatusTab(ctk.CTkFrame):
         """Minimales Update: nur Ampeln und Live-Werte."""
         now = datetime.now()
         
-        # Default: alle Werte auf "--"
+        # Default: alle Werte auf "--". snapshot_labels mischt jetzt
+        # MetricTile (set_value(), Energie-/Heizungskacheln) mit den
+        # unsichtbaren Dummy-CTkLabels fuer BUF_MID_C/BUF_BOTTOM_C
+        # (config()) - beide Faelle hier abdecken, sonst wuerde der Reset
+        # bei einer MetricTile lautlos scheitern (config() existiert dort
+        # nicht) und ein veralteter Wert wuerde bei Datenausfall stehen
+        # bleiben statt auf "--" zurueckzuspringen.
         for lbl in self.snapshot_labels.values():
             try:
-                lbl.config(text="--")
+                if hasattr(lbl, "set_value"):
+                    lbl.set_value("--", animate=False)
+                else:
+                    lbl.config(text="--")
             except Exception:
                 pass
         
@@ -425,9 +437,9 @@ class StatusTab(ctk.CTkFrame):
                     val = pv_rec.get(key)
                     if key in self.snapshot_labels:
                         if key == BATTERY_SOC_PCT:
-                            self.snapshot_labels[key].config(text=self._fmt_num(val, decimals=0))
+                            self.snapshot_labels[key].set_value(f"{self._fmt_num(val, decimals=0)} %")
                         else:
-                            self.snapshot_labels[key].config(text=self._fmt_num(val, decimals=2))
+                            self.snapshot_labels[key].set_value(f"{self._fmt_num(val, decimals=2)} kW")
             
             pv_dt = self._safe_iso_to_dt(pv_rec.get("timestamp") if pv_rec else None)
             pv_age = self._age_seconds(now, pv_dt)
@@ -446,7 +458,7 @@ class StatusTab(ctk.CTkFrame):
                 for key in [BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C]:
                     val = heat_rec.get(key)
                     if key in self.snapshot_labels:
-                        self.snapshot_labels[key].config(text=self._fmt_num(val, decimals=1))
+                        self.snapshot_labels[key].set_value(f"{self._fmt_num(val, decimals=1)} °C")
                 
                 # Puffer-Werte (versteckte Labels)
                 for key in [BUF_MID_C, BUF_BOTTOM_C]:
