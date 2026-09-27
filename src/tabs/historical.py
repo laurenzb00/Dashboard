@@ -42,11 +42,11 @@ from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 
 
 class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
-    """Heizung-Historie: zeigt Temperatur-Verläufe als Linienplot.
+    """Heizung: zeigt Temperatur-Verläufe als Linienplot.
 
     Ziele:
     - Tab wird zuverlässig im Notebook angezeigt
-    - Zeitraum wählbar (24h/7d/30d)
+    - Zeitraum wählbar (1 Tag/7d/30d/...)
     - Fehlende Werte werden als Lücken dargestellt (kein Fake-0)
     """
 
@@ -58,9 +58,9 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
         self.notebook = notebook
         self.datastore = datastore
 
-        self._period_var = tk.StringVar(value="24h")
+        self._period_var = tk.StringVar(value="1 Tag")
         self._period_map: dict[str, int] = {
-            "24h": 24,
+            "1 Tag": 24,
             "7d": 168,
             "30d": 720,
             "90d": 2160,
@@ -81,9 +81,9 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
 
         # Only add to notebook if not using provided tab_frame
         if tab_frame is None:
-            notebook.add(self, text=emoji("📈 Historie", "Historie"))
+            notebook.add(self, text=emoji("📈 Heizung", "Heizung"))
         else:
-            self._shell = TabShell(tab_frame, "Historie", "Heizung und Temperaturen")
+            self._shell = TabShell(tab_frame, "Heizung", "Temperaturverläufe von Kessel, Puffer und Warmwasser")
             self._shell.pack(fill=tk.BOTH, expand=True)
             self.pack(in_=self._shell.body, fill=tk.BOTH, expand=True)
             # self is a sibling of _shell under tab_frame (packed "in" the
@@ -143,12 +143,16 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
         # Touch-freundliche Button-Gruppe mit CustomTkinter
         import customtkinter as ctk
         self._period_buttons = {}
-        for period in ["24h", "7d", "30d", "90d", "180d", "365d"]:
+        for period in ["1 Tag", "7d", "30d", "90d", "180d", "365d"]:
             btn = ctk.CTkButton(
                 period_frame,
                 text=period,
                 font=get_safe_font("Bahnschrift", FONT_SIZE_BODY, "bold"),
-                width=68,
+                # War 68px (passend fuer "24h") - "1 Tag" ist mit Leerzeichen
+                # etwas breiter, 76px lassen auch das laengste Label ("1 Tag")
+                # bequem Platz ohne die kuerzeren Labels (7d/30d/...) unnoetig
+                # zu spreizen.
+                width=76,
                 height=BUTTON_HEIGHT_SECONDARY,
                 corner_radius=14,
                 command=lambda p=period: self._select_period(p)

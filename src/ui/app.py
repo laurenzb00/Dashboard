@@ -91,6 +91,7 @@ from ui.app_presence import PresenceOverrideManager
 from core.datastore import DataStore, get_shared_datastore
 from core.utils import safe_float
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
+from core.weather import fetch_forecast
 from core.schema import (
     PV_POWER_KW,
     GRID_POWER_KW,
@@ -546,6 +547,11 @@ class MainApp(UiQueuePumpMixin):
 
         # Start periodic header update for date/time
         self._update_header_datetime()
+        # Kurze Wettervorhersage neben der (eigenen) Aussentemperatur - mit
+        # 5s Verzoegerung, damit der erste Netzwerkaufruf nicht mit dem
+        # sonstigen App-Start konkurriert (laeuft ohnehin in einem eigenen
+        # Thread, siehe _refresh_weather_async).
+        self.root.after(5000, self._refresh_weather_async)
 
         # CTkTabview (Tabs) - moderner mit besserem Spacing
         _dbg_print("[INIT] MainApp: CustomTkinter Tabview wird erstellt...")
@@ -980,8 +986,40 @@ class MainApp(UiQueuePumpMixin):
             def apply():
                 self._cached_out_temp = temp_str
             self._post_ui(apply)
-        
+
         threading.Thread(target=worker, daemon=True).start()
+
+    def _refresh_weather_async(self) -> None:
+        """Holt die Wettervorhersage in einem Hintergrund-Thread (siehe
+        core/weather.py) und plant sich danach selbst alle 30 Minuten neu -
+        die Vorhersage aendert sich nicht so oft wie die eigene Aussentemp.
+        (alle 15s), ein haeufigerer Abruf waere nur unnoetiger Netzwerk-
+        Traffic. Scheitert der Abruf (kein Internet o.ae.), bleibt die
+        Kopfzeile einfach ohne Vorhersage - siehe fetch_forecast()."""
+        def worker():
+            try:
+                forecast = fetch_forecast()
+            except Exception:
+                forecast = None
+
+            def apply():
+                self._apply_forecast(forecast)
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(30 * 60 * 1000, self._refresh_weather_async)
+
+    def _apply_forecast(self, forecast) -> None:
+        try:
+            if not forecast or forecast.get("temp_max") is None or forecast.get("temp_min") is None:
+                self.header.update_forecast("")
+                return
+            icon = forecast.get("icon") or ""
+            tmax = forecast.get("temp_max")
+            tmin = forecast.get("temp_min")
+            self.header.update_forecast(f"{icon} {tmax:.0f}°/{tmin:.0f}°".strip())
+        except Exception:
+            pass
 
     def _style_tabview_buttons(self) -> None:
         """Make the active tab more readable and improve contrast."""
@@ -1130,8 +1168,8 @@ class MainApp(UiQueuePumpMixin):
         if HistoricalTab:
             try:
                 _dbg_print("[TABS] HistoricalTab wird erstellt...")
-                self.tabview.add(emoji("📈\nHistorie", "Historie"))
-                historical_frame = self.tabview.tab(emoji("📈\nHistorie", "Historie"))
+                self.tabview.add(emoji("📈\nHeizung", "Heizung"))
+                historical_frame = self.tabview.tab(emoji("📈\nHeizung", "Heizung"))
                 try:
                     historical_frame.configure(fg_color=COLOR_ROOT)
                 except:
@@ -1238,6 +1276,71 @@ class MainApp(UiQueuePumpMixin):
             self._style_tabview_buttons()
         except Exception:
             pass
+        try:
+            self._enable_touch_gestures()
+        except Exception:
+            pass
+
+    def _tab_order(self) -> list:
+        """Reihenfolge der Tab-Namen, wie sie im CTkTabview angezeigt werden
+        (fuer die relative Swipe-Navigation, siehe _switch_tab_relative()).
+        CTkTabview fuehrt selbst keine oeffentliche API dafuer, pflegt die
+        Reihenfolge aber intern in `_name_list` (dieselbe Art Zugriff auf
+        interne Attribute nutzt bereits _style_tabview_buttons() oben)."""
+        try:
+            return list(getattr(self.tabview, "_name_list", []))
+        except Exception:
+            return []
+
+    def _switch_tab_relative(self, delta: int) -> None:
+        """Wechselt relativ zum aktuellen Tab (+1 = naechster, -1 = voriger),
+        mit Wrap-Around am Anfang/Ende - siehe _enable_touch_gestures()."""
+        try:
+            order = self._tab_order()
+            if not order:
+                return
+            current = self.tabview.get()
+            if current not in order:
+                return
+            idx = (order.index(current) + delta) % len(order)
+            self.tabview.set(order[idx])
+        except Exception:
+            pass
+
+    def _enable_touch_gestures(self) -> None:
+        """Aktiviert Wisch-Navigation zwischen Tabs.
+
+        Ueber die Kopfzeile (HeaderBar) funktioniert das von JEDEM Tab aus,
+        da sie ausserhalb des CTkTabview liegt und immer sichtbar ist.
+        Zusaetzlich bekommt jeder Tab, der TabShell nutzt (die meisten -
+        siehe TabShell.enable_swipe()), noch seine eigene Kopfzeile als
+        Wisch-Flaeche, fuer eine groessere Trefferflaeche direkt im Tab.
+        """
+        on_left = lambda: self._switch_tab_relative(1)
+        on_right = lambda: self._switch_tab_relative(-1)
+
+        try:
+            self.header.enable_swipe(on_left=on_left, on_right=on_right)
+        except Exception:
+            pass
+
+        for tab_obj in (
+            getattr(self, "hue_tab", None),
+            getattr(self, "spotify_tab", None),
+            getattr(self, "tado_tab", None),
+            getattr(self, "calendar_tab", None),
+            getattr(self, "historical_tab", None),
+            getattr(self, "ertrag_tab", None),
+            getattr(self, "tagesproduktion_tab", None),
+            getattr(self, "health_tab", None),
+        ):
+            shell = getattr(tab_obj, "_shell", None)
+            if shell is None:
+                continue
+            try:
+                shell.enable_swipe(on_left=on_left, on_right=on_right)
+            except Exception:
+                pass
 
     def _subscribe_view_updates(self) -> None:
         if not hasattr(self, "app_state") or not self.app_state:

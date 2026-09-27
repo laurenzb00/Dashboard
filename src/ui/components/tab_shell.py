@@ -43,6 +43,19 @@ class TabShell(ctk.CTkFrame):
     def set_status(self, text: str) -> None:
         self.subtitle_label.configure(text=text or "")
 
+    def enable_swipe(self, on_left=None, on_right=None) -> None:
+        """Wischen auf der Kopfzeile wechselt den Tab (siehe MainApp.
+
+        _enable_touch_gestures()). Bindet bewusst nur auf `self` (die
+        aeussere Randflaeche des Tabs) und `self.header` samt dessen Labels
+        - NICHT auf `self.body`, da dort Charts/Buttons/Slider liegen, die
+        ihr eigenes horizontales Ziehen haben koennen.
+        """
+        from ui.components.gestures import bind_swipe
+
+        bind_swipe(self, on_left=on_left, on_right=on_right, include_children=False)
+        bind_swipe(self.header, on_left=on_left, on_right=on_right, include_children=True)
+
     def set_portrait_layout(self, portrait: bool) -> None:
         if portrait:
             self.header.grid_configure(padx=16, pady=(16, 10))

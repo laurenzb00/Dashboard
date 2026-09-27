@@ -278,6 +278,20 @@ class HeaderBar(ctk.CTkFrame):
             anchor="e",
         )
 
+        # Kurze Wettervorhersage (Icon + Tageshoch/-tief) unter der
+        # Aussentemperatur - siehe MainApp._refresh_weather_async()/
+        # core/weather.py. Bleibt leer, solange keine Vorhersage verfuegbar
+        # ist (kein Netz, deaktiviert in config/weather.json), statt
+        # Platzhalter-Text dauerhaft stehen zu lassen.
+        self.forecast_label = ctk.CTkLabel(
+            temp_block,
+            text="",
+            font=get_safe_font("Bahnschrift", 12),
+            text_color=COLOR_SUBTEXT,
+            anchor="e",
+        )
+        self.forecast_label.pack(anchor="e", pady=(2, 0))
+
         # Outdoor temp is updated via MainApp.update_header(...), single source of truth.
 
     def _on_light_switch_toggle(self):
@@ -305,6 +319,7 @@ class HeaderBar(ctk.CTkFrame):
             self.out_temp_label.configure(font=get_safe_font("Bahnschrift", 24, "bold"))
             self.out_temp_icon.configure(image=ctk_icon("thermometer", COLOR_WARNING, size=26))
             self.out_temp_time.configure(font=get_safe_font("Bahnschrift", 12))
+            self.forecast_label.configure(font=get_safe_font("Bahnschrift", 14))
             # Groessere Icon-Varianten fuer die Touch-Hochformat-Chips (feste
             # Materialfarben-Palette, siehe ctk_icon_rich() weiter oben).
             self._icon_leave_normal = ctk_icon_rich("door_exit", size=40)
@@ -403,3 +418,24 @@ class HeaderBar(ctk.CTkFrame):
 
     def update_outside_temp(self, out_temp: str):
         self.out_temp_label.configure(text=out_temp)
+
+    def update_forecast(self, text: str) -> None:
+        try:
+            self.forecast_label.configure(text=text or "")
+        except Exception:
+            pass
+
+    def enable_swipe(self, on_left=None, on_right=None) -> None:
+        """Wischen auf der Kopfzeile wechselt den Tab (siehe MainApp.
+
+        _enable_touch_gestures()). Die Kopfzeile ist auf JEDEM Tab sichtbar
+        (liegt ausserhalb des CTkTabview), Wisch-Navigation funktioniert
+        darueber also unabhaengig vom aktiven Tab. Bindet nur auf die
+        eigene Leiste (`self`/`self._bar`), NICHT rekursiv auf deren Kinder
+        (Buttons, Schalter, Uhrzeit) - die sollen weiterhin normal auf
+        Tippen statt auf Wischen reagieren.
+        """
+        from ui.components.gestures import bind_swipe
+
+        bind_swipe(self, on_left=on_left, on_right=on_right, include_children=False)
+        bind_swipe(self._bar, on_left=on_left, on_right=on_right, include_children=False)

@@ -29,6 +29,41 @@ from ui.components.card import Card
 from ui.components.metric_tile import MetricTile
 
 class StatusTab(ctk.CTkFrame):
+    # Bildet die schema.py-Konstanten (Keys von snapshot_labels/get_last_*
+    # _record()) auf die kurzen Feldnamen ab, die get_recent_fronius()/
+    # get_recent_heating() liefern (siehe core/datastore.py) - fuer die
+    # Long-Press-Detailansicht (24h-Verlauf, siehe MetricTile.enable_detail()).
+    _FRONIUS_FIELD = {
+        PV_POWER_KW: "pv",
+        GRID_POWER_KW: "grid",
+        BATTERY_POWER_KW: "batt",
+        BATTERY_SOC_PCT: "soc",
+    }
+    _HEATING_FIELD = {
+        BMK_KESSEL_C: "kessel",
+        BMK_WARMWASSER_C: "warm",
+        BUF_TOP_C: "top",
+    }
+
+    def _fetch_series(self, source: str, field: str):
+        """Liefert die letzten 24h eines einzelnen Feldes als (datetime, wert)-
+        Liste, fuer das Long-Press-Popover einer MetricTile (siehe
+        enable_detail() oben in _build_layout())."""
+        try:
+            if source == "fronius":
+                rows = self.datastore.get_recent_fronius(hours=24)
+            else:
+                rows = self.datastore.get_recent_heating(hours=24)
+        except Exception:
+            return []
+        series = []
+        for row in rows:
+            ts = self._safe_iso_to_dt(row.get("timestamp"))
+            val = self._safe_float(row.get(field))
+            if ts is not None and val is not None:
+                series.append((ts, val))
+        return series
+
     def _get_ha_client(self):
         """Lazy-init Home Assistant client."""
         client = getattr(self, "_ha_client", None)
@@ -204,6 +239,11 @@ class StatusTab(ctk.CTkFrame):
         for key, label, icon, unit, col in energy_specs:
             tile = MetricTile(main, label, value=f"-- {unit}", value_color=COLOR_PRIMARY, icon=icon)
             tile.grid(row=1, column=col, sticky="nsew", padx=4, pady=4)
+            field = self._FRONIUS_FIELD.get(key)
+            if field:
+                tile.enable_detail(
+                    label, unit, lambda f=field: self._fetch_series("fronius", f), color=COLOR_PRIMARY
+                )
             self.snapshot_labels[key] = tile
 
         # Zeile 3: Heizungs-Werte (Kessel, Warmwasser, Puffer oben) - selbe
@@ -216,6 +256,11 @@ class StatusTab(ctk.CTkFrame):
         for key, label, icon, unit, col in heating_specs:
             tile = MetricTile(main, label, value=f"-- {unit}", value_color=COLOR_WARNING, icon=icon)
             tile.grid(row=2, column=col, sticky="nsew", padx=4, pady=4)
+            field = self._HEATING_FIELD.get(key)
+            if field:
+                tile.enable_detail(
+                    label, unit, lambda f=field: self._fetch_series("heating", f), color=COLOR_WARNING
+                )
             self.snapshot_labels[key] = tile
 
         # Zusätzliche Puffer-Werte (versteckt in den Daten, werden aber nicht explizit angezeigt)

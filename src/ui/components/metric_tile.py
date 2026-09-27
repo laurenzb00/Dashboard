@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
+from typing import Callable, Optional, Sequence, Tuple
+
 import customtkinter as ctk
 
 from ui.styles import (
@@ -98,6 +100,46 @@ class MetricTile(ctk.CTkFrame):
         self._value_suffix = ""
         self._value_decimals = 0
         self._value_anim_job = None
+        self._detail_enabled = False
+
+    def enable_detail(
+        self,
+        title: str,
+        unit: str,
+        fetch_series: Callable[[], Sequence[Tuple[object, float]]],
+        color: Optional[str] = None,
+    ) -> None:
+        """Aktiviert die Long-Press-Detailansicht (24h-Verlauf) fuer diese Kachel.
+
+        `fetch_series` wird erst BEIM tatsaechlichen Long-Press aufgerufen
+        (nicht vorab beim Einrichten) und muss eine Liste von
+        (datetime, wert)-Tupeln liefern. Nutzt pro Fenster ein einziges,
+        geteiltes TileDetailOverlay (siehe ui/components/tile_detail.py)
+        statt dass jede Kachel ihr eigenes Popup-Widget mitschleppt.
+        """
+        if self._detail_enabled:
+            return
+        self._detail_enabled = True
+
+        from ui.components.gestures import bind_long_press
+        from ui.components.tile_detail import get_shared_overlay
+
+        detail_color = color or COLOR_TEXT
+
+        def _open() -> None:
+            try:
+                overlay = get_shared_overlay(self.winfo_toplevel())
+                overlay.show(title, unit, detail_color, fetch_series())
+            except Exception:
+                pass
+
+        bind_long_press(
+            self,
+            callback=_open,
+            feedback_widget=self,
+            press_color=detail_color,
+            release_color=COLOR_BORDER,
+        )
 
     def set_value(self, text: str, color: str | None = None, animate: bool = True) -> None:
         """Setzt den angezeigten Wert.
