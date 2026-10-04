@@ -1,4 +1,4 @@
-"""Raumtemperatur-Tab (Tado): alle Raeume, Zieltemperatur per Touch-Slider.
+"""Raumtemperatur-Tab (Tado): alle Raeume als Thermostat-Ringe.
 
 Siehe TadoTab-Docstring fuer Datenquellen und das Tado-API-Tageslimit.
 Datenmodell/Parser: core/climate.py.
@@ -22,7 +22,7 @@ import customtkinter as ctk
 from core import climate as C
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.tab_shell import TabShell
-from ui.components.touch_slider import TouchSlider
+from ui.components.thermostat_ring import ThermostatRing
 from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
     COLOR_BORDER,
@@ -105,15 +105,11 @@ TADO_SOURCE = os.getenv("TADO_SOURCE", "auto").strip().lower()
 # Tado-API-Tageslimit: 20.000 mit Auto-Assist-Abo (vorhanden), sonst 100.
 # Ohne Abo am Pi TADO_DAILY_LIMIT=100 setzen - das Intervall passt sich an.
 DAILY_LIMIT = int(os.getenv("TADO_DAILY_LIMIT", "20000"))
-TARGET_GRADIENT = ["#60A5FA", "#A7F3D0", "#FBBF24", "#F97316"]
+RING_SIZE = int(os.getenv("TADO_RING_SIZE", "230"))   # maximale Ringgroesse
 
 
 def _round_half(v: float) -> float:
     return round(float(v) * 2) / 2
-
-
-def _target_fmt(v: float) -> str:
-    return C.fmt_temp(_round_half(v))
 
 
 class TadoTab(UiQueuePumpMixin):
@@ -177,7 +173,7 @@ class TadoTab(UiQueuePumpMixin):
     # ------------------------------------------------------------------ UI --
 
     def _build_ui(self) -> None:
-        self._shell = TabShell(self.tab_frame, "Raumtemperatur", "Alle Räume, Zieltemperatur per Schieberegler")
+        self._shell = TabShell(self.tab_frame, "Raumtemperatur", "Alle Räume – am Ring ziehen stellt die Zieltemperatur")
         self._shell.pack(fill=tk.BOTH, expand=True)
         self._shell.subtitle_label.configure(textvariable=self.var_status)
         body = self._shell.body
@@ -188,11 +184,11 @@ class TadoTab(UiQueuePumpMixin):
         top.grid_columnconfigure(0, weight=1)
         left = ctk.CTkFrame(top, fg_color="transparent")
         left.grid(row=0, column=0, sticky="ew", padx=(14, 8), pady=10)
-        self._summary_lbl = ctk.CTkLabel(left, text="🌡️  --", text_color=COLOR_TEXT, anchor="w",
-                                         font=get_safe_font("Bahnschrift", 16, "bold"))
+        self._summary_lbl = ctk.CTkLabel(left, text="🌡️  --", text_color=COLOR_TEXT, anchor="w", justify="left",
+                                         font=get_safe_font("Bahnschrift", 14, "bold"), wraplength=440)
         self._summary_lbl.pack(anchor="w")
         self._info_lbl = ctk.CTkLabel(left, text="", text_color=COLOR_SUBTEXT, anchor="w", justify="left",
-                                      font=get_safe_font("Bahnschrift", 11))
+                                      font=get_safe_font("Bahnschrift", 11), wraplength=520)
         self._info_lbl.pack(anchor="w")
         btns = ctk.CTkFrame(top, fg_color="transparent")
         self._top_btns = btns
@@ -229,6 +225,7 @@ class TadoTab(UiQueuePumpMixin):
         self._empty_lbl = ctk.CTkLabel(self._grid, text="Lade Räume ...", text_color=COLOR_SUBTEXT,
                                        font=get_safe_font("Bahnschrift", 14))
         self._empty_lbl.grid(row=0, column=0, padx=12, pady=20, sticky="w")
+        self.tab_frame.bind("<Configure>", self._resize_rings, add="+")
 
     def _pill(self, parent, text, command, color, width=120):
         return ctk.CTkButton(parent, text=text, command=command, width=width, height=44, corner_radius=22,
@@ -261,51 +258,55 @@ class TadoTab(UiQueuePumpMixin):
             self._portrait = portrait
             self._layout_cards()
 
+    def _columns(self) -> int:
+        n = max(1, len(self._rooms))
+        if self._portrait:
+            return min(n, 2)
+        return n if n <= 5 else (n + 1) // 2 if n <= 8 else 4
+
+    def _resize_rings(self, _e=None) -> None:
+        try:
+            width = self.tab_frame.winfo_width()
+        except Exception:
+            return
+        if width < 100:
+            return
+        cols = self._columns()
+        size = max(130, min(RING_SIZE, int((width - 40) / cols) - 34))
+        for w in self._cards.values():
+            w["ring"].set_size(size)
+
     def _layout_cards(self) -> None:
-        cols = 1 if self._portrait else 2
-        for c in range(3):
+        cols = self._columns()
+        for c in range(8):
             self._grid.grid_columnconfigure(c, weight=1 if c < cols else 0, uniform="room" if c < cols else "")
         for i, rid in enumerate(r.id for r in self._rooms):
             w = self._cards.get(rid)
             if w:
                 w["frame"].grid(row=i // cols, column=i % cols, sticky="nsew", padx=4, pady=4)
+        self._resize_rings()
 
     def _build_card(self, room: C.Room) -> dict:
-        f = ctk.CTkFrame(self._grid, fg_color=COLOR_CARD, corner_radius=18, border_width=1, border_color=COLOR_BORDER)
-        head = ctk.CTkFrame(f, fg_color="transparent")
-        head.pack(fill=tk.X, padx=14, pady=(10, 0))
-        name = ctk.CTkLabel(head, text=room.name, text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 15, "bold"))
-        name.pack(side=tk.LEFT)
-        mode = ctk.CTkLabel(head, text="", corner_radius=10, height=26, text_color=COLOR_TEXT,
-                            font=get_safe_font("Bahnschrift", 11, "bold"))
-        mode.pack(side=tk.RIGHT)
-        heat = ctk.CTkLabel(head, text="", text_color=COLOR_WARNING, font=get_safe_font("Bahnschrift", 12, "bold"))
-        heat.pack(side=tk.RIGHT, padx=8)
-
-        mid = ctk.CTkFrame(f, fg_color="transparent")
-        mid.pack(fill=tk.X, padx=14)
-        cur = ctk.CTkLabel(mid, text="--", text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 30, "bold"))
-        cur.pack(side=tk.LEFT)
-        info = ctk.CTkLabel(mid, text="", text_color=COLOR_SUBTEXT, justify="left",
-                            font=get_safe_font("Bahnschrift", 12))
-        info.pack(side=tk.LEFT, padx=12)
-
+        f = ctk.CTkFrame(self._grid, fg_color=COLOR_CARD, corner_radius=22)
+        name = ctk.CTkLabel(f, text=room.name, text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 16, "bold"))
+        name.pack(pady=(12, 0))
         rid = room.id
-        slider = TouchSlider(f, from_=C.TARGET_MIN, to=C.TARGET_MAX, value=room.target or 20.0, height=50,
-                             gradient=TARGET_GRADIENT, snap_points=(18, 19, 20, 21, 22), snap_range=0.25,
-                             formatter=_target_fmt, on_release=lambda v, r=rid: self._set_target(r, v))
-        slider.pack(fill=tk.X, padx=14, pady=(6, 6))
-
-        row = ctk.CTkFrame(f, fg_color="transparent")
-        row.pack(fill=tk.X, padx=10, pady=(0, 10))
-        for text, cmd, color, w in (
-            ("−", lambda r=rid: self._nudge(r, -0.5), COLOR_BORDER, 56),
-            ("+", lambda r=rid: self._nudge(r, +0.5), COLOR_BORDER, 56),
-            ("⏱  1 h", lambda r=rid: self._set_timer(r), COLOR_WARNING, 90),
-            ("📅  Plan", lambda r=rid: self._set_plan(r), COLOR_PRIMARY, 100),
-        ):
-            self._pill(row, text, cmd, color, w).pack(side=tk.LEFT, padx=4)
-        return {"frame": f, "name": name, "mode": mode, "heat": heat, "cur": cur, "info": info, "slider": slider}
+        ring = ThermostatRing(f, from_=C.TARGET_MIN, to=C.TARGET_MAX, size=160,
+                              on_release=lambda v, r=rid: self._set_target(r, v))
+        ring.pack(padx=10, pady=(2, 4))
+        # 2 x 2 Buttons: passt auch bei 5 Raeumen nebeneinander
+        btns = ctk.CTkFrame(f, fg_color="transparent")
+        btns.pack(fill=tk.X, padx=10, pady=(0, 12))
+        btns.grid_columnconfigure((0, 1), weight=1, uniform="b")
+        small = dict(height=40, width=40, corner_radius=20, fg_color=COLOR_ROOT, hover_color=COLOR_BORDER,
+                     text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 13, "bold"))
+        for i, (text, cmd) in enumerate((("−", lambda r=rid: self._nudge(r, -0.5)),
+                                         ("+", lambda r=rid: self._nudge(r, +0.5)),
+                                         ("1 h", lambda r=rid: self._set_timer(r)),
+                                         ("Plan", lambda r=rid: self._set_plan(r)))):
+            ctk.CTkButton(btns, text=text, command=cmd, **small).grid(row=i // 2, column=i % 2, sticky="ew",
+                                                                      padx=3, pady=3)
+        return {"frame": f, "name": name, "ring": ring}
 
     def _render(self, rooms: list) -> None:
         """Nur auf dem UI-Thread aufrufen."""
@@ -329,22 +330,9 @@ class TadoTab(UiQueuePumpMixin):
         w = self._cards.get(r.id)
         if not w:
             return
-        w["name"].configure(text=r.name)
-        mode_col = {"plan": COLOR_PRIMARY, "manual": COLOR_WARNING, "off": COLOR_BORDER}.get(r.mode, COLOR_BORDER)
-        w["mode"].configure(text=f"  {r.mode_text}  " if r.available else "  offline  ", fg_color=mode_col)
-        if r.heating:
-            w["heat"].configure(text="🔥 heizt" + (f" {r.power_pct} %" if r.power_pct else ""))
-        else:
-            w["heat"].configure(text="")
-        w["cur"].configure(text=C.fmt_temp(r.current))
-        lines = [f"Ziel {C.fmt_temp(r.target) if r.mode != 'off' else 'Aus'}"]
-        if r.humidity is not None:
-            lines.append(f"💧 {r.humidity:.0f} %")
-        if r.window_open:
-            lines.append("🪟 Fenster offen")
-        w["info"].configure(text="\n".join(lines))
-        if r.target is not None:
-            w["slider"].set_value(r.target, force=force_slider)
+        w["name"].configure(text=r.name if r.available else f"{r.name} (offline)")
+        w["ring"].set_state(current=r.current, target=r.target, humidity=r.humidity, heating=r.heating,
+                            mode=r.mode, window_open=r.window_open, force=force_slider)
 
     def _update_summary(self) -> None:
         s = C.summarize(self._rooms)
@@ -688,7 +676,7 @@ class TadoTab(UiQueuePumpMixin):
     def _set_controls_enabled(self, enabled: bool) -> None:
         for w in self._cards.values():
             try:
-                w["slider"].set_enabled(enabled)
+                w["ring"].set_enabled(enabled)
             except Exception:
                 pass
 
