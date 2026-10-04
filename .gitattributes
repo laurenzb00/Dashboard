@@ -1,0 +1,14 @@
+# Einheitliche Zeilenenden (LF) im Repo und im Arbeitsverzeichnis –
+# verhindert, dass Windows (CRLF) und Raspberry Pi (LF) alle Dateien als geändert sehen.
+* text=auto eol=lf
+
+# Windows-Skripte brauchen CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binärdateien nie anfassen
+*.png binary
+*.jpg binary
+*.ico binary
+*.db binary
+*.sqlite binary
