@@ -1,0 +1,238 @@
+"""Einheiz-Empfehlung: Wie lange reicht der Puffer, und bringt die Sonne genug?
+
+Vorgehen
+--------
+1. **Verbrauch**: Waermebedarfs-Modell aus core/heat_demand (Grundlast +
+   Faktor * Grad unter 18 °C, aus der Historie gelernt) mit der stuendlichen
+   Temperaturprognose. Ohne Modell/Prognose: mittlere Abkuehlrate der
+   letzten 24 h in ruhigen Phasen (Kessel aus, kein Anstieg).
+2. **Solar-Faktor**: Wie viel Waerme die Solarthermie bringt, wird an der
+   PV-Anlage abgelesen (gleiche Sonne): k = Solarthermie-kWh / PV-kWh,
+   aus den Tagen der laufenden Saison. Die PV-Prognose (core/pv_forecast)
+   liefert damit eine Solarthermie-Prognose ohne eigene Kalibrierung.
+3. **Simulation**: Stuendlich fuer die naechsten 36 h:
+       E(t+1h) = E(t) - Verbrauch + k * PV-Prognose(t)
+   Startwert ist der aktuell nutzbare Speicherinhalt. Faellt E auf 0, ist
+   der Puffer "leer" (Mittel unter "nutzbar ab", Standard 35 °C).
+4. **Empfehlung** aus dem Zeitpunkt, an dem der Puffer leer wird.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
+from typing import Optional
+
+from . import heat_demand
+from . import heating_stats as hs
+
+HORIZON_H = 36
+MIN_RATE_KW = 0.2
+MIN_FACTOR_DAYS = 5
+GAIN_EPS_KWH = 0.05
+
+
+@dataclass
+class Recommendation:
+    level: str                       # "ok" | "soon" | "today" | "now" | "burning" | "unknown"
+    title: str
+    detail: str = ""
+    empty_at: Optional[datetime] = None          # lokale Zeit, naiv
+    rate_kw: Optional[float] = None
+    solar_factor: Optional[float] = None
+    solar_rest_today_kwh: Optional[float] = None
+    solar_tomorrow_kwh: Optional[float] = None
+    projection: list[tuple[datetime, float]] = field(default_factory=list)   # (lokal, kWh)
+    outdoor_now: Optional[float] = None
+    model: Optional["heat_demand.DemandModel"] = None
+    outlook: Optional["heat_demand.WeekOutlook"] = None
+
+
+def consumption_rate_kw(buckets: list[hs.Bucket], cfg: hs.StorageConfig) -> Optional[float]:
+    """Mittlere Waermeabnahme (kW) in ruhigen Phasen: Kessel aus (inkl. Nachlauf), kein Anstieg."""
+    total_kwh = 0.0
+    total_h = 0.0
+    prev_q = prev_b = None
+    active_until = None
+    for b in buckets:
+        if hs.kessel_active(b):
+            active_until = b.ts + timedelta(minutes=hs.BUCKET_MIN + hs.AFTERGLOW_MIN)
+        q = hs.heat_content_kwh(b, cfg)
+        if q is None:
+            continue
+        if prev_q is not None:
+            minutes = (b.ts - prev_b.ts).total_seconds() / 60.0
+            busy = active_until is not None and b.ts < active_until
+            d = q - prev_q
+            if 0 < minutes <= hs.MAX_GAP_MIN and not busy and d <= GAIN_EPS_KWH:
+                total_kwh += -d
+                total_h += minutes / 60.0
+        prev_q, prev_b = q, b
+    if total_h < 2.0:
+        return None
+    return max(MIN_RATE_KW, total_kwh / total_h)
+
+
+def solar_factor(season: hs.HeatingStats, pv_daily: dict[date, float]) -> Optional[float]:
+    """Solarthermie-kWh pro PV-kWh aus den Saisontagen mit nennenswerter Sonne."""
+    solar_sum = pv_sum = 0.0
+    n = 0
+    for d in season.days:
+        pv = pv_daily.get(d.day)
+        if pv is None or pv < 3.0:
+            continue
+        solar_sum += d.solar_kwh
+        pv_sum += pv
+        n += 1
+    if n < MIN_FACTOR_DAYS or pv_sum <= 0:
+        return None
+    return solar_sum / pv_sum
+
+
+def _fmt_when(ts: datetime, now: datetime) -> str:
+    if ts.date() == now.date():
+        return f"{ts:%H:%M}"
+    if ts.date() == now.date() + timedelta(days=1):
+        return f"morgen {ts:%H:%M}"
+    wd = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][ts.weekday()]
+    return f"{wd} {ts:%H:%M}"
+
+
+def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional[float],
+         pv_forecast_utc: Optional[dict], now: Optional[datetime] = None,
+         kessel_active_now: bool = False, rate_fn=None) -> Recommendation:
+    """rate_fn(lokale Zeit) -> kW ueberschreibt den konstanten rate_kw (temperaturabhaengig)."""
+    """Simuliert die naechsten 36 h und leitet die Empfehlung ab."""
+    now = (now or datetime.now()).replace(second=0, microsecond=0)
+    if usable_now is None or rate_kw is None:
+        return Recommendation("unknown", "Noch zu wenig Daten",
+                              "Für eine Empfehlung braucht es Heizungsdaten der letzten 24 h.")
+
+    def pv_kw_at(local_hour_end: datetime) -> float:
+        if not pv_forecast_utc:
+            return 0.0
+        key = local_hour_end.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        return float(pv_forecast_utc.get(key, 0.0))
+
+    k = factor or 0.0
+    energy = usable_now
+    projection = [(now, energy)]
+    empty_at = None
+    solar_today = solar_tomorrow = 0.0
+    t = now
+    # erster Schritt bis zur naechsten vollen Stunde, danach stuendlich
+    next_hour = (now + timedelta(hours=1)).replace(minute=0)
+    while t < now + timedelta(hours=HORIZON_H):
+        t_next = min(next_hour, now + timedelta(hours=HORIZON_H))
+        frac = (t_next - t).total_seconds() / 3600.0
+        solar = k * pv_kw_at(next_hour) * frac
+        if t.date() == now.date():
+            solar_today += solar
+        elif t.date() == now.date() + timedelta(days=1):
+            solar_tomorrow += solar
+        rate_here = rate_fn(t) if rate_fn is not None else rate_kw
+        new_energy = energy - rate_here * frac + solar
+        if empty_at is None and new_energy <= 0 < energy:
+            empty_at = t + timedelta(hours=frac * energy / max(1e-6, energy - new_energy))
+        energy = max(0.0, new_energy)
+        projection.append((t_next, energy))
+        t = t_next
+        next_hour = t + timedelta(hours=1)
+    if usable_now <= 0:
+        empty_at = now
+
+    # Fuer die Anzeige: Sonne morgen auch dann schaetzen, wenn der Horizont endet
+    rec = Recommendation("ok", "", rate_kw=rate_kw, solar_factor=factor, empty_at=empty_at,
+                         solar_rest_today_kwh=solar_today if factor else None,
+                         solar_tomorrow_kwh=solar_tomorrow if factor else None,
+                         projection=projection)
+
+    sun_note = ""
+    if factor is not None and solar_tomorrow >= 1.0:
+        sun_note = f" · Sonne morgen ≈ {solar_tomorrow:.0f} kWh"
+    elif factor is None and pv_forecast_utc:
+        sun_note = " · Solar-Anteil wird noch gelernt"
+
+    if kessel_active_now:
+        rec.level, rec.title = "burning", "Kessel läuft – Puffer wird geladen"
+        rec.detail = f"Verbrauch zuletzt ≈ {rate_kw:.1f} kW"
+        return rec
+    if empty_at is None:
+        rec.level, rec.title = "ok", "Kein Einheizen nötig"
+        rec.detail = f"Puffer{' + Sonne' if solar_today + solar_tomorrow >= 1 else ''} reicht über die nächsten 36 h" + sun_note
+    elif empty_at <= now + timedelta(hours=3):
+        rec.level, rec.title = "now", "Jetzt einheizen"
+        rec.detail = f"Puffer leer ca. {_fmt_when(empty_at, now)}" + sun_note
+    elif empty_at.date() == now.date() or (empty_at.date() == now.date() + timedelta(days=1) and empty_at.hour < 9):
+        rec.level = "today"
+        rec.title = "Heute Abend einheizen" if now.hour >= 12 else "Heute einheizen"
+        rec.detail = f"Puffer reicht bis ca. {_fmt_when(empty_at, now)}" + sun_note
+    else:
+        rec.level, rec.title = "soon", "Morgen einheizen"
+        rec.detail = f"Puffer reicht bis ca. {_fmt_when(empty_at, now)}" + sun_note
+    return rec
+
+
+def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs.HeatingStats] = None,
+              pv_forecast_utc: Optional[dict] = None, now: Optional[datetime] = None,
+              temps_utc: Optional[dict] = None) -> Recommendation:
+    """Alles zusammen: Daten laden, Verbrauchsmodell/Faktor bestimmen, simulieren."""
+    cfg = cfg or hs.load_storage_config()
+    now = now or datetime.now()
+    buckets = hs.load_buckets(store, now - timedelta(hours=24), now + timedelta(minutes=1))
+    rate_24h = consumption_rate_kw(buckets, cfg)
+
+    usable = None
+    kessel_now = False
+    base = cfg.usable_from_c * (cfg.puffer_kwh_per_k + cfg.boiler_kwh_per_k)
+    for b in reversed(buckets):
+        q = hs.heat_content_kwh(b, cfg)
+        if q is not None:
+            usable = max(0.0, q - base)
+            kessel_now = hs.kessel_active(b) and (now - b.ts) <= timedelta(minutes=45)
+            break
+
+    factor = None
+    if season is not None:
+        pv_daily: dict[date, float] = {}
+        try:
+            for row in store.get_daily_totals(days=None) or []:
+                pv_daily[date.fromisoformat(str(row["day"])[:10])] = float(row.get("pv_kwh") or 0.0)
+        except Exception:
+            pv_daily = {}
+        factor = solar_factor(season, pv_daily)
+
+    # Temperaturabhaengiges Verbrauchsmodell
+    if temps_utc is None:
+        try:
+            from .weather import fetch_hourly_temperature
+            temps_utc = fetch_hourly_temperature(past_days=heat_demand.FIT_DAYS, forecast_days=8)
+        except Exception:
+            temps_utc = {}
+    model = None
+    try:
+        model = heat_demand.get_model(store, cfg, temps_utc)
+    except Exception:
+        model = None
+    outdoor_now = heat_demand._temp_for(now.replace(minute=0, second=0, microsecond=0), temps_utc or {}, None)
+    if outdoor_now is None:
+        outdoor_now = next((b.outdoor for b in reversed(buckets) if b.outdoor is not None), None)
+
+    rate_fn = None
+    rate_now = rate_24h
+    if model is not None and (model.temperature_dependent or rate_24h is None):
+        rate_fn = lambda t: model.kw_at(heat_demand._temp_for(t.replace(minute=0, second=0, microsecond=0),
+                                                               temps_utc or {}, outdoor_now))
+        rate_now = model.kw_at(outdoor_now)
+
+    rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now, rate_fn=rate_fn)
+    rec.outdoor_now = outdoor_now
+    rec.model = model
+    if model is not None and usable is not None:
+        firing_kwh = [e.wood_kwh for e in (season.events if season else []) if e.wood_kwh > 20]
+        avg = (sum(firing_kwh) / len(firing_kwh)) if firing_kwh else None
+        solar_by_day = {}
+        if factor:
+            solar_by_day = {now.date(): rec.solar_rest_today_kwh or 0.0,
+                            now.date() + timedelta(days=1): rec.solar_tomorrow_kwh or 0.0}
+        rec.outlook = heat_demand.week_outlook(model, temps_utc or {}, usable, avg, solar_by_day, now=now)
+    return rec

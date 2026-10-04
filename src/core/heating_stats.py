@@ -20,8 +20,9 @@ Erkennung
   (Sensorrauschen) werden ignoriert: zusammenhaengende Anstiege zaehlen
   erst ab MIN_RUN_KWH.
 
-Volumen in config/heizung.json ueberschreibbar:
-    {"puffer_liter": 4000, "boiler_liter": 500}
+Einstellungen in config/heizung.json (alle optional):
+    {"puffer_liter": 4000, "boiler_liter": 500,
+     "nutzbar_ab_c": 35, "holz_kwh_pro_rm": 1800, "kessel_wirkungsgrad": 0.85}
 """
 from __future__ import annotations
 
@@ -56,6 +57,10 @@ _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "config", "he
 class StorageConfig:
     puffer_liter: float = 4000.0   # 2 x 2000 l
     boiler_liter: float = 500.0
+    usable_from_c: float = 35.0          # darunter bringt der Puffer den Heizkreisen nichts mehr
+    full_at_c: float = 80.0              # "voll" fuer die Ladezustands-Anzeige
+    wood_kwh_per_rm: float = 1800.0      # gemischtes Brennholz (Buche ~2100, Fichte ~1500)
+    boiler_efficiency: float = 0.85      # Kessel: Holzenergie -> Speicher
 
     @property
     def puffer_kwh_per_k(self) -> float:
@@ -73,6 +78,10 @@ def load_storage_config() -> StorageConfig:
         return StorageConfig(
             puffer_liter=float(data.get("puffer_liter", 4000.0)),
             boiler_liter=float(data.get("boiler_liter", 500.0)),
+            usable_from_c=float(data.get("nutzbar_ab_c", 35.0)),
+            full_at_c=float(data.get("voll_bei_c", 80.0)),
+            wood_kwh_per_rm=float(data.get("holz_kwh_pro_rm", 1800.0)),
+            boiler_efficiency=float(data.get("kessel_wirkungsgrad", 0.85)),
         )
     except Exception:
         return StorageConfig()
@@ -174,8 +183,14 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
             return None
         return dt.replace(minute=dt.minute - dt.minute % BUCKET_MIN, second=0, microsecond=0)
 
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(heating)")}
+    except Exception:
+        cols = set()
+    # Aeltere Datensaetze haben die Aussentemperatur in der Spalte "außentemp"
+    outdoor_expr = 'COALESCE(aussentemp, "außentemp")' if "außentemp" in cols else "aussentemp"
     for row in conn.execute(
-        "SELECT timestamp, kesseltemp, puffer_top, puffer_mid, puffer_bot, warmwasser, aussentemp "
+        "SELECT timestamp, kesseltemp, puffer_top, puffer_mid, puffer_bot, warmwasser, " + outdoor_expr + " "
         "FROM heating WHERE timestamp >= ? AND timestamp < ?", (s, e)
     ):
         k = _key(row[0])
@@ -376,3 +391,163 @@ def compute(store, days: int, cfg: Optional[StorageConfig] = None, today: Option
     stats = analyze(buckets, cfg or load_storage_config(), first_day=first, last_day=today, lat=lat, lon=lon)
     stats.events = [e for e in stats.events if e.start.date() >= first]
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Fuer den Waerme-Tab: Live-Zustand, Tagesverlauf, Saison (mit Cache)
+# ---------------------------------------------------------------------------
+
+def puffer_mean(top, mid, bot) -> Optional[float]:
+    vals = [v for v in (top, mid, bot) if v is not None]
+    return sum(vals) / len(vals) if len(vals) >= 2 else None
+
+
+def usable_kwh(mean_c: Optional[float], cfg: StorageConfig) -> Optional[float]:
+    if mean_c is None:
+        return None
+    return max(0.0, mean_c - cfg.usable_from_c) * cfg.puffer_kwh_per_k
+
+
+def charge_pct(mean_c: Optional[float], cfg: StorageConfig) -> Optional[float]:
+    if mean_c is None:
+        return None
+    span = max(1.0, cfg.full_at_c - cfg.usable_from_c)
+    return max(0.0, min(100.0, (mean_c - cfg.usable_from_c) / span * 100.0))
+
+
+def wood_rm(wood_kwh: float, cfg: StorageConfig) -> float:
+    """Waerme im Speicher -> verheizte Raummeter (ueber den Kesselwirkungsgrad)."""
+    return wood_kwh / max(0.1, cfg.boiler_efficiency) / max(1.0, cfg.wood_kwh_per_rm)
+
+
+def _location() -> tuple[float, float]:
+    try:
+        from .weather import load_weather_config
+        w = load_weather_config()
+        return w.latitude, w.longitude
+    except Exception:
+        return 48.2569, 13.0397
+
+
+@dataclass
+class TimelinePoint:
+    ts: datetime                 # lokale Zeit (Bucket-Mitte)
+    q_kwh: Optional[float]       # Waermeinhalt Puffer+Boiler oberhalb "nutzbar ab"
+    source: Optional[str]        # "wood" / "solar" / None - wer gerade laedt
+    kessel: Optional[float]
+
+
+def day_timeline(store, day: date, cfg: Optional[StorageConfig] = None) -> tuple[list[TimelinePoint], DayStats]:
+    """Verlauf eines Tages (15-min) inkl. Quelle der Anstiege + Tageswerte."""
+    cfg = cfg or load_storage_config()
+    lat, lon = _location()
+    start = datetime.combine(day, datetime.min.time())
+    buckets = load_buckets(store, start - timedelta(hours=2), start + timedelta(days=1))
+    stats = analyze(buckets, cfg, first_day=day, last_day=day, lat=lat, lon=lon)
+    day_stats = stats.days[0] if stats.days else DayStats(day)
+
+    active_until = None
+    points: list[TimelinePoint] = []
+    prev_q = None
+    base = cfg.usable_from_c * (cfg.puffer_kwh_per_k + cfg.boiler_kwh_per_k)
+    for b in buckets:
+        if kessel_active(b):
+            active_until = b.ts + timedelta(minutes=BUCKET_MIN + AFTERGLOW_MIN)
+        q = heat_content_kwh(b, cfg)
+        src = None
+        if q is not None and prev_q is not None and q - prev_q > 0.05:
+            if active_until is not None and b.ts < active_until:
+                src = "wood"
+            elif _is_daytime(b, lat, lon):
+                src = "solar"
+        if q is not None:
+            prev_q = q
+        if b.ts >= start:
+            points.append(TimelinePoint(
+                ts=b.ts + timedelta(minutes=BUCKET_MIN / 2),
+                q_kwh=(q - base) if q is not None else None,
+                source=src, kessel=b.kessel,
+            ))
+    return points, day_stats
+
+
+SEASON_START_MONTH = 9          # Heizsaison ab 1. September
+_CACHE_VERSION = 2
+_DAY_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "heating_stats_cache.json")
+
+
+def season_start(today: Optional[date] = None) -> date:
+    today = today or date.today()
+    year = today.year if today.month >= SEASON_START_MONTH else today.year - 1
+    return date(year, SEASON_START_MONTH, 1)
+
+
+def _load_day_cache() -> dict:
+    try:
+        with open(_DAY_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("version") == _CACHE_VERSION:
+            return data
+    except Exception:
+        pass
+    return {"version": _CACHE_VERSION, "days": {}, "events": {}}
+
+
+def _save_day_cache(data: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_DAY_CACHE_PATH), exist_ok=True)
+        tmp = _DAY_CACHE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, _DAY_CACHE_PATH)
+    except Exception:
+        pass
+
+
+def season_stats(store, cfg: Optional[StorageConfig] = None, today: Optional[date] = None,
+                 use_cache: bool = True) -> HeatingStats:
+    """Statistik seit Saisonbeginn. Abgeschlossene Tage (aelter als gestern)
+    werden in data/heating_stats_cache.json zwischengespeichert, damit nicht
+    bei jedem Aufruf Monate an Rohdaten neu ausgewertet werden muessen."""
+    cfg = cfg or load_storage_config()
+    today = today or date.today()
+    first = season_start(today)
+    cache = _load_day_cache() if use_cache else {"version": _CACHE_VERSION, "days": {}, "events": {}}
+    cfg_key = f"{cfg.puffer_liter}/{cfg.boiler_liter}"
+    if cache.get("cfg") != cfg_key:
+        cache = {"version": _CACHE_VERSION, "days": {}, "events": {}, "cfg": cfg_key}
+
+    final_until = today - timedelta(days=2)  # bis einschliesslich vorgestern gilt als abgeschlossen
+    missing = [first + timedelta(days=i) for i in range((today - first).days + 1)
+               if (first + timedelta(days=i)) > final_until
+               or (first + timedelta(days=i)).isoformat() not in cache["days"]]
+    lat, lon = _location()
+    if missing:
+        lo, hi = min(missing), max(missing)
+        start = datetime.combine(lo, datetime.min.time()) - timedelta(hours=2)
+        end = datetime.combine(hi + timedelta(days=1), datetime.min.time())
+        st = analyze(load_buckets(store, start, end), cfg, first_day=lo, last_day=hi, lat=lat, lon=lon)
+        for d in st.days:
+            if d.day in missing:
+                cache["days"][d.day.isoformat()] = [d.wood_kwh, d.solar_kwh, d.used_kwh, d.events,
+                                                    d.outdoor_sum, d.outdoor_n]
+        for ev in st.events:
+            if ev.start.date() in missing:
+                cache["events"][ev.start.isoformat()] = [ev.end.isoformat(), ev.peak_kessel, ev.wood_kwh]
+        if use_cache:
+            _save_day_cache(cache)
+
+    out = HeatingStats()
+    for i in range((today - first).days + 1):
+        d = first + timedelta(days=i)
+        row = cache["days"].get(d.isoformat())
+        ds = DayStats(d)
+        if row:
+            ds.wood_kwh, ds.solar_kwh, ds.used_kwh, ds.events, ds.outdoor_sum, ds.outdoor_n = row
+        out.days.append(ds)
+    for start_s, (end_s, peak, wood) in sorted(cache["events"].items()):
+        st_dt = datetime.fromisoformat(start_s)
+        if first <= st_dt.date() <= today:
+            out.events.append(HeatingEvent(start=st_dt, end=datetime.fromisoformat(end_s),
+                                           peak_kessel=peak, wood_kwh=wood))
+    return out
