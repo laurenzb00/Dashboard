@@ -372,6 +372,91 @@ class HomeAssistantClient:
             return False
         return self.call_service("scene", "turn_on", {"entity_id": entity_id})
 
+    # --- Lichtsteuerung (Licht-Tab) -------------------------------------
+
+    def render_template(self, template: str) -> Optional[str]:
+        """Rendert ein Jinja-Template in Home Assistant (POST /api/template)."""
+        r = self._resilient_post(
+            self._url("/api/template"),
+            headers=self._headers(),
+            data=json.dumps({"template": template}),
+            timeout=self.config.timeout_s,
+            verify=self.config.verify_ssl,
+        )
+        r.raise_for_status()
+        return r.text
+
+    _AREA_TEMPLATE = (
+        "{%- set ns = namespace(l=[], s=[]) -%}"
+        "{%- for e in states.light -%}{%- set a = area_name(e.entity_id) -%}"
+        "{%- if a -%}{%- set ns.l = ns.l + [[e.entity_id, a]] -%}{%- endif -%}{%- endfor -%}"
+        "{%- for e in states.scene -%}{%- set a = area_name(e.entity_id) -%}"
+        "{%- if a -%}{%- set ns.s = ns.s + [[e.entity_id, a]] -%}{%- endif -%}{%- endfor -%}"
+        "{{ {'lights': ns.l, 'scenes': ns.s} | tojson }}"
+    )
+
+    def get_areas(self) -> Dict[str, Dict[str, str]]:
+        """Bereichszuordnung aus Home Assistant: {'lights': {entity: Bereich}, 'scenes': {...}}.
+
+        Leere dicts, wenn das Template-API nicht verfuegbar ist.
+        """
+        try:
+            raw = self.render_template(self._AREA_TEMPLATE) or "{}"
+            data = json.loads(raw)
+            return {
+                "lights": {str(k): str(v) for k, v in (data.get("lights") or [])},
+                "scenes": {str(k): str(v) for k, v in (data.get("scenes") or [])},
+            }
+        except Exception:
+            return {"lights": {}, "scenes": {}}
+
+    def light_turn_on(self, entity_ids: List[str], **data: Any) -> bool:
+        ids = [str(x).strip() for x in (entity_ids or []) if str(x).strip()]
+        if not ids:
+            return False
+        payload = {"entity_id": ids}
+        payload.update({k: v for k, v in data.items() if v is not None})
+        return self.call_service("light", "turn_on", payload)
+
+    def get_scene_config(self, scene_config_id: str) -> Optional[Dict[str, Any]]:
+        """Konfiguration einer im HA-Editor gespeicherten Szene (Attribut 'id' der scene.*-Entitaet)."""
+        r = self._resilient_get(
+            self._url(f"/api/config/scene/config/{scene_config_id}"),
+            headers=self._headers(),
+            timeout=self.config.timeout_s,
+            verify=self.config.verify_ssl,
+        )
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        data = r.json()
+        return data if isinstance(data, dict) else None
+
+    def save_scene_config(self, scene_config_id: str, name: str, entities: Dict[str, Any]) -> bool:
+        """Legt eine Szene dauerhaft an (wie der Szenen-Editor in HA, landet in scenes.yaml).
+
+        Braucht einen Admin-Token. HA laedt die Szenen danach selbst neu.
+        """
+        r = self._resilient_post(
+            self._url(f"/api/config/scene/config/{scene_config_id}"),
+            headers=self._headers(),
+            data=json.dumps({"id": scene_config_id, "name": name, "entities": entities}),
+            timeout=self.config.timeout_s,
+            verify=self.config.verify_ssl,
+        )
+        r.raise_for_status()
+        return True
+
+    def delete_scene_config(self, scene_config_id: str) -> bool:
+        r = self.session_delete(self._url(f"/api/config/scene/config/{scene_config_id}"))
+        return r
+
+    def session_delete(self, url: str) -> bool:
+        r = requests.delete(url, headers=self._headers(), timeout=self.config.timeout_s,
+                            verify=self.config.verify_ssl)
+        r.raise_for_status()
+        return True
+
     def update_entity(self, entity_ids: str | List[str]) -> bool:
         """Ask Home Assistant to refresh one or multiple entities."""
 
