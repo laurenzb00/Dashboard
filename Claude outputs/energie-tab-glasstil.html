@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Glas-Stil Vorschau v6</title>
+<style>
+  :root {
+    --root: #0d0f13;
+    --card: #121821;
+    --border: #1e2733;
+    --text: #E9EEF7;
+    --subtext: #9aa4b2;
+    --title: #B7C1D3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--root);
+    color: var(--text);
+    font-family: "Segoe UI", "Bahnschrift", Arial, sans-serif;
+    padding: 34px;
+  }
+  h1 { font-size: 15px; color: var(--subtext); font-weight: 600; margin: 0 0 4px 4px; }
+  .note { font-size: 12px; color: var(--subtext); margin: 4px 4px 30px 4px; line-height: 1.5; max-width: 900px; }
+  .note b { color: var(--title); }
+
+  .row { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+
+  .tank-panel {
+    background: var(--card);
+    border-radius: 22px;
+    border: 1px solid var(--border);
+    padding: 30px 36px 30px;
+    text-align: center;
+    width: 300px;
+  }
+  .tank-title {
+    font-size: 15px; font-weight: 700; letter-spacing: 0.12em;
+    color: #eef1f6; margin-bottom: 22px;
+  }
+
+  .tank-stage { position: relative; height: 250px; display: flex; justify-content: center; }
+
+  .tank-glow {
+    position: absolute; top: 4%; left: 50%; width: 140px; height: 82%;
+    transform: translateX(-50%);
+    background: radial-gradient(ellipse at 50% 28%, rgba(255,150,110,0.32), transparent 55%),
+                radial-gradient(ellipse at 50% 78%, rgba(80,140,255,0.28), transparent 55%);
+    filter: blur(24px);
+    z-index: 0;
+  }
+
+  /* Bodenschatten - setzt die Roehre "in den Raum" statt frei zu schweben */
+  .tank-shadow {
+    position: absolute; bottom: 4px; left: 50%; width: 76px; height: 14px;
+    transform: translateX(-50%);
+    background: radial-gradient(ellipse, rgba(0,0,0,0.55), transparent 70%);
+    z-index: 0;
+  }
+
+  .tank {
+    position: relative; z-index: 1;
+    width: 92px; height: 216px; margin-top: 8px;
+    border-radius: 46px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: #0c0f14;
+  }
+
+  /* Ebene 1: thermischer Farbverlauf (die eigentlichen Daten) */
+  .tank .fill { position: absolute; inset: 0; }
+
+  /* Ebene 2: zylindrische Woelbung als Overlay UEBER der Farbe -
+     hell links, dunkler Kern, heller schmaler Rand rechts = rund statt flach. */
+  .tank .cyl-shade {
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg,
+      rgba(255,255,255,0.22) 0%,
+      rgba(255,255,255,0.02) 14%,
+      rgba(0,0,0,0.30) 52%,
+      rgba(0,0,0,0.05) 78%,
+      rgba(255,255,255,0.12) 92%,
+      rgba(255,255,255,0.02) 100%);
+    mix-blend-mode: overlay;
+    z-index: 2;
+  }
+
+  /* Ebene 3: gebogener Glanzstreifen (Glas-Reflex), naeher am Rand,
+     mit weichem Verlauf statt hartem Balken. */
+  .tank .streak {
+    position: absolute; top: 3%; left: 12%; width: 13%; height: 88%;
+    border-radius: 30px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.55) 45%, rgba(255,255,255,0.02));
+    filter: blur(0.4px);
+    z-index: 3;
+  }
+  .tank .streak.thin {
+    left: 78%; width: 6%; opacity: 0.5;
+  }
+
+  /* Ebene 4: obere Kappen-Ellipse - Blick von leicht oben in die Roehre,
+     wie bei einem Reagenzglas. Gibt den staerksten 3D-Eindruck. */
+  .tank .cap-top {
+    position: absolute; top: 0; left: 6%; right: 6%; height: 22px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at 50% 35%, rgba(255,255,255,0.55), rgba(255,255,255,0.05) 70%);
+    z-index: 4;
+  }
+  .tank .cap-top::after {
+    content: "";
+    position: absolute; inset: 3px 10px;
+    border-radius: 50%;
+    background: rgba(10,12,16,0.35);
+  }
+
+  .tank .mark-line {
+    position: absolute; left: -34px; right: -34px; height: 1.5px;
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 0 6px rgba(255,255,255,0.5);
+    z-index: 5;
+  }
+  .mark-value {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    font-size: 13px; color: var(--text); white-space: nowrap; z-index: 5;
+  }
+  .mark-value.mv-left { right: calc(100% + 44px); }
+  .mark-value.mv-right { left: calc(100% + 44px); }
+
+  .scale-bands {
+    display: flex; flex-direction: column;
+    width: 26px; height: 210px;
+    border-radius: 10px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 2px 0 4px rgba(0,0,0,0.3) inset;
+  }
+  .scale-bands span { flex: 1; }
+  .b1{background:#f4d23c;} .b2{background:#f2a33c;} .b3{background:#ea6a4c;}
+  .b4{background:#e0507e;} .b5{background:#a34bb0;} .b6{background:#5a5fd6;}
+  .b7{background:#3f8fe0;}
+  .scale-labels-row {
+    display: flex; flex-direction: column; justify-content: space-between;
+    height: 210px; font-size: 10.5px; color: var(--subtext); font-weight: 600;
+  }
+
+  .footer-note {
+    margin-top: 34px; font-size: 11.5px; color: var(--subtext);
+    max-width: 1100px; line-height: 1.65;
+    border-top: 1px solid var(--border); padding-top: 16px;
+  }
+  .footer-note b { color: var(--title); }
+</style>
+</head>
+<body>
+
+<h1>Stilrichtung v6 — wie v5, jetzt mit echter Rundung/3D-Tiefe</h1>
+<p class="note">
+  Gleiche Farben/Glow wie zuletzt, aber die Röhre bekommt jetzt vier übereinanderliegende
+  Ebenen: <b>Farbverlauf</b> (Daten) → <b>zylindrische Schattierung</b> quer drüber (hell-dunkel-hell,
+  macht sie rund statt flach) → <b>gebogener Glasreflex</b> → <b>Kappen-Ellipse oben</b>
+  (Blick von leicht oben ins Glas, wie ein Reagenzglas) + Bodenschatten drunter.
+</p>
+
+<div class="row">
+
+  <div class="tank-panel">
+    <div class="tank-title">WARMWASSER</div>
+    <div class="tank-stage">
+      <div class="tank-glow"></div>
+      <div class="tank-shadow"></div>
+      <div class="tank">
+        <div class="fill" style="background: linear-gradient(180deg, #f4c26a 0%, #ef8f5c 16%, #e0607a 32%, #a5497e 46%, #4a3a63 58%, #2c4a72 72%, #2f6f9c 86%, #3fa0c9 100%);"></div>
+        <div class="cyl-shade"></div>
+        <div class="streak"></div>
+        <div class="streak thin"></div>
+        <div class="cap-top"></div>
+        <div class="mark-line" style="top:46%"></div>
+        <div class="mark-value mv-left" style="top:46%">50.9 °C</div>
+        <div class="mark-value mv-right" style="top:46%">50.9 °C</div>
+      </div>
+      <div class="scale-bands" style="position:absolute; left: calc(100% + 30px); top: 8px;">
+        <span class="b1"></span><span class="b2"></span><span class="b3"></span>
+        <span class="b4"></span><span class="b5"></span><span class="b6"></span><span class="b7"></span>
+      </div>
+      <div class="scale-labels-row" style="position:absolute; left: calc(100% + 62px); top: 8px;">
+        <span>80°C</span><span>70°C</span><span>60°C</span><span>50°C</span><span>40°C</span><span>30°C</span><span>20°C</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tank-panel">
+    <div class="tank-title">PUFFER</div>
+    <div class="tank-stage">
+      <div class="tank-glow" style="background: radial-gradient(ellipse at 50% 25%, rgba(120,190,255,0.30), transparent 55%), radial-gradient(ellipse at 50% 78%, rgba(70,110,255,0.26), transparent 55%);"></div>
+      <div class="tank-shadow"></div>
+      <div class="tank">
+        <div class="fill" style="background: linear-gradient(180deg, #7fd6f0 0%, #4fb0dc 18%, #3f8fd0 36%, #3a6fc2 52%, #4a5aa8 66%, #6a4a8c 80%, #7c3f66 100%);"></div>
+        <div class="cyl-shade"></div>
+        <div class="streak"></div>
+        <div class="streak thin"></div>
+        <div class="cap-top"></div>
+        <div class="mark-line" style="top:24%"></div>
+        <div class="mark-value mv-left" style="top:24%">51.8 °C</div>
+        <div class="mark-line" style="top:54%"></div>
+        <div class="mark-value mv-right" style="top:54%">47.9 °C</div>
+        <div class="mark-line" style="top:80%"></div>
+        <div class="mark-value mv-left" style="top:80%">46.3 °C</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer-note">
+  Die Rundung kommt jetzt aus <b>zwei zusätzlichen Ebenen über der Farbe</b> statt nur einem
+  Glanzstreifen: einer flächigen hell-dunkel-hell-Schattierung quer über die Röhre
+  (<code>mix-blend-mode: overlay</code>, verzerrt die Farben nicht, macht sie nur plastisch) und
+  einer Kappen-Ellipse oben, die wie ein Blick von leicht oben in ein Glasrohr wirkt. Der
+  Bodenschatten setzt sie zusätzlich "in den Raum". In <code>buffer_storage.py</code> liegt das
+  als 2–3 zusätzliche <code>FancyBboxPatch</code>/Gradient-Layer über dem bestehenden Tank-Patch –
+  baut auf eurem Code auf, ändert aber nichts an der Dateninterpretation.
+</div>
+
+</body>
+</html>

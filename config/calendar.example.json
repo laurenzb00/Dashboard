@@ -1,0 +1,6 @@
+{
+    "ical_urls": [
+        "https://calendar.google.com/calendar/ical/YOUR_EMAIL%40gmail.com/private-YOUR_PRIVATE_TOKEN/basic.ics",
+        "https://calendar.google.com/calendar/ical/YOUR_SHARED_CALENDAR_ID%40group.calendar.google.com/public/basic.ics"
+    ]
+}
