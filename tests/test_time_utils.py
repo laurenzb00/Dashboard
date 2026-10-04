@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from core.time_utils import utc_now, ensure_utc, guard_alive
+from core.time_utils import utc_now, ensure_utc, guard_alive, parse_db_ts, to_db_ts, db_ts_to_local, db_cutoff
 
 
 class TestUtcNow(unittest.TestCase):
@@ -106,6 +106,41 @@ class TestGuardAlive(unittest.TestCase):
 
         self.assertEqual(result, 6)
 
+
+
+class TestDbTimestamps(unittest.TestCase):
+    """DB-Konvention: UTC im Format YYYY-MM-DD HH:MM:SS."""
+
+    def test_aware_offset_converted_to_utc(self):
+        self.assertEqual(to_db_ts("2026-09-13T14:00:08.011306+02:00"), "2026-09-13 12:00:08")
+
+    def test_naive_is_utc_by_default(self):
+        self.assertEqual(to_db_ts("2026-09-13 12:00:04"), "2026-09-13 12:00:04")
+
+    def test_z_suffix(self):
+        self.assertEqual(to_db_ts("2026-01-01T00:00:00Z"), "2026-01-01 00:00:00")
+
+    def test_naive_local_option(self):
+        local = datetime(2026, 7, 1, 14, 0, 0)
+        expected = local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        self.assertEqual(to_db_ts(local, naive_is_local=True), expected)
+
+    def test_invalid_returns_none(self):
+        self.assertIsNone(to_db_ts("kein datum"))
+        self.assertIsNone(parse_db_ts(None))
+        self.assertIsNone(db_ts_to_local(""))
+
+    def test_db_ts_to_local_is_naive_local(self):
+        local = db_ts_to_local("2026-07-01 12:00:00")
+        self.assertIsNone(local.tzinfo)
+        expected = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+        self.assertEqual(local, expected)
+
+    def test_cutoff_comparable_with_db_strings(self):
+        cutoff = db_cutoff(hours=1)
+        self.assertEqual(len(cutoff), 19)
+        now_db = to_db_ts(datetime.now(timezone.utc))
+        self.assertGreater(now_db, cutoff)
 
 if __name__ == "__main__":
     unittest.main()

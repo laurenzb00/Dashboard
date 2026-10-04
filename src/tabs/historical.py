@@ -6,6 +6,8 @@ import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
 
+from core.time_utils import db_ts_to_local
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -266,18 +268,8 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
 
     @staticmethod
     def _parse_ts(value) -> datetime | None:
-        if not value:
-            return None
-        try:
-            s = str(value).strip()
-            if s.endswith("Z"):
-                s = s[:-1] + "+00:00"
-            dt = datetime.fromisoformat(s)
-            if getattr(dt, "tzinfo", None) is not None:
-                dt = dt.astimezone().replace(tzinfo=None)
-            return dt
-        except Exception:
-            return None
+        # DB-Zeitstempel (UTC) -> naive lokale Zeit fuer die Charts
+        return db_ts_to_local(value)
 
     @staticmethod
     def _as_float(v):

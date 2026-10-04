@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+from core.time_utils import db_ts_to_local
 from typing import Iterable, Optional
 
 import numpy as np
@@ -37,7 +39,7 @@ def _normalize_data(data: Iterable[dict]) -> list[EnergyChartDataPoint]:
         try:
             ts = item.get("timestamp")
             if isinstance(ts, str):
-                ts = datetime.fromisoformat(ts)
+                ts = db_ts_to_local(ts)
             if not isinstance(ts, datetime):
                 continue
             pv = float(item.get("pv_power"))

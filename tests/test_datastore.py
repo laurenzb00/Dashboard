@@ -172,5 +172,57 @@ class TestDataStoreBasic(unittest.TestCase):
         self.assertIsNone(ts)
 
 
+
+class TestTimestampMigration(unittest.TestCase):
+    """Alte DBs (gemischte Zeitformate) werden einmalig auf UTC migriert."""
+
+    def setUp(self):
+        import sqlite3
+        self._tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self._tmpdir, "legacy.db")
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TABLE fronius (id INTEGER PRIMARY KEY, timestamp TEXT UNIQUE, pv_power REAL, grid_power REAL, batt_power REAL, soc REAL, load_power REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        conn.execute("CREATE TABLE heating (id INTEGER PRIMARY KEY, timestamp TEXT UNIQUE, kesseltemp REAL, aussentemp REAL, puffer_top REAL, puffer_mid REAL, puffer_bot REAL, warmwasser REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        # Fronius: naive Lokalzeit; Heizung: mit Offset, inkl. Duplikat in derselben Sekunde
+        self.local_fr = datetime(2026, 7, 1, 14, 0, 4)
+        conn.execute("INSERT INTO fronius (timestamp, pv_power) VALUES (?, 1.0)", (self.local_fr.strftime("%Y-%m-%d %H:%M:%S"),))
+        conn.execute("INSERT INTO heating (timestamp, kesseltemp) VALUES ('2026-07-01T14:00:08.100000+02:00', 60.0)")
+        conn.execute("INSERT INTO heating (timestamp, kesseltemp) VALUES ('2026-07-01T14:00:08.900000+02:00', 60.0)")
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_migration_to_utc(self):
+        store = DataStore(db_path=self.db_path)
+        try:
+            expected_fr = self.local_fr.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            self.assertEqual(store.get_last_fronius_record()["timestamp"], expected_fr)
+            self.assertEqual(store.get_last_heating_record()["timestamp"], "2026-07-01 12:00:08")
+            n = store.conn.execute("SELECT COUNT(*) FROM heating").fetchone()[0]
+            self.assertEqual(n, 1)
+            self.assertEqual(store.conn.execute("PRAGMA user_version").fetchone()[0], 1)
+        finally:
+            store.close()
+        self.assertTrue(os.path.exists(os.path.join(self._tmpdir, "legacy_pre_utc_migration.db")))
+
+    def test_migration_runs_only_once(self):
+        DataStore(db_path=self.db_path).close()
+        store = DataStore(db_path=self.db_path)
+        try:
+            self.assertEqual(store.get_last_heating_record()["timestamp"], "2026-07-01 12:00:08")
+        finally:
+            store.close()
+
+    def test_insert_aware_timestamp_stored_as_utc(self):
+        store = DataStore(db_path=self.db_path)
+        try:
+            store.insert_fronius_record({"Zeitstempel": "2026-07-02T10:00:00+02:00", "PV-Leistung (kW)": 2.0})
+            self.assertEqual(store.get_last_fronius_record()["timestamp"], "2026-07-02 08:00:00")
+        finally:
+            store.close()
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ from datetime import datetime
 import time
 
 from core.datastore import get_shared_datastore
+from core.time_utils import local_now_iso
 
 # Reuse TCP connections across requests
 _session = requests.Session()
@@ -37,7 +38,8 @@ def abrufen_und_speichern():
         response = _resilient_get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
-            zeitstempel = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Lokale Zeit MIT Offset - der Datastore rechnet sie eindeutig in UTC um.
+            zeitstempel = local_now_iso()
             pv_leistung = data["Body"]["Data"]["Site"]["P_PV"] / 1000
             netz_leistung = data["Body"]["Data"]["Site"]["P_Grid"] / 1000
             batterie_leistung = data["Body"]["Data"]["Site"]["P_Akku"] / 1000

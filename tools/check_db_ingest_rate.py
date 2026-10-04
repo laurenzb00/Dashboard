@@ -10,9 +10,11 @@ def _parse_ts(value: str | None) -> datetime | None:
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
     try:
-        return datetime.fromisoformat(raw)
+        dt = datetime.fromisoformat(raw)
     except Exception:
         return None
+    # DB-Konvention: naive Zeitstempel sind UTC
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def main() -> int:

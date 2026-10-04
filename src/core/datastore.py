@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 """Central SQLite datastore for PV and heating metrics."""
-from .time_utils import ensure_utc
+from .time_utils import ensure_utc, parse_db_ts, to_db_ts
 from .utils import safe_float
 from collections import defaultdict
 import csv
@@ -116,6 +116,7 @@ class DataStore:
         except Exception as e:
             logging.error(f"Fehler beim PrÃ¼fen auf DB-Lock: {e}")
         self._init_db()
+        self._migrate_timestamps_to_utc()
         self._hydrate_last_ingest_cache()
         # TTL caches for frequently queried latest records
         self._cache_fronius: Optional[dict] = None
@@ -202,6 +203,107 @@ class DataStore:
         
         self.conn.commit()
 
+    # Schema-Version der Zeitstempel (PRAGMA user_version):
+    #   0 = gemischt (Fronius: lokale Zeit ohne Zone, Heizung: lokale Zeit mit
+    #       Offset, verdichtete Zeilen: UTC ohne Zone)
+    #   1 = alle Zeitstempel UTC im Format time_utils.DB_TS_FORMAT
+    _TS_SCHEMA_VERSION = 1
+
+    def _migrate_timestamps_to_utc(self) -> None:
+        """Einmalige Migration aller Zeitstempel auf UTC (DB_TS_FORMAT).
+
+        Vor der Migration wird ein Backup (data_pre_utc_migration.db) angelegt.
+        Schlaegt das Backup fehl, wird nicht migriert (naechster Start versucht
+        es erneut). Die Umstellung laeuft in einer einzigen Transaktion.
+        """
+        with self._lock:
+            cur = self.conn.cursor()
+            version = cur.execute("PRAGMA user_version").fetchone()[0]
+            if version >= self._TS_SCHEMA_VERSION:
+                return
+            has_rows = any(
+                cur.execute(f"SELECT 1 FROM {t} LIMIT 1").fetchone() for t in ("fronius", "heating")
+            )
+            if has_rows:
+                backup_path = Path(self.db_path).with_name(f"{Path(self.db_path).stem}_pre_utc_migration.db")
+                try:
+                    if not backup_path.exists():
+                        target = sqlite3.connect(str(backup_path))
+                        try:
+                            self.conn.commit()
+                            self.conn.backup(target)
+                        finally:
+                            target.close()
+                        logging.info("[DB] Backup vor Zeitzonen-Migration: %s", backup_path)
+                except Exception as exc:
+                    logging.error("[DB] Backup vor Zeitzonen-Migration fehlgeschlagen, Migration uebersprungen: %s", exc)
+                    return
+
+            try:
+                cur.execute("BEGIN IMMEDIATE")
+                stats = {t: self._migrate_table_timestamps(cur, t) for t in ("fronius", "heating")}
+                cur.execute(f"PRAGMA user_version = {self._TS_SCHEMA_VERSION}")
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                logging.exception("[DB] Zeitzonen-Migration fehlgeschlagen (keine Aenderung)")
+                return
+            if has_rows:
+                logging.info("[DB] Zeitstempel auf UTC migriert: %s", stats)
+
+    @staticmethod
+    def _migrate_table_timestamps(cur, table: str) -> dict:
+        rows = cur.execute(f"SELECT id, timestamp FROM {table} ORDER BY id").fetchall()
+        if not rows:
+            return {"rows": 0, "changed": 0, "dropped": 0}
+
+        # Naive Zeilen sind mehrdeutig: Fronius schrieb immer lokale Zeit.
+        # In "heating" sind naive Zeilen VOR dem ersten Eintrag mit Offset
+        # lokale Zeit (CSV-Import), danach stammen sie aus compact_old_records()
+        # und sind bereits UTC.
+        first_aware_utc = None
+        if table == "heating":
+            for _, ts in rows:
+                dt = parse_db_ts(ts)
+                raw = str(ts or "")
+                if dt is not None and ("+" in raw[10:] or raw.endswith("Z") or raw[19:].count("-")):
+                    if first_aware_utc is None or dt < first_aware_utc:
+                        first_aware_utc = dt
+
+        seen: set[str] = set()
+        updates: list[tuple[str, int]] = []
+        drops: list[tuple[int]] = []
+        changed = 0
+        for row_id, ts in rows:
+            raw = str(ts or "").strip()
+            try:
+                naive = datetime.fromisoformat(raw[:-1] + "+00:00" if raw.endswith("Z") else raw).tzinfo is None
+            except ValueError:
+                naive = None
+            if naive is None:
+                new_ts = raw  # nicht parsebar: unveraendert lassen
+            elif not naive:
+                new_ts = to_db_ts(raw)
+            elif table == "fronius":
+                new_ts = to_db_ts(raw, naive_is_local=True)
+            else:
+                as_utc = parse_db_ts(raw)
+                is_local = first_aware_utc is None or as_utc < first_aware_utc
+                new_ts = to_db_ts(raw, naive_is_local=is_local)
+            if new_ts in seen:
+                drops.append((row_id,))  # Duplikat (z.B. Zeitumstellung im Herbst)
+                continue
+            seen.add(new_ts)
+            if new_ts != raw:
+                changed += 1
+            updates.append(("~" + new_ts, row_id))
+
+        # Zweistufig, damit UNIQUE(timestamp) zwischendurch nie kollidiert.
+        cur.executemany(f"DELETE FROM {table} WHERE id = ?", drops)
+        cur.executemany(f"UPDATE {table} SET timestamp = ? WHERE id = ?", updates)
+        cur.execute(f"UPDATE {table} SET timestamp = substr(timestamp, 2) WHERE timestamp LIKE '~%'")
+        return {"rows": len(rows), "changed": changed, "dropped": len(drops)}
+
     def _hydrate_last_ingest_cache(self) -> None:
         """Populate ingest cache from existing DB content on startup."""
         with self._lock:
@@ -225,7 +327,7 @@ class DataStore:
                 reader = csv.DictReader(f)
                 for row in reader:
                     try:
-                        ts = row.get('Zeitstempel') or row.get('timestamp')
+                        ts = to_db_ts(row.get('Zeitstempel') or row.get('timestamp'), naive_is_local=True)
                         if not ts:
                             continue
                         pv = safe_float(_first_value(
@@ -407,7 +509,8 @@ class DataStore:
         """Persistiere einen Fronius-Datensatz."""
         if not record:
             return
-        ts = record.get('Zeitstempel') or record.get('timestamp')
+        # Einheitlich als UTC speichern (siehe time_utils.DB_TS_FORMAT).
+        ts = to_db_ts(record.get('Zeitstempel') or record.get('timestamp'))
         if not ts:
             return
         pv = safe_float(record.get('PV-Leistung (kW)') or record.get('pv'))
@@ -438,9 +541,10 @@ class DataStore:
         if not record:
             logging.warning("[DB-INSERT] Empty record, skipping")
             return
-        ts = record.get('Zeitstempel') or record.get('timestamp')
+        # Einheitlich als UTC speichern (siehe time_utils.DB_TS_FORMAT).
+        ts = to_db_ts(record.get('Zeitstempel') or record.get('timestamp'))
         if not ts:
-            logging.warning("[DB-INSERT] No timestamp in record: %s", list(record.keys())[:5])
+            logging.warning("[DB-INSERT] No/invalid timestamp in record: %s", list(record.keys())[:5])
             return
         kessel = safe_float(record.get('Kesseltemperatur') or record.get('kesseltemp'))
         outdoor = safe_float(record.get('Außentemperatur') or record.get('Aussentemperatur') or record.get('aussentemp'))
@@ -967,7 +1071,7 @@ class DataStore:
             with open(csv_path, 'r', encoding='utf-8-sig') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    ts = row.get('Zeitstempel')
+                    ts = to_db_ts(row.get('Zeitstempel'), naive_is_local=True)
                     if not ts:
                         continue
                     cursor.execute(
@@ -1100,25 +1204,8 @@ def _hours_ago_iso(hours: int | None) -> Optional[str]:
 
 
 def _parse_iso_timestamp(value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    try:
-        raw = str(value).strip()
-        # Accept common ISO UTC suffix.
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        dt = datetime.fromisoformat(raw)
-        # Optional correction: if source stores local timestamps without tzinfo.
-        # Default remains "treat naive as UTC" (existing behavior).
-        if dt.tzinfo is None and os.environ.get("DASHBOARD_TS_ASSUME_LOCAL", "").strip().lower() in ("1", "true", "yes", "on"):
-            try:
-                local_tz = datetime.now().astimezone().tzinfo
-                dt = dt.replace(tzinfo=local_tz).astimezone(timezone.utc)
-            except Exception:
-                pass
-        return dt
-    except Exception:
-        return None
+    """DB-Zeitstempel -> UTC-aware datetime (naive = UTC, siehe time_utils)."""
+    return parse_db_ts(value)
 
 
 def _first_value(row: dict, *keys: str):

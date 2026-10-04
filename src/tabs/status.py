@@ -9,6 +9,7 @@ import logging
 import customtkinter as ctk
 
 from core.datastore import get_shared_datastore
+from core.time_utils import db_ts_to_local
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from core.schema import PV_POWER_KW, GRID_POWER_KW, BATTERY_POWER_KW, BATTERY_SOC_PCT, BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_TOP_C, BUF_MID_C, BUF_BOTTOM_C
 from core.health import get_health_snapshot
@@ -589,12 +590,8 @@ class StatusTab(ctk.CTkFrame):
 
     @staticmethod
     def _safe_iso_to_dt(ts):
-        if not ts:
-            return None
-        try:
-            return datetime.fromisoformat(str(ts))
-        except Exception:
-            return None
+        # DB-Zeitstempel (UTC) -> naive lokale Zeit, passend zu datetime.now()
+        return db_ts_to_local(ts)
 
     @staticmethod
     def _age_seconds(now, dt):

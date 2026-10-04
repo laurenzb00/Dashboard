@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
 from core.datastore import get_shared_datastore
+from core.time_utils import db_ts_to_local
 from ui.styles import (
     COLOR_ROOT,
     COLOR_CARD,
@@ -87,7 +88,7 @@ class AnalyseTab:
             'timestamp': 'Zeitstempel',
             'pv': 'PV-Leistung (kW)',
         }, inplace=True)
-        df['Zeitstempel'] = pd.to_datetime(df['Zeitstempel'])
+        df['Zeitstempel'] = pd.to_datetime(df['Zeitstempel'].map(db_ts_to_local))
         return df[['Zeitstempel', 'PV-Leistung (kW)']]
 
     def _load_heating_data(self, hours: int = 72) -> pd.DataFrame:
@@ -101,7 +102,7 @@ class AnalyseTab:
             'timestamp': 'Zeitstempel',
             'top': 'Pufferspeicher Oben',
         }, inplace=True)
-        df['Zeitstempel'] = pd.to_datetime(df['Zeitstempel'])
+        df['Zeitstempel'] = pd.to_datetime(df['Zeitstempel'].map(db_ts_to_local))
         return df[['Zeitstempel', 'Pufferspeicher Oben']]
 
     def _load_chart_data(self) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
@@ -114,11 +115,11 @@ class AnalyseTab:
             heat_rows = self.datastore.get_recent_heating(hours=None, limit=None) if self.datastore else []
             if pv_rows:
                 pv = pd.DataFrame(pv_rows).rename(columns={"timestamp": "Zeitstempel", "pv": "PV-Leistung (kW)"})
-                pv["Zeitstempel"] = pd.to_datetime(pv["Zeitstempel"])
+                pv["Zeitstempel"] = pd.to_datetime(pv["Zeitstempel"].map(db_ts_to_local))
                 pv = pv[["Zeitstempel", "PV-Leistung (kW)"]]
             if heat_rows:
                 heating = pd.DataFrame(heat_rows).rename(columns={"timestamp": "Zeitstempel", "top": "Pufferspeicher Oben"})
-                heating["Zeitstempel"] = pd.to_datetime(heating["Zeitstempel"])
+                heating["Zeitstempel"] = pd.to_datetime(heating["Zeitstempel"].map(db_ts_to_local))
                 heating = heating[["Zeitstempel", "Pufferspeicher Oben"]]
             archive = bool(not pv.empty and not heating.empty)
         return pv, heating, archive

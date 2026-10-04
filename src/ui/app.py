@@ -90,6 +90,7 @@ from ui.app_presence import PresenceOverrideManager
 # Core modules
 from core.datastore import DataStore, get_shared_datastore
 from core.utils import safe_float
+from core.time_utils import db_ts_to_local, parse_db_ts
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from core.weather import fetch_forecast
 from core.schema import (
@@ -2070,10 +2071,7 @@ class MainApp(UiQueuePumpMixin):
         ts_str = self.datastore.get_latest_timestamp()
         if not ts_str:
             return None
-        try:
-            return datetime.fromisoformat(ts_str)
-        except Exception:
-            return None
+        return parse_db_ts(ts_str)
 
     def _load_pv_sparkline(self, minutes: int = 60) -> list[float]:
         if not self.datastore:
@@ -2084,7 +2082,7 @@ class MainApp(UiQueuePumpMixin):
         rows = self.datastore.get_recent_fronius(hours=hours, limit=1200)
         values: list[float] = []
         for row in rows[-400:]:
-            ts = self._parse_timestamp_value(row.get('timestamp'))
+            ts = db_ts_to_local(row.get('timestamp'))
             pv_kw = row.get('pv')
             if ts is None or pv_kw is None:
                 continue

@@ -12,6 +12,7 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import FixedLocator
 
 from core.datastore import get_shared_datastore
+from core.time_utils import db_ts_to_local
 from core.schema import PV_POWER_KW
 from ui.views.chart_resize_mixin import MatplotlibCanvasResizeMixin
 from ui.styles import (
@@ -464,7 +465,7 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
         rows = self.datastore.get_recent_fronius(hours=hours, limit=_sparkline_db_limit())
         parsed_rows: list[tuple[datetime, dict]] = []
         for entry in rows:
-            ts = self._parse_ts(entry.get('timestamp'))
+            ts = db_ts_to_local(entry.get('timestamp'))
             if ts is None:
                 continue
             if ts > now:
@@ -479,7 +480,7 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
             fallback_rows = self.datastore.get_recent_fronius(hours=None, limit=_sparkline_db_limit())
             fallback_parsed: list[tuple[datetime, dict]] = []
             for entry in fallback_rows:
-                ts = self._parse_ts(entry.get('timestamp'))
+                ts = db_ts_to_local(entry.get('timestamp'))
                 if ts is None:
                     continue
                 if ts > now:
@@ -517,7 +518,7 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
         rows = self.datastore.get_recent_heating(hours=hours, limit=_sparkline_db_limit())
         parsed_rows: list[tuple[datetime, dict]] = []
         for entry in rows:
-            ts = self._parse_ts(entry.get('timestamp'))
+            ts = db_ts_to_local(entry.get('timestamp'))
             if ts is None:
                 continue
             if ts > now:
@@ -529,7 +530,7 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
             fallback_rows = self.datastore.get_recent_heating(hours=None, limit=_sparkline_db_limit())
             fallback_parsed: list[tuple[datetime, dict]] = []
             for entry in fallback_rows:
-                ts = self._parse_ts(entry.get('timestamp'))
+                ts = db_ts_to_local(entry.get('timestamp'))
                 if ts is None:
                     continue
                 if ts > now:

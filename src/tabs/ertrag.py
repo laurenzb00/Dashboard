@@ -6,6 +6,7 @@ from tkinter import ttk
 import customtkinter as ctk
 import numpy as np
 from core.datastore import get_shared_datastore
+from core.time_utils import db_cutoff, db_ts_to_local
 from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
     COLOR_ROOT,
@@ -250,10 +251,8 @@ class ErtragTab(UiQueuePumpMixin):
         prev_power = None
 
         for row in rows:
-            ts_raw = row.get("timestamp")
-            try:
-                ts = datetime.fromisoformat(str(ts_raw))
-            except Exception:
+            ts = db_ts_to_local(row.get("timestamp"))
+            if ts is None:
                 continue
             if ts < cutoff:
                 continue
@@ -398,7 +397,7 @@ class ErtragTab(UiQueuePumpMixin):
             if conn is None:
                 return []
 
-            cutoff = (datetime.now() - timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
+            cutoff = db_cutoff(days=int(days))  # UTC, wie die DB-Zeitstempel
             bucket_seconds = max(60, int(bin_minutes) * 60)
 
             # Bucket by unixepoch seconds to avoid loading huge raw row counts for long windows.
@@ -443,9 +442,8 @@ class ErtragTab(UiQueuePumpMixin):
             pv_avg = row[1]
             load_avg = row[2]
             grid_avg = row[3]
-            try:
-                ts = datetime.fromisoformat(str(bucket_ts))
-            except Exception:
+            ts = db_ts_to_local(bucket_ts)  # SQLite liefert UTC
+            if ts is None:
                 continue
 
             try:

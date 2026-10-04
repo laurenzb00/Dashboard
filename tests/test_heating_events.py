@@ -2,7 +2,7 @@
 
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Ensure src/ is importable
@@ -13,9 +13,11 @@ from core.heating_events import compute_last_heating_event, parse_iso_dt
 
 class TestParseIsoDt(unittest.TestCase):
     def test_basic_iso(self):
+        # DB-Konvention: naive Zeitstempel sind UTC; Ergebnis ist lokale aware Zeit
         dt = parse_iso_dt("2025-06-15 14:30:00")
         self.assertIsNotNone(dt)
-        self.assertEqual(dt.hour, 14)
+        self.assertIsNotNone(dt.tzinfo)
+        self.assertEqual(dt.astimezone(timezone.utc).hour, 14)
 
     def test_iso_with_z(self):
         dt = parse_iso_dt("2025-06-15T14:30:00Z")

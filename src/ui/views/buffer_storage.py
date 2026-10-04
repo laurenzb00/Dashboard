@@ -2,6 +2,8 @@ import os
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
+
+from core.time_utils import db_ts_to_local
 from typing import Optional
 
 import matplotlib.dates as mdates
@@ -1080,23 +1082,9 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _parse_ts(value):
-        # Parse timestamps coming from different sources.
-        # Some are naive ("YYYY-MM-DD HH:MM:SS"), some are offset-aware ("...+01:00").
-        # For UI charting we normalize to *naive local time* to avoid TypeError
-        # when comparing offset-aware vs. naive datetimes.
-        from datetime import datetime
-        if not value:
-            return None
-        try:
-            s = str(value).strip()
-            if s.endswith("Z"):
-                s = s[:-1] + "+00:00"
-            dt = datetime.fromisoformat(s)
-            if getattr(dt, "tzinfo", None) is not None:
-                dt = dt.astimezone().replace(tzinfo=None)
-            return dt
-        except Exception:
-            return None
+        # DB-Zeitstempel (UTC, siehe core.time_utils) -> naive lokale Zeit fuer
+        # die Charts und Vergleiche mit datetime.now().
+        return db_ts_to_local(value)
 
     @staticmethod
     def _safe_float(value):

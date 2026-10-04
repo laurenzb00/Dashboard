@@ -5,21 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from .time_utils import parse_db_ts
+
 
 def parse_iso_dt(value: str | None) -> datetime | None:
-    """Parse ISO timestamp string, treating naive timestamps as local time."""
-    if not value:
-        return None
-    try:
-        raw = str(value).strip()
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        dt = datetime.fromisoformat(raw)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
-        return dt
-    except Exception:
-        return None
+    """Parse a DB timestamp (naive = UTC) into a timezone-aware *local* datetime."""
+    dt = parse_db_ts(value)
+    return dt.astimezone() if dt is not None else None
 
 
 def compute_last_heating_event(rows: list[dict]) -> Optional[datetime]:
