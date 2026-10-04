@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from datetime import date
+import logging
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -7,6 +8,8 @@ import customtkinter as ctk
 import numpy as np
 from core.datastore import get_shared_datastore
 from core.time_utils import db_cutoff, db_ts_to_local
+from core import energy_day
+from core import pv_forecast
 from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
     COLOR_ROOT,
@@ -69,8 +72,10 @@ class ErtragTab(UiQueuePumpMixin):
         self._shell.pack(fill=tk.BOTH, expand=True)
         self.tab_frame = self._shell.body
 
-        self._period_var = tk.StringVar(value="7 Tage")
-        self._period_map: dict[str, int] = {"7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
+        self._period_var = tk.StringVar(value="Tag")
+        self._period_map: dict[str, int] = {"Tag": 1, "7 Tage": 7, "30 Tage": 30, "180 Tage": 180, "1 Jahr": 365}
+        self._day: date = date.today()
+        self._portrait = False
 
         # Layout like HistoricalTab: topbar + portrait metrics panel + plot card + status line
         # self.tab_frame is TabShell.body, whose own __init__ sets row 0 to
@@ -96,12 +101,12 @@ class ErtragTab(UiQueuePumpMixin):
         # Historie/Tagesproduktion schon auf CTkButton mit der "Glas"-Rundung
         # liefen). Jetzt an dasselbe Muster angeglichen.
         self._period_buttons = {}
-        for period in ["7 Tage", "30 Tage", "180 Tage", "1 Jahr"]:
+        for period in ["Tag", "7 Tage", "30 Tage", "180 Tage", "1 Jahr"]:
             btn = ctk.CTkButton(
                 period_frame,
                 text=period,
                 font=get_safe_font("Bahnschrift", FONT_SIZE_BODY, "bold"),
-                width=100,
+                width=86 if period != "Tag" else 64,
                 height=BUTTON_HEIGHT_SECONDARY,
                 corner_radius=14,
                 command=lambda p=period: self._select_period(p)
@@ -123,23 +128,24 @@ class ErtragTab(UiQueuePumpMixin):
         # uneinheitlich - jetzt gibt es nur noch die MetricTile-Reihe, dafuer
         # mit dem Monatsvergleich als 6. Kachel statt eigener Zeile.
         self.metrics_frame = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
-        for col in range(3):
-            self.metrics_frame.grid_columnconfigure(col, weight=1)
-        for row in range(2):
-            self.metrics_frame.grid_rowconfigure(row, weight=1)
         self._metric_tiles: dict[str, MetricTile] = {}
+        # Reihenfolge = Anzeige-Reihenfolge. Zweite/letzte Kachel wechseln je
+        # nach Modus die Bedeutung (Tag: Prognose/Akku, Zeitraum: Ersparnis/Monat).
         tile_specs = [
-            ("pv", "PV-Ertrag", COLOR_TEXT),
-            ("verbrauch", "Verbrauch", COLOR_SUBTEXT),
-            ("diff", "Differenz", COLOR_SUBTEXT),
+            ("pv", "PV-Ertrag", COLOR_WARNING),
+            ("slot2", "Prognose", COLOR_WARNING),
+            ("verbrauch", "Verbrauch", COLOR_PRIMARY),
+            ("bezug", "Netzbezug", COLOR_DANGER),
+            ("einspeisung", "Einspeisung", COLOR_SUBTEXT),
             ("autarkie", "Autarkie", COLOR_SUCCESS),
-            ("ersparnis", "Ersparnis", COLOR_PRIMARY),
-            ("monthly", "Monatsvergleich", COLOR_SUBTEXT),
+            ("eigenverbrauch", "Eigenverbr.", COLOR_SUCCESS),
+            ("slot8", "Akku", COLOR_SUCCESS),
         ]
-        for idx, (key, caption, color) in enumerate(tile_specs):
-            tile = MetricTile(self.metrics_frame, caption, value_color=color)
-            tile.grid(row=idx // 3, column=idx % 3, sticky="nsew", padx=4, pady=4)
-            self._metric_tiles[key] = tile
+        self._tile_order = [k for k, _, _ in tile_specs]
+        for key, caption, color in tile_specs:
+            self._metric_tiles[key] = MetricTile(self.metrics_frame, caption, value_color=color)
+        self._layout_tiles(portrait=False)
+        self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
 
         plot_container = tk.Frame(self.tab_frame, bg=COLOR_ROOT)
         plot_container.grid(row=2, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
@@ -152,8 +158,31 @@ class ErtragTab(UiQueuePumpMixin):
         self.card.grid_rowconfigure(0, weight=1)
         self.card.grid_columnconfigure(0, weight=1)
 
+        self.day_nav = tk.Frame(self.card, bg=COLOR_CARD)
+        self.day_nav.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
+        self.day_nav.grid_columnconfigure(1, weight=1)
+        nav_font = get_safe_font("Bahnschrift", FONT_SIZE_BODY, "bold")
+        self._btn_prev_day = ctk.CTkButton(
+            self.day_nav, text="◀", width=56, height=BUTTON_HEIGHT_SECONDARY - 8, corner_radius=14,
+            font=nav_font, fg_color=COLOR_BORDER, hover_color=COLOR_PRIMARY, text_color=COLOR_TEXT,
+            command=lambda: self._shift_day(-1),
+        )
+        self._btn_prev_day.grid(row=0, column=0, sticky="w")
+        self.day_label = tk.Label(self.day_nav, text="", bg=COLOR_CARD, fg=COLOR_TEXT,
+                                  font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE, "bold"))
+        self.day_label.grid(row=0, column=1)
+        self.day_label.bind("<Button-1>", lambda _e: self._goto_today())
+        self._btn_next_day = ctk.CTkButton(
+            self.day_nav, text="▶", width=56, height=BUTTON_HEIGHT_SECONDARY - 8, corner_radius=14,
+            font=nav_font, fg_color=COLOR_BORDER, hover_color=COLOR_PRIMARY, text_color=COLOR_TEXT,
+            command=lambda: self._shift_day(1),
+        )
+        self._btn_next_day.grid(row=0, column=2, sticky="e")
+        self.card.grid_rowconfigure(0, weight=0)
+        self.card.grid_rowconfigure(1, weight=1)
+
         self.chart_frame = tk.Frame(self.card, bg=COLOR_CARD)
-        self.chart_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        self.chart_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
         # Without this, the matplotlib canvas widget's self-configured size
         # (set via fig.set_size_inches(..., forward=True)) can make Tk grow
         # chart_frame to fit it instead of the other way around, which then
@@ -176,6 +205,7 @@ class ErtragTab(UiQueuePumpMixin):
         self.energy_chart.canvas_widget.bind("<Map>", lambda _event: self.energy_chart.refresh_size())
 
         self._last_key = None
+        self._apply_mode_ui()
         self.store = get_shared_datastore()
         self._update_task_id = self.root.after(100, self._update_plot)
         # Belt-and-suspenders: the chart has been observed stuck at its
@@ -189,12 +219,8 @@ class ErtragTab(UiQueuePumpMixin):
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
             self._shell.set_portrait_layout(portrait)
-        if portrait:
-            self.tab_frame.grid_rowconfigure(1, minsize=150, weight=0)
-            self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
-        else:
-            self.metrics_frame.grid_remove()
-            self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
+        self._portrait = bool(portrait)
+        self._layout_tiles(portrait)
         # Row 1/3 changing size changes how tall row 2 (the chart) ends up -
         # force a resize pass instead of hoping a <Configure> event cascades
         # down reliably.
@@ -202,10 +228,147 @@ class ErtragTab(UiQueuePumpMixin):
             self.root.after(50, self.energy_chart.refresh_size)
             self.root.after(300, self.energy_chart.refresh_size)
 
-    def _set_tile(self, key: str, text: str) -> None:
+    def _set_tile(self, key: str, text: str, color: str | None = None) -> None:
         tile = getattr(self, "_metric_tiles", {}).get(key)
         if tile is not None:
-            tile.set_value(text)
+            tile.set_value(text, color=color)
+
+    def _set_caption(self, key: str, caption: str) -> None:
+        tile = getattr(self, "_metric_tiles", {}).get(key)
+        if tile is not None:
+            tile.caption_label.configure(text=caption.upper())
+
+    def _layout_tiles(self, portrait: bool) -> None:
+        """Querformat: 1 Reihe mit 8 Kacheln, Hochformat: 2 Reihen mit je 4."""
+        cols = 4 if portrait else 8
+        for col in range(8):
+            self.metrics_frame.grid_columnconfigure(col, weight=1 if col < cols else 0, uniform="tiles" if col < cols else "")
+        for idx, key in enumerate(self._tile_order):
+            self._metric_tiles[key].grid(row=idx // cols, column=idx % cols, sticky="nsew", padx=3, pady=3)
+        self.tab_frame.grid_rowconfigure(1, minsize=150 if portrait else 76, weight=0)
+
+    # --- Tagesansicht -------------------------------------------------------
+
+    def _is_day_mode(self) -> bool:
+        return self._period_var.get() == "Tag"
+
+    def _apply_mode_ui(self) -> None:
+        """Datumsleiste und Kachel-Beschriftungen an den Modus anpassen."""
+        if self._is_day_mode():
+            self.day_nav.grid()
+            self._set_caption("slot2", "Prognose")
+            self._set_caption("slot8", "Akku")
+            self._update_day_label()
+        else:
+            self.day_nav.grid_remove()
+            self._set_caption("slot2", "Ersparnis")
+            self._set_caption("slot8", "Monat")
+
+    def _update_day_label(self) -> None:
+        wd = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][self._day.weekday()]
+        today = date.today()
+        if self._day == today:
+            prefix = "Heute"
+        elif self._day == today - timedelta(days=1):
+            prefix = "Gestern"
+        elif self._day == today + timedelta(days=1):
+            prefix = "Morgen"
+        else:
+            prefix = wd
+        self.day_label.config(text=f"{prefix}, {self._day:%d.%m.%Y}")
+        # Vorwaerts nur bis morgen (dort gibt es nur die Prognose)
+        state = "normal" if self._day < today + timedelta(days=1) else "disabled"
+        self._btn_next_day.configure(state=state)
+
+    def _shift_day(self, delta: int) -> None:
+        new_day = self._day + timedelta(days=delta)
+        if new_day > date.today() + timedelta(days=1):
+            return
+        self._day = new_day
+        self._update_day_label()
+        self._update_plot()
+
+    def _goto_today(self) -> None:
+        if self._day != date.today():
+            self._day = date.today()
+            self._update_day_label()
+            self._update_plot()
+
+    def _update_day_plot(self) -> None:
+        day = self._day
+        self._update_token += 1
+        token = self._update_token
+
+        def worker() -> None:
+            try:
+                samples = energy_day.load_day_samples(self.store, day) if self.store else []
+                floor = energy_day.soc_floor(self.store) if self.store else None
+                summary = energy_day.summarize(samples, floor)
+                binned = energy_day.bin_samples(samples, minutes=5)
+            except Exception:
+                logging.exception("[ERTRAG] Tagesdaten konnten nicht geladen werden")
+                samples, summary, binned = [], energy_day.DaySummary(), []
+            try:
+                forecast = pv_forecast.get_forecast(self.store)
+            except Exception:
+                logging.exception("[ERTRAG] PV-Prognose fehlgeschlagen")
+                forecast = None
+            fc_day = pv_forecast.forecast_for_day(forecast, day)
+            key = (
+                "tag", day.isoformat(), len(samples),
+                samples[-1].ts.isoformat() if samples else None,
+                len(fc_day), round(sum(v for _, v in fc_day), 3),
+            )
+
+            def apply() -> None:
+                if not self.alive or token != self._update_token:
+                    return
+                self._apply_day_result(day, key, binned, summary, fc_day)
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_day_result(self, day, key, binned, summary, fc_day) -> None:
+        if key != self._last_key or day == date.today():
+            self._last_key = key
+            start = datetime.combine(day, datetime.min.time())
+            self.energy_chart.render(
+                binned,
+                forecast=fc_day,
+                empty_spans=summary.empty_spans,
+                x_range=(start, start + timedelta(days=1)),
+                show_soc=True,
+            )
+        else:
+            self.energy_chart.refresh_size()
+
+        has_data = summary.samples > 0
+        dash = "--"
+        self.topbar_status.config(text="")
+        self._set_tile("pv", f"{summary.pv_kwh:.1f} kWh" if has_data else dash)
+        fc_kwh = pv_forecast.forecast_kwh(fc_day)
+        if fc_kwh is None:
+            self._set_tile("slot2", dash, color=COLOR_SUBTEXT)
+        else:
+            self._set_tile("slot2", f"{fc_kwh:.1f} kWh", color=COLOR_WARNING)
+        self._set_tile("verbrauch", f"{summary.load_kwh:.1f} kWh" if has_data else dash)
+        self._set_tile("bezug", f"{summary.import_kwh:.1f} kWh" if has_data else dash)
+        self._set_tile("einspeisung", f"{summary.export_kwh:.1f} kWh" if has_data else dash)
+        aut = summary.autarky_pct
+        self._set_tile("autarkie", f"{aut:.0f}%" if aut is not None else "--%")
+        eig = summary.self_consumption_pct
+        self._set_tile("eigenverbrauch", f"{eig:.0f}%" if eig is not None else "--%")
+        if summary.empty_at is not None:
+            self._set_tile("slot8", f"leer {summary.empty_at:%H:%M}", color=COLOR_DANGER)
+        elif summary.full_at is not None:
+            self._set_tile("slot8", f"voll {summary.full_at:%H:%M}", color=COLOR_SUCCESS)
+        elif summary.soc_min is not None:
+            self._set_tile("slot8", f"min {summary.soc_min:.0f}%", color=COLOR_SUCCESS)
+        else:
+            self._set_tile("slot8", dash, color=COLOR_SUBTEXT)
+
+        self._update_task_id = self.root.after(60 * 1000, self._update_plot)
 
     def stop(self):
         self.alive = False
@@ -369,6 +532,8 @@ class ErtragTab(UiQueuePumpMixin):
         """Wechselt Zeitraum und aktualisiert Button-Farben."""
         self._period_var.set(period)
         self._update_period_button_colors()
+        self._last_key = None
+        self._apply_mode_ui()
         self._update_plot()
 
     def _update_period_button_colors(self) -> None:
@@ -485,6 +650,10 @@ class ErtragTab(UiQueuePumpMixin):
                 pass
             self._update_task_id = None
 
+        if self._is_day_mode():
+            self._update_day_plot()
+            return
+
         window_days = int(self._period_map.get(self._period_var.get(), 7) or 7)
 
         # Choose a coarse bin for long windows to keep UI fast.
@@ -592,12 +761,11 @@ class ErtragTab(UiQueuePumpMixin):
 
         self.energy_chart.render(data)
 
-        diff_kwh = pv_kwh - load_kwh
-        label = self._period_var.get()
-        self.topbar_status.config(text=label)
+        self.topbar_status.config(text="")
         self._set_tile("pv", f"{pv_kwh:.1f} kWh")
         self._set_tile("verbrauch", f"{load_kwh:.1f} kWh")
-        self._set_tile("diff", f"{diff_kwh:+.1f} kWh")
+        self._set_tile("bezug", f"{grid_import_kwh:.1f} kWh")
+        self._set_tile("einspeisung", f"{grid_export_kwh:.1f} kWh")
 
         # Autarkiegrad: 1 - (Netzbezug / Gesamtverbrauch)
         if load_kwh > 0.1:
@@ -606,23 +774,31 @@ class ErtragTab(UiQueuePumpMixin):
         else:
             self._set_tile("autarkie", "--%")
 
-        # Kostenersparnis: Eigenverbrauch × Strompreis + Einspeisung × Einspeisetarif
+        # Eigenverbrauchsquote: Anteil des PV-Stroms, der selbst genutzt wurde
         eigenverbrauch_kwh = max(0.0, pv_kwh - grid_export_kwh)
+        if pv_kwh > 0.1:
+            self._set_tile("eigenverbrauch", f"{min(100.0, eigenverbrauch_kwh / pv_kwh * 100.0):.0f}%")
+        else:
+            self._set_tile("eigenverbrauch", "--%")
+
+        # Kostenersparnis: Eigenverbrauch × Strompreis + Einspeisung × Einspeisetarif
         ersparnis_eur = eigenverbrauch_kwh * _STROMPREIS_EUR_KWH + grid_export_kwh * _EINSPEISETARIF_EUR_KWH
         if pv_kwh > 0.1:
-            self._set_tile("ersparnis", f"{ersparnis_eur:.2f} €")
+            self._set_tile("slot2", f"{ersparnis_eur:.2f} €", color=COLOR_PRIMARY)
         else:
-            self._set_tile("ersparnis", "-- €")
+            self._set_tile("slot2", "-- €", color=COLOR_PRIMARY)
 
+        # Laufender Monat (PV) im Vergleich zum Vormonat
         if monthly:
-            parts = []
-            for m in monthly[-3:]:
-                month_str = m.get("month", "")[:7]  # YYYY-MM
-                kwh = float(m.get("pv_kwh", 0.0))
-                parts.append(f"{month_str}: {kwh:.0f} kWh")
-            self._set_tile("monthly", " | ".join(parts))
+            cur = float(monthly[-1].get("pv_kwh", 0.0))
+            text = f"{cur:.0f} kWh"
+            if len(monthly) >= 2:
+                prev = float(monthly[-2].get("pv_kwh", 0.0))
+                if prev > 0.5:
+                    text += f" ({(cur / prev - 1.0) * 100.0:+.0f}%)"
+            self._set_tile("slot8", text, color=COLOR_WARNING)
         else:
-            self._set_tile("monthly", "--")
+            self._set_tile("slot8", "--", color=COLOR_SUBTEXT)
 
         self._update_task_id = self.root.after(60 * 1000, self._update_plot)
 
