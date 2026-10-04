@@ -99,5 +99,50 @@ class TestEmpty(unittest.TestCase):
         self.assertIsNone(stats.solar_share_pct)
 
 
+
+class TestWaermeHelpers(unittest.TestCase):
+    def test_usable_and_charge(self):
+        from core.heating_stats import charge_pct, usable_kwh, wood_rm
+        cfg = StorageConfig()
+        self.assertAlmostEqual(usable_kwh(45.0, cfg), 10 * 4.652, places=2)
+        self.assertEqual(usable_kwh(30.0, cfg), 0.0)
+        self.assertAlmostEqual(charge_pct(57.5, cfg), 50.0)
+        self.assertAlmostEqual(wood_rm(1530.0, cfg), 1.0)   # 1530 / 0.85 / 1800
+
+    def test_season_start(self):
+        from core.heating_stats import season_start
+        self.assertEqual(season_start(date(2026, 10, 4)), date(2026, 9, 1))
+        self.assertEqual(season_start(date(2027, 2, 1)), date(2026, 9, 1))
+
+    def test_season_stats_cache(self):
+        import sqlite3, tempfile, os
+        import core.heating_stats as hs
+        from core.time_utils import to_db_ts
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE heating (timestamp TEXT, kesseltemp REAL, puffer_top REAL, puffer_mid REAL, "
+                     "puffer_bot REAL, warmwasser REAL, aussentemp REAL)")
+        t, p = datetime(2026, 9, 10, 8, 0), 40.0
+        for i in range(16):            # 4 h Einheizen: +20 K
+            p += 20 / 16
+            conn.execute("INSERT INTO heating VALUES (?,?,?,?,?,?,?)",
+                         (to_db_ts(t + timedelta(minutes=15 * i), naive_is_local=True), 78, p, p, p, 55, 10))
+
+        class Store:
+            pass
+        store = Store()
+        store.conn = conn
+        old = hs._DAY_CACHE_PATH
+        hs._DAY_CACHE_PATH = os.path.join(tempfile.mkdtemp(), "cache.json")
+        try:
+            a = hs.season_stats(store, StorageConfig(), today=date(2026, 9, 20))
+            conn.execute("DELETE FROM heating")   # abgeschlossene Tage kommen jetzt aus dem Cache
+            b = hs.season_stats(store, StorageConfig(), today=date(2026, 9, 20))
+        finally:
+            hs._DAY_CACHE_PATH = old
+        self.assertEqual(len(a.days), 20)
+        self.assertAlmostEqual(a.wood_kwh, 20 * 4.652 * 15 / 16, delta=0.5)  # erster Messwert hat keinen Vorgaenger
+        self.assertAlmostEqual(b.wood_kwh, a.wood_kwh)
+        self.assertEqual(len(b.events), 1)
+
 if __name__ == "__main__":
     unittest.main()

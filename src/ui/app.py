@@ -123,6 +123,11 @@ try:
 except ImportError:
     HistoricalTab = None
 try:
+    from tabs.waerme import WaermeTab
+except ImportError:
+    logging.exception("WaermeTab konnte nicht importiert werden")
+    WaermeTab = None
+try:
     from tabs.ertrag import ErtragTab
 except ImportError:
     ErtragTab = None
@@ -1181,6 +1186,21 @@ class MainApp(UiQueuePumpMixin):
                 logger.error("HistoricalTab init failed: %s", e)
                 self.historical_tab = None
 
+        if WaermeTab:
+            try:
+                _dbg_print("[TABS] WaermeTab wird erstellt...")
+                self.tabview.add(emoji("🔥\nWärme", "Wärme"))
+                waerme_frame = self.tabview.tab(emoji("🔥\nWärme", "Wärme"))
+                try:
+                    waerme_frame.configure(fg_color=COLOR_ROOT)
+                except Exception:
+                    pass
+                self.waerme_tab = WaermeTab(self.root, self.notebook, datastore=self.datastore, tab_frame=waerme_frame)
+                _dbg_print("[TABS] WaermeTab erfolgreich hinzugefügt.")
+            except Exception as e:
+                logger.error("WaermeTab init failed: %s", e)
+                self.waerme_tab = None
+
         if ErtragTab:
             try:
                 _dbg_print("[TABS] ErtragTab wird erstellt...")
@@ -1331,6 +1351,7 @@ class MainApp(UiQueuePumpMixin):
             getattr(self, "tado_tab", None),
             getattr(self, "calendar_tab", None),
             getattr(self, "historical_tab", None),
+            getattr(self, "waerme_tab", None),
             getattr(self, "ertrag_tab", None),
             getattr(self, "tagesproduktion_tab", None),
             getattr(self, "health_tab", None),
@@ -1808,6 +1829,7 @@ class MainApp(UiQueuePumpMixin):
                 "system_tab",
                 "calendar_tab",
                 "historical_tab",
+                "waerme_tab",
                 "tagesproduktion_tab",
                 "ertrag_tab",
             ):

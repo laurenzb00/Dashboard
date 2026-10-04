@@ -124,3 +124,68 @@ def fetch_forecast(config: Optional[WeatherConfig] = None) -> Optional[dict]:
     except Exception as exc:
         logger.debug("Wetter-Abruf fehlgeschlagen: %s", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Stuendliche Aussentemperatur (fuer das Waermebedarfs-Modell)
+# ---------------------------------------------------------------------------
+
+_TEMP_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "temperature_cache.json")
+_TEMP_CACHE_MAX_AGE_S = 3600
+
+
+def fetch_hourly_temperature(config: Optional[WeatherConfig] = None, past_days: int = 60,
+                             forecast_days: int = 7, allow_network: bool = True) -> dict:
+    """Stuendliche Lufttemperatur {Stunde (UTC, aware): °C} - Vergangenheit und Prognose.
+
+    Gecacht in data/temperature_cache.json (1 h). Bei Fehlern wird der Cache
+    verwendet; ohne Cache ein leeres dict.
+    """
+    import time
+    from datetime import datetime, timezone
+
+    cfg = config or load_weather_config()
+    cache = {}
+    try:
+        with open(_TEMP_CACHE_PATH, "r", encoding="utf-8") as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    values = dict(cache.get("values") or {})
+    fresh = (time.time() - float(cache.get("fetched_at", 0) or 0)) < _TEMP_CACHE_MAX_AGE_S
+    if allow_network and cfg.enabled and not fresh:
+        try:
+            resp = _session.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": cfg.latitude,
+                    "longitude": cfg.longitude,
+                    "hourly": "temperature_2m",
+                    "past_days": max(0, min(92, int(past_days))),
+                    "forecast_days": max(1, min(16, int(forecast_days))),
+                    "timezone": "UTC",
+                },
+                timeout=cfg.timeout_s,
+            )
+            resp.raise_for_status()
+            hourly = (resp.json() or {}).get("hourly") or {}
+            for t, v in zip(hourly.get("time") or [], hourly.get("temperature_2m") or []):
+                if v is not None:
+                    values[str(t)] = float(v)
+            # nur ~1 Jahr behalten
+            keys = sorted(values)
+            values = {k: values[k] for k in keys[-24 * 400:]}
+            os.makedirs(os.path.dirname(_TEMP_CACHE_PATH), exist_ok=True)
+            tmp = _TEMP_CACHE_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"fetched_at": time.time(), "values": values}, f)
+            os.replace(tmp, _TEMP_CACHE_PATH)
+        except Exception as exc:
+            logger.debug("Temperatur-Abruf fehlgeschlagen, nutze Cache: %s", exc)
+    out = {}
+    for k, v in values.items():
+        try:
+            out[datetime.fromisoformat(k).replace(tzinfo=timezone.utc)] = float(v)
+        except ValueError:
+            continue
+    return out

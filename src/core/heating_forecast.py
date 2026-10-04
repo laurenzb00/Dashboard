@@ -42,6 +42,8 @@ class Recommendation:
     solar_rest_today_kwh: Optional[float] = None
     solar_tomorrow_kwh: Optional[float] = None
     projection: list[tuple[datetime, float]] = field(default_factory=list)   # (lokal, kWh)
+    steps: list[tuple[datetime, float, float]] = field(default_factory=list)   # (Beginn lokal, Verbrauch kW, Solar kWh)
+    temps: list[tuple[datetime, float]] = field(default_factory=list)          # (Stunde lokal, °C) fuer 36 h
     outdoor_now: Optional[float] = None
     model: Optional["heat_demand.DemandModel"] = None
     outlook: Optional["heat_demand.WeekOutlook"] = None
@@ -116,6 +118,7 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
     k = factor or 0.0
     energy = usable_now
     projection = [(now, energy)]
+    steps: list[tuple[datetime, float, float]] = []
     empty_at = None
     solar_today = solar_tomorrow = 0.0
     t = now
@@ -130,6 +133,7 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
         elif t.date() == now.date() + timedelta(days=1):
             solar_tomorrow += solar
         rate_here = rate_fn(t) if rate_fn is not None else rate_kw
+        steps.append((t, rate_here, solar))
         new_energy = energy - rate_here * frac + solar
         if empty_at is None and new_energy <= 0 < energy:
             empty_at = t + timedelta(hours=frac * energy / max(1e-6, energy - new_energy))
@@ -144,7 +148,7 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
     rec = Recommendation("ok", "", rate_kw=rate_kw, solar_factor=factor, empty_at=empty_at,
                          solar_rest_today_kwh=solar_today if factor else None,
                          solar_tomorrow_kwh=solar_tomorrow if factor else None,
-                         projection=projection)
+                         projection=projection, steps=steps)
 
     sun_note = ""
     if factor is not None and solar_tomorrow >= 1.0:
@@ -226,6 +230,13 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
 
     rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now, rate_fn=rate_fn)
     rec.outdoor_now = outdoor_now
+    if temps_utc:
+        hour0 = now.replace(minute=0, second=0, microsecond=0)
+        for i in range(HORIZON_H + 1):
+            t = hour0 + timedelta(hours=i)
+            v = heat_demand._temp_for(t, temps_utc, None)
+            if v is not None:
+                rec.temps.append((t + timedelta(minutes=30), v))
     rec.model = model
     if model is not None and usable is not None:
         firing_kwh = [e.wood_kwh for e in (season.events if season else []) if e.wood_kwh > 20]

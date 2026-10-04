@@ -1,0 +1,80 @@
+"""Tests fuer core.heating_forecast (Einheiz-Empfehlung)."""
+
+import sys
+import unittest
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from core import heating_stats as hs  # noqa: E402
+from core.heating_forecast import consumption_rate_kw, plan, solar_factor  # noqa: E402
+
+CFG = hs.StorageConfig()
+
+
+def _pv(day: date, peak_kw: float) -> dict:
+    """PV-Prognose 9-16 Uhr lokal mit konstanter Leistung (Schluessel: Stundenende UTC)."""
+    out = {}
+    for h in range(10, 17):
+        end_local = datetime.combine(day, datetime.min.time()) + timedelta(hours=h)
+        out[end_local.astimezone(timezone.utc)] = peak_kw
+    return out
+
+
+class TestPlan(unittest.TestCase):
+    NOW = datetime(2026, 1, 15, 14, 0)
+
+    def test_today_evening(self):
+        rec = plan(usable_now=10.0, rate_kw=2.0, factor=None, pv_forecast_utc=None, now=self.NOW)
+        self.assertEqual(rec.level, "today")
+        self.assertEqual(rec.empty_at, datetime(2026, 1, 15, 19, 0))
+        self.assertIn("19:00", rec.detail)
+
+    def test_now(self):
+        rec = plan(usable_now=3.0, rate_kw=2.0, factor=None, pv_forecast_utc=None, now=self.NOW)
+        self.assertEqual(rec.level, "now")
+
+    def test_enough_for_36h(self):
+        rec = plan(usable_now=100.0, rate_kw=2.0, factor=None, pv_forecast_utc=None, now=self.NOW)
+        self.assertEqual(rec.level, "ok")
+        self.assertIsNone(rec.empty_at)
+
+    def test_sun_tomorrow_postpones(self):
+        # 40 kWh, 1,5 kW Verbrauch -> ohne Sonne leer morgen ~16:40
+        without = plan(40.0, 1.5, None, None, now=self.NOW)
+        self.assertEqual(without.level, "soon")
+        sunny = plan(40.0, 1.5, 0.8, _pv(date(2026, 1, 16), 5.0), now=self.NOW)
+        self.assertEqual(sunny.level, "ok")
+        self.assertAlmostEqual(sunny.solar_tomorrow_kwh, 0.8 * 5.0 * 7, delta=0.1)
+        self.assertIn("Sonne morgen", sunny.detail)
+
+    def test_kessel_running(self):
+        rec = plan(20.0, 2.0, None, None, now=self.NOW, kessel_active_now=True)
+        self.assertEqual(rec.level, "burning")
+
+    def test_unknown(self):
+        self.assertEqual(plan(None, 2.0, None, None, now=self.NOW).level, "unknown")
+        self.assertEqual(plan(20.0, None, None, None, now=self.NOW).level, "unknown")
+
+
+class TestInputs(unittest.TestCase):
+    def test_rate_ignores_heating(self):
+        start = datetime(2026, 1, 15, 0, 0)
+        buckets, p = [], 60.0
+        for i in range(48):                      # 12 h
+            ts = start + timedelta(minutes=15 * i)
+            kessel = 78.0 if 4 <= ts.hour < 6 else 40.0
+            p += (2.5 if kessel > 60 else -2.0 * 0.25 / CFG.puffer_kwh_per_k)
+            buckets.append(hs.Bucket(ts=ts, kessel=kessel, top=p, mid=p, bot=p, warm=50.0, outdoor=0.0))
+        self.assertAlmostEqual(consumption_rate_kw(buckets, CFG), 2.0, delta=0.05)
+
+    def test_solar_factor(self):
+        season = hs.HeatingStats(days=[hs.DayStats(date(2026, 9, d), solar_kwh=8.0) for d in range(1, 8)])
+        pv = {date(2026, 9, d): 20.0 for d in range(1, 8)}
+        self.assertAlmostEqual(solar_factor(season, pv), 0.4)
+        self.assertIsNone(solar_factor(season, {}))
+
+
+if __name__ == "__main__":
+    unittest.main()
