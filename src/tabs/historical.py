@@ -7,6 +7,7 @@ from tkinter import ttk
 from datetime import datetime, timedelta
 
 from core.time_utils import db_ts_to_local
+from core import heating_stats
 
 import matplotlib
 
@@ -61,6 +62,9 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
         self.datastore = datastore
 
         self._period_var = tk.StringVar(value="1 Tag")
+        # "Verlauf" = Temperaturkurven, "Statistik" = Einheizen + Waermeeintrag Holz/Solar
+        self._mode_var = tk.StringVar(value="Verlauf")
+        self._portrait = False
         self._period_map: dict[str, int] = {
             "1 Tag": 24,
             "7d": 168,
@@ -134,13 +138,14 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
         # Zeitraum-Wahl: Touch-freundliche Buttons statt Combobox
         period_frame = tk.Frame(topbar, bg=COLOR_ROOT)
         period_frame.pack(side=tk.RIGHT, padx=(0, 12))
-        tk.Label(
+        self._period_caption = tk.Label(
             period_frame,
             text="Zeitraum:",
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
             font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE),
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        )
+        self._period_caption.pack(side=tk.LEFT, padx=(0, 8))
         
         # Touch-freundliche Button-Gruppe mit CustomTkinter
         import customtkinter as ctk
@@ -163,6 +168,28 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
             self._period_buttons[period] = btn
         self._update_period_button_colors()
 
+        # Umschalter in der Kopfzeile des Tabs (dort ist auch im Hochformat Platz)
+        if hasattr(self, "_shell"):
+            mode_frame = ctk.CTkFrame(self._shell.header, fg_color="transparent")
+            mode_frame.grid(row=0, column=1, rowspan=2, sticky="e", padx=(8, 14))
+        else:
+            mode_frame = tk.Frame(topbar, bg=COLOR_ROOT)
+            mode_frame.pack(side=tk.LEFT)
+        self._mode_buttons = {}
+        for mode in ("Verlauf", "Statistik"):
+            btn = ctk.CTkButton(
+                mode_frame,
+                text=mode,
+                font=get_safe_font("Bahnschrift", FONT_SIZE_BODY, "bold"),
+                width=96,
+                height=BUTTON_HEIGHT_SECONDARY,
+                corner_radius=14,
+                command=lambda m=mode: self._select_mode(m),
+            )
+            btn.pack(side=tk.LEFT, padx=4)
+            self._mode_buttons[mode] = btn
+        self._update_mode_button_colors()
+
         # Portrait-only metrics panel: latest value per series, shown so the
         # extra vertical height in portrait mode isn't left empty. Built
         # eagerly but not gridded until set_portrait_layout(True) grids it.
@@ -180,10 +207,20 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
             ("warm", "Warmwasser", COLOR_SUCCESS),
             ("outdoor", "Außen", COLOR_SUBTEXT),
         ]
+        self._tile_specs = tile_specs
+        self._stats_tile_specs = [
+            ("Einheizen", COLOR_DANGER),
+            ("Ø pro Woche", COLOR_DANGER),
+            ("Holz", COLOR_DANGER),
+            ("Solar", COLOR_WARNING),
+            ("Solaranteil", COLOR_WARNING),
+            ("Zuletzt", COLOR_TEXT),
+        ]
         for idx, (key, caption, color) in enumerate(tile_specs):
             tile = MetricTile(self.metrics_frame, caption, value_color=color)
-            tile.grid(row=idx // 3, column=idx % 3, sticky="nsew", padx=4, pady=4)
             self._metric_tiles[key] = tile
+        self._layout_tiles(portrait=False)
+        self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
 
         plot_container = tk.Frame(self, bg=COLOR_ROOT)
         plot_container.grid(row=2, column=0, sticky="nsew", padx=PADDING_SECTION, pady=0)
@@ -254,12 +291,13 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
             self._shell.set_portrait_layout(portrait)
+        self._portrait = bool(portrait)
+        self._layout_tiles(portrait)
+        # Im Hochformat ist die Zeile sonst zu schmal fuer alle 6 Zeitraum-Buttons
         if portrait:
-            self.grid_rowconfigure(1, minsize=150, weight=0)
-            self.metrics_frame.grid(row=1, column=0, sticky="ew", padx=PADDING_SECTION, pady=(0, 8))
-        else:
-            self.metrics_frame.grid_remove()
-            self.grid_rowconfigure(1, minsize=0, weight=0)
+            self._period_caption.pack_forget()
+        elif not self._period_caption.winfo_ismapped():
+            self._period_caption.pack(side=tk.LEFT, padx=(0, 8), before=self._period_buttons["1 Tag"])
         # Row 1 (metrics panel) changing size changes how tall row 2 (the
         # chart) ends up - force a resize pass instead of hoping a
         # <Configure> event cascades down reliably.
@@ -284,6 +322,171 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
     # (ui/components/ui_dispatch.py) - war hier vorher unabhaengig
     # dupliziert, siehe Docstring dort fuer die Historie. Liveness-Check
     # nutzt automatisch winfo_exists() (kein self.alive auf dieser Klasse).
+
+    def _layout_tiles(self, portrait: bool) -> None:
+        """Querformat: 1 Reihe mit 6 Kacheln, Hochformat: 2 Reihen mit je 3."""
+        cols = 3 if portrait else 6
+        for col in range(6):
+            self.metrics_frame.grid_columnconfigure(col, weight=1 if col < cols else 0, uniform="tiles" if col < cols else "")
+        for row in range(2):
+            self.metrics_frame.grid_rowconfigure(row, weight=0)
+        for idx, (key, _caption, _color) in enumerate(self._tile_specs):
+            self._metric_tiles[key].grid(row=idx // cols, column=idx % cols, sticky="nsew", padx=3, pady=3)
+        self.grid_rowconfigure(1, minsize=150 if portrait else 76, weight=0)
+
+    def _is_stats_mode(self) -> bool:
+        return self._mode_var.get() == "Statistik"
+
+    def _select_mode(self, mode: str) -> None:
+        self._mode_var.set(mode)
+        self._update_mode_button_colors()
+        specs = self._stats_tile_specs if self._is_stats_mode() else [(c, col) for _k, c, col in self._tile_specs]
+        for (key, _c, _col), (caption, color) in zip(self._tile_specs, specs):
+            tile = self._metric_tiles[key]
+            tile.caption_label.configure(text=caption.upper())
+            tile.set_value("--", color=color, animate=False)
+        self._update_plot()
+
+    def _update_mode_button_colors(self) -> None:
+        current = self._mode_var.get()
+        for mode, btn in self._mode_buttons.items():
+            if mode == current:
+                btn.configure(fg_color=COLOR_PRIMARY, text_color="#ffffff", hover_color=COLOR_PRIMARY)
+            else:
+                btn.configure(fg_color=COLOR_BORDER, text_color=COLOR_TEXT, hover_color=COLOR_PRIMARY)
+
+    # --- Statistik ----------------------------------------------------------
+
+    def _update_stats(self) -> None:
+        hours = self._period_map.get(self._period_var.get(), 24)
+        days = max(1, int(round(hours / 24)))
+        if days == 1:
+            days = 7  # ein einzelner Tag ist als Statistik wenig aussagekraeftig
+        label = f"{days} Tage" if days < 365 else "1 Jahr"
+        self._update_token += 1
+        token = self._update_token
+
+        def worker() -> None:
+            try:
+                stats = heating_stats.compute(self.datastore, days) if self.datastore else heating_stats.HeatingStats()
+            except Exception:
+                logging.exception("[HEIZUNG] Statistik fehlgeschlagen")
+                stats = heating_stats.HeatingStats()
+
+            def apply() -> None:
+                if token != self._update_token or not self._is_stats_mode():
+                    return
+                self._render_stats(stats, label)
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @staticmethod
+    def _group_days(days: list, group: int) -> list[tuple[datetime, float, float, int, float | None]]:
+        """(Start, Holz, Solar, Einheizen, Außen-Ø) je Gruppe von `group` Tagen."""
+        out = []
+        for i in range(0, len(days), group):
+            chunk = days[i:i + group]
+            n_out = sum(d.outdoor_n for d in chunk)
+            out.append((
+                datetime.combine(chunk[0].day, datetime.min.time()),
+                sum(d.wood_kwh for d in chunk),
+                sum(d.solar_kwh for d in chunk),
+                sum(d.events for d in chunk),
+                (sum(d.outdoor_sum for d in chunk) / n_out) if n_out else None,
+            ))
+        return out
+
+    def _render_stats(self, stats, label: str) -> None:
+        self.fig.clear()
+        self.ax = self.fig.add_subplot(111)
+        self.fig.patch.set_facecolor(COLOR_ROOT)
+        self.fig.patch.set_alpha(1.0)
+        self._style_axes()
+        self._sync_figure_to_canvas()
+        self.ax.set_ylabel("kWh", fontsize=9, color=COLOR_SUBTEXT, rotation=0, labelpad=12, va="center")
+        try:
+            self.ax.set_title(f"Wärmeeintrag in den Speicher ({label})", loc="left", fontsize=13,
+                              color=COLOR_TEXT, pad=8)
+        except Exception:
+            pass
+
+        group = 1 if len(stats.days) <= 45 else 7
+        groups = self._group_days(stats.days, group)
+        if not groups or ((stats.wood_kwh + stats.solar_kwh) < 0.1 and not stats.events):
+            self.ax.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=self.ax.transAxes,
+                         color=COLOR_SUBTEXT, fontsize=14)
+        else:
+            xs = [g[0] + timedelta(days=group / 2) for g in groups]
+            wood = [g[1] for g in groups]
+            solar = [g[2] for g in groups]
+            width = group * 0.75
+            self.ax.bar(xs, wood, width=width, color=COLOR_DANGER, alpha=0.85, label="Holz (Kessel)")
+            self.ax.bar(xs, solar, width=width, bottom=wood, color=COLOR_WARNING, alpha=0.9, label="Solar")
+            top = max((w + so for w, so in zip(wood, solar)), default=0.0) or 1.0
+            if len(groups) <= 45:
+                for x, w, so, g in zip(xs, wood, solar, groups):
+                    if g[3]:
+                        self.ax.text(x, w + so + top * 0.02, f"{g[3]}×", ha="center", va="bottom",
+                                     fontsize=8, color=COLOR_TEXT)
+            self.ax.set_ylim(0, top * 1.15)
+            outdoor = [g[4] for g in groups]
+            if any(o is not None for o in outdoor):
+                ax2 = self.ax.twinx()
+                ax2.plot(xs, [o if o is not None else np.nan for o in outdoor], color=COLOR_SUBTEXT,
+                         linestyle="--", linewidth=1.2, marker="o", markersize=2.5, label="Außen Ø")
+                ax2.set_ylabel("°C", fontsize=9, color=COLOR_SUBTEXT, rotation=0, labelpad=10, va="center")
+                ax2.tick_params(axis="y", labelsize=8, colors=COLOR_SUBTEXT, length=2)
+                from matplotlib.ticker import MaxNLocator
+                ax2.yaxis.set_major_locator(MaxNLocator(nbins=5, integer=True))
+                for spine in ("top", "left", "bottom"):
+                    ax2.spines[spine].set_visible(False)
+                ax2.spines["right"].set_color(COLOR_BORDER)
+            locator = mdates.AutoDateLocator(minticks=4, maxticks=10)
+            self.ax.xaxis.set_major_locator(locator)
+            self.ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+            try:
+                self.ax.xaxis.get_offset_text().set_visible(False)
+            except Exception:
+                pass
+            handles, labels = self.ax.get_legend_handles_labels()
+            self.ax.legend(handles, labels, loc="upper left", fontsize=9, frameon=False,
+                           labelcolor=COLOR_SUBTEXT, ncol=2, handlelength=1.2)
+        self._apply_layout()
+        try:
+            self.fig.subplots_adjust(right=0.93)  # Platz fuer die °C-Achse
+        except Exception:
+            pass
+
+        # Kacheln (Reihenfolge wie _stats_tile_specs)
+        n = len(stats.events)
+        per_week = stats.events_per_week
+        share = stats.solar_share_pct
+        last = stats.events[-1] if stats.events else None
+        values = [
+            f"{n}×",
+            f"{per_week:.1f}×" if per_week is not None else "--",
+            f"{stats.wood_kwh:.0f} kWh",
+            f"{stats.solar_kwh:.0f} kWh",
+            f"{share:.0f}%" if share is not None else "--%",
+            (f"{last.start:%d.%m. %H:%M}" if last else "--"),
+        ]
+        for (key, _c, _col), text in zip(self._tile_specs, values):
+            self._metric_tiles[key].set_value(text, animate=False)
+
+        self.topbar_status.config(text="")
+        if stats.events:
+            parts = []
+            for ev in reversed(stats.events[-3:]):
+                dur_h, dur_m = divmod(int(round(ev.duration_min)), 60)
+                parts.append(f"{ev.start:%d.%m. %H:%M} · {dur_h} h {dur_m:02d} min · max {ev.peak_kessel:.0f} °C · {ev.wood_kwh:.0f} kWh")
+            text = "Zuletzt eingeheizt:  " + "   |   ".join(parts)
+        else:
+            text = "Im Zeitraum kein Einheizen erkannt"
+        self.statusbar.config(text=text)
+        self.canvas.draw_idle()
+        self._schedule_update()
 
     def _select_period(self, period: str) -> None:
         """Wechselt Zeitraum und aktualisiert Button-Farben."""
@@ -426,6 +629,9 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
         return binned_times, binned_series
 
     def _update_plot(self) -> None:
+        if self._is_stats_mode():
+            self._update_stats()
+            return
         hours = self._period_map.get(self._period_var.get(), 24)
         period_label = self._period_var.get() or f"{hours}h"
 
@@ -700,7 +906,7 @@ class HistoricalTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame):
 
     def _render_status(self, hours: int, points: int, valid_values: list[float] | None = None, archive: bool = False) -> None:
         # Show the selected period label instead of huge hour numbers.
-        self.topbar_status.config(text=f"{self._period_var.get()}")
+        self.topbar_status.config(text="")  # Zeitraum ist an den Buttons erkennbar
         summary = f"Datenpunkte: {points}"
         if valid_values:
             summary += f"  |  Temperaturbereich: {min(valid_values):.1f} bis {max(valid_values):.1f} °C"
