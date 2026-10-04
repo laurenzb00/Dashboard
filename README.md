@@ -2,58 +2,39 @@
 
 Ein umfassendes Energie- und Smart-Home-Dashboard mit Tkinter-UI.
 
-## Neue Struktur
+## Struktur
 
 ```
 src/
-├── main.py              # Hauptanwendung (Einstiegspunkt)
-├── core/                # Geschäftslogik-Module
-│   ├── BMKDATEN.py      # BMK-API Integration
-│   ├── Wechselrichter.py # Fronius Wechselrichter
-│   ├── datastore.py     # SQLite Datenverwaltung
-│   └── ertrag_validator.py # Ertrag-Validierung
-├── tabs/                # Dashboard-Reiter
-│   ├── analyse.py       # Analyse & Übersicht
-│   ├── calendar.py      # Kalender-Integration
-│   ├── ertrag.py        # Ertrag-Anzeige
-│   ├── historical.py    # Historische Daten
-│   ├── hue.py           # Philips Hue Steuerung
-│   ├── spotify.py       # Spotify-Integration
-│   ├── system.py        # System-Monitoring
-│   └── tado.py          # Tado Thermostat
-└── ui/                  # UI-Komponenten & Styling
-    ├── app.py           # Haupt-App Klasse
-    ├── styles.py        # Styling & Konfiguration
-    ├── boiler_widget.py # Boiler-Widget
-    ├── energy_flow_widget.py # Energiefluss-Visualisierung
-    ├── modern_widgets.py # Moderne Widget-Komponenten
-    ├── components/      # UI-Komponenten
-    │   ├── card.py
-    │   ├── header.py
-    │   ├── rounded.py
-    │   ├── rounded_button.py
-    │   └── statusbar.py
-    └── views/           # Spezielle Views
-        ├── energy_flow.py
-        └── buffer_storage.py
+├── main.py                 # Einstiegspunkt
+├── spotifylogin.py         # Spotify-OAuth (vom Spotify-Tab genutzt)
+├── core/                   # Datenquellen, Datenbank, Auswertungen
+│   ├── Wechselrichter.py   # Fronius (PV, Netz, Akku)
+│   ├── BMKDATEN.py         # BMK-Heizung (Kessel, Puffer, Warmwasser)
+│   ├── homeassistant.py    # Home Assistant
+│   ├── weather.py          # Open-Meteo: Kurzvorhersage + stuendliche Temperatur
+│   ├── datastore.py        # SQLite (Zeitstempel in UTC)
+│   ├── time_utils.py       # Zeitzonen-Hilfen
+│   ├── pv_forecast.py      # PV-Prognose (selbstkalibrierend)
+│   ├── energy_day.py       # Tagesbilanz PV/Verbrauch/Akku
+│   ├── heating_stats.py    # Einheizen, Waermeeintrag Holz/Solar
+│   ├── heat_demand.py      # Waermebedarf abhaengig von der Aussentemperatur
+│   ├── heating_forecast.py # Einheiz-Empfehlung
+│   └── ...                 # health, heating_events, ertrag_validator, schema, utils
+├── tabs/                   # Ein Modul pro Tab
+│   ├── ertrag.py           # Ertrag (Tag/Zeitraum, Autarkie, Prognose)
+│   ├── waerme.py           # Waerme (Puffer live, Empfehlung, Heute/Saison/Woche)
+│   ├── historical.py       # Heizung (Temperaturverlaeufe)
+│   └── ...                 # status, tado, hue, spotify, calendar, healthcheck, ...
+└── ui/                     # App-Rahmen, Komponenten, Views
+    ├── app.py
+    ├── components/
+    └── views/
 
-data/                   # Daten-Dateien
-├── *.csv              # Messdaten (CSV)
-├── ertrag_validation.json # Validierungsdaten
-└── ...
-
-config/                # Konfiguration
-├── bkmdaten.json      # BMK-Anmeldedaten
-├── homeassistant.json  # Home Assistant (URL/Token + optionale Actions)
-├── Pufferspeicher.json # Pufferspeicher-Config
-└── logintado          # Tado-Login
-
-resources/             # Ressourcen
-└── icons/             # Icon-Dateien
-
-.venv/                 # Virtual Environment
-_archive/              # Historische Dateien & Backups
-
+config/     # Zugangsdaten/Einstellungen (*.example.json als Vorlage)
+data/       # Caches (Prognosen, Saison-Statistik), werden automatisch erzeugt
+resources/  # Icons
+tests/      # Unit-Tests: python -m pytest tests
 ```
 
 ## Installation
@@ -144,7 +125,7 @@ Beispiel:
 
 ## Bekannte Probleme & Lösungen
 
-Siehe `_archive/` für historische Dokumentation und Fehlerbehebungen.
+Fehler landen im Log (`datenerfassung.log`); der Health-Tab zeigt den Zustand der Datenquellen.
 
 ## Lizenz
 
