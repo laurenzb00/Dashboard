@@ -1019,17 +1019,11 @@ class HealthTab:
         self._refresh_homeassistant_async()
 
         try:
+            # Status vom Tado-Tab uebernehmen - KEINE eigene Tado-Abfrage
+            # (Tado erlaubt ohne Abo nur 100 API-Abfragen pro Tag).
             tab = getattr(self.app, "tado_tab", None) if self.app else None
-            api = getattr(tab, "api", None) if tab else None
-            if api is None:
-                self.var_tado.set("Tado: –")
-            else:
-                # Best-effort check
-                try:
-                    api.getHomeState()
-                    self.var_tado.set("Tado: OK")
-                except Exception:
-                    self.var_tado.set("Tado: OK (ohne HomeState)")
+            fn = getattr(tab, "health_text", None) if tab else None
+            self.var_tado.set(fn() if callable(fn) else "Tado: –")
         except Exception as exc:
             self.var_tado.set(f"Tado: Fehler ({type(exc).__name__})")
 

@@ -71,6 +71,13 @@ class TouchSlider(tk.Canvas):
         self.value = self._clamp(value)
         self._draw()
 
+    # Kompatibel zu CTkSlider (get/set), damit bestehender Code einfach umsteigen kann
+    def get(self) -> float:
+        return self.value
+
+    def set(self, value: float) -> None:
+        self.set_value(value, force=True)
+
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
         self._draw()

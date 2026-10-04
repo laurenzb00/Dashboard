@@ -1,29 +1,42 @@
-import threading
+"""Raumtemperatur-Tab (Tado): alle Raeume, Zieltemperatur per Touch-Slider.
+
+Siehe TadoTab-Docstring fuer Datenquellen und das Tado-API-Tageslimit.
+Datenmodell/Parser: core/climate.py.
+"""
+from __future__ import annotations
+
+import importlib
+import logging
 import os
 import socket
+import threading
 import time
-import logging
-import importlib
 import tkinter as tk
-from tkinter import ttk
 import webbrowser
+from datetime import date, datetime, time as dtime, timedelta
+from tkinter import ttk
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
 import customtkinter as ctk
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-from ui.styles import (
-    COLOR_ROOT,
-    COLOR_CARD,
-    COLOR_BORDER,
-    COLOR_PRIMARY,
-    COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_DANGER,
-    COLOR_TEXT,
-    COLOR_SUBTEXT,
-    COLOR_TITLE,
-    emoji,
-)
-from ui.components.card import Card
+
+from core import climate as C
+from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.tab_shell import TabShell
+from ui.components.touch_slider import TouchSlider
+from ui.components.ui_dispatch import UiQueuePumpMixin
+from ui.styles import (
+    COLOR_BORDER,
+    COLOR_CARD,
+    COLOR_DANGER,
+    COLOR_PRIMARY,
+    COLOR_ROOT,
+    COLOR_SUBTEXT,
+    COLOR_SUCCESS,
+    COLOR_TEXT,
+    COLOR_WARNING,
+    emoji,
+    get_safe_font,
+)
 
 TADO_ENABLED = os.getenv("TADO_ENABLE", "").strip().lower() in {"1", "true", "yes", "on"}
 if not TADO_ENABLED:
@@ -86,75 +99,607 @@ TADO_SCOPE = os.getenv("TADO_SCOPE", "home.user")
 TADO_ECO_TEMP = float(os.getenv("TADO_ECO_TEMP", "19.0"))
 TADO_COMFORT_TEMP = float(os.getenv("TADO_COMFORT_TEMP", "21.0"))
 
-class TadoTab:
-    """Tado Klima-Tab (Status + Steuerung).
 
-    Hinweis: Login/Authentifizierung bleibt wie zuvor (env vars / device flow).
-    Der Tab bleibt immer sichtbar und zeigt bei fehlender Konfiguration
-    eine klare Anleitung statt zu verschwinden.
+# "auto" (HA wenn Thermostate vorhanden, sonst direkt) | "ha" | "direct"
+TADO_SOURCE = os.getenv("TADO_SOURCE", "auto").strip().lower()
+# Tado-API-Tageslimit: 20.000 mit Auto-Assist-Abo (vorhanden), sonst 100.
+# Ohne Abo am Pi TADO_DAILY_LIMIT=100 setzen - das Intervall passt sich an.
+DAILY_LIMIT = int(os.getenv("TADO_DAILY_LIMIT", "20000"))
+TARGET_GRADIENT = ["#60A5FA", "#A7F3D0", "#FBBF24", "#F97316"]
+
+
+def _round_half(v: float) -> float:
+    return round(float(v) * 2) / 2
+
+
+def _target_fmt(v: float) -> str:
+    return C.fmt_temp(_round_half(v))
+
+
+class TadoTab(UiQueuePumpMixin):
+    """Raumklima-Tab: alle Tado-Raeume auf einen Blick, Zieltemperatur per Touch-Slider.
+
+    Datenquelle (automatisch, ueberschreibbar mit TADO_SOURCE=ha|direct):
+    * Home Assistant, wenn dort climate.*-Entitaeten existieren - keine eigenen
+      Tado-Abfragen, alle HA_POLL_S Sekunden aktualisiert.
+    * Sonst direkt ueber python-tado/PyTado (Login per Geraete-Code wie bisher).
+      Alle Raeume mit EINER Abfrage; Intervall aus DAILY_LIMIT (mit Abo 60 s,
+      ohne Abo ~20 min).
     """
-    
+
+    _KEEP_URL = object()
+
     def __init__(self, root: tk.Tk, notebook: ttk.Notebook, tab_frame=None):
         self.root = root
         self.notebook = notebook
         self.alive = True
         self.api = None
-        self.zone_id = None
+        self.zone_id = None              # erste Zone (Kompatibilitaet)
         self.zones: list[dict] = []
-        self._zone_name_to_id: dict[str, int] = {}
-        self._pending_apply_job = None
-        self._suppress_target_send = False
-        self._suppress_mode_send = False
+        self._zone_ids: dict[str, object] = {}
         self._device_url: str | None = None
-        self._manual_timer_after_id = None
-        self._manual_timer_deadline_mono: float | None = None
-        logging.info("[TADO] Tab initialisiert")
-        
-        # UI Variablen
-        self.var_temp_ist = tk.StringVar(value="--.- °C")
-        self.var_temp_soll = tk.StringVar(value="-- °C")
-        self.var_humidity = tk.StringVar(value="-- %")
-        self.var_status = tk.StringVar(value="Verbinde...")
-        self.var_power = tk.IntVar(value=0)
-        self.var_zone = tk.StringVar(value="-")
-        self.var_hint = tk.StringVar(value="")
-        self.var_target = tk.DoubleVar(value=20.0)
-        self.var_mode = tk.StringVar(value="Auto")
 
-        # Tab Frame - Use provided frame or create legacy one
+        self.source: str | None = None   # "ha" | "direct" | None
+        self._ha_client = None
+        self._rooms: list[C.Room] = []
+        self._cards: dict[str, dict] = {}
+        self._nudge_jobs: dict[str, object] = {}
+        self._last_update: datetime | None = None
+        self._next_poll: datetime | None = None
+        self._wake = threading.Event()
+        self._req_day = date.today()
+        self._req_count = 0
+        self._portrait = False
+
+        self.var_status = tk.StringVar(value="Verbinde ...")
+        self.var_hint = tk.StringVar(value="")
+
+        self._init_ui_queue()
         if tab_frame is not None:
             self.tab_frame = tab_frame
         else:
             self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
             notebook.add(self.tab_frame, text=emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
-
         try:
-            # CTk container: background
             self.tab_frame.configure(fg_color=COLOR_ROOT)
         except Exception:
             pass
 
         self._build_ui()
-
-        # Start Update Loop
-        self.root.after(0, lambda: threading.Thread(target=self._loop, daemon=True).start())
+        self._start_ui_pump()
+        threading.Thread(target=self._loop, daemon=True).start()
+        logging.info("[TADO] Tab initialisiert")
 
     def stop(self):
         self.alive = False
-        if self._pending_apply_job is not None:
-            try:
-                self.root.after_cancel(self._pending_apply_job)
-            except Exception:
-                pass
-            self._pending_apply_job = None
+        self._wake.set()
 
-        if self._manual_timer_after_id is not None:
+    # ------------------------------------------------------------------ UI --
+
+    def _build_ui(self) -> None:
+        self._shell = TabShell(self.tab_frame, "Raumtemperatur", "Alle Räume, Zieltemperatur per Schieberegler")
+        self._shell.pack(fill=tk.BOTH, expand=True)
+        self._shell.subtitle_label.configure(textvariable=self.var_status)
+        body = self._shell.body
+
+        # --- Uebersicht
+        top = ctk.CTkFrame(body, fg_color=COLOR_CARD, corner_radius=18, border_width=1, border_color=COLOR_BORDER)
+        top.pack(fill=tk.X, padx=4, pady=(4, 8))
+        top.grid_columnconfigure(0, weight=1)
+        left = ctk.CTkFrame(top, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="ew", padx=(14, 8), pady=10)
+        self._summary_lbl = ctk.CTkLabel(left, text="🌡️  --", text_color=COLOR_TEXT, anchor="w",
+                                         font=get_safe_font("Bahnschrift", 16, "bold"))
+        self._summary_lbl.pack(anchor="w")
+        self._info_lbl = ctk.CTkLabel(left, text="", text_color=COLOR_SUBTEXT, anchor="w", justify="left",
+                                      font=get_safe_font("Bahnschrift", 11))
+        self._info_lbl.pack(anchor="w")
+        btns = ctk.CTkFrame(top, fg_color="transparent")
+        self._top_btns = btns
+        btns.grid(row=0, column=1, sticky="e", padx=10, pady=10)
+        self._pill(btns, "📅  Alle auf Plan", self._all_plan, COLOR_PRIMARY, 150).pack(side=tk.LEFT, padx=4)
+        self._pill(btns, f"🌿  Eco {TADO_ECO_TEMP:.0f}°", lambda: self._all_temp(TADO_ECO_TEMP),
+                   COLOR_SUCCESS, 120).pack(side=tk.LEFT, padx=4)
+        self._pill(btns, f"☀  Komfort {TADO_COMFORT_TEMP:.0f}°", lambda: self._all_temp(TADO_COMFORT_TEMP),
+                   COLOR_WARNING, 150).pack(side=tk.LEFT, padx=4)
+        self._pill(btns, "↻", self._refresh_now, COLOR_BORDER, 48).pack(side=tk.LEFT, padx=4)
+
+        # --- Login-/Hinweiszeile (nur sichtbar wenn Text vorhanden)
+        self._hint_frame = ctk.CTkFrame(body, fg_color=COLOR_CARD, corner_radius=14)
+        self._hint_label = ctk.CTkLabel(self._hint_frame, textvariable=self.var_hint, text_color=COLOR_SUBTEXT,
+                                        font=get_safe_font("Bahnschrift", 12), wraplength=760, justify="left")
+        self._hint_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12, pady=8)
+        self._open_url_btn = ctk.CTkButton(self._hint_frame, text="Im Browser öffnen", width=170, height=44,
+                                           fg_color=COLOR_PRIMARY, hover_color=COLOR_SUCCESS,
+                                           command=self._open_device_url, state="disabled")
+        self._open_url_btn.pack(side=tk.RIGHT, padx=(6, 10), pady=8)
+        self._reset_token_btn = ctk.CTkButton(self._hint_frame, text="Token zurücksetzen", width=160, height=44,
+                                              fg_color=COLOR_DANGER, hover_color="#B91C1C",
+                                              command=self._reset_tado_token)
+        self._reset_token_btn.pack(side=tk.RIGHT, padx=6, pady=8)
+        self._hint_anchor = top
+        self.var_hint.trace_add("write", lambda *_: self._update_hint_visibility())
+
+        # --- Raumkarten
+        try:
+            self._grid = ctk.CTkScrollableFrame(body, fg_color="transparent")
+        except Exception:
+            self._grid = ctk.CTkFrame(body, fg_color="transparent")
+        self._grid.pack(fill=tk.BOTH, expand=True, padx=0)
+        self._empty_lbl = ctk.CTkLabel(self._grid, text="Lade Räume ...", text_color=COLOR_SUBTEXT,
+                                       font=get_safe_font("Bahnschrift", 14))
+        self._empty_lbl.grid(row=0, column=0, padx=12, pady=20, sticky="w")
+
+    def _pill(self, parent, text, command, color, width=120):
+        return ctk.CTkButton(parent, text=text, command=command, width=width, height=44, corner_radius=22,
+                             fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, border_width=2, border_color=color,
+                             text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 13, "bold"))
+
+    def _update_hint_visibility(self) -> None:
+        try:
+            if self.var_hint.get().strip():
+                if not self._hint_frame.winfo_ismapped():
+                    self._hint_frame.pack(fill=tk.X, padx=4, pady=(0, 8), after=self._hint_anchor)
+            else:
+                self._hint_frame.pack_forget()
+        except Exception:
+            pass
+
+    def set_portrait_layout(self, portrait: bool) -> None:
+        try:
+            self._shell.set_portrait_layout(portrait)
+        except Exception:
+            pass
+        try:
+            if portrait:
+                self._top_btns.grid_configure(row=1, column=0, sticky="w", pady=(0, 10))
+            else:
+                self._top_btns.grid_configure(row=0, column=1, sticky="e", pady=10)
+        except Exception:
+            pass
+        if portrait != self._portrait:
+            self._portrait = portrait
+            self._layout_cards()
+
+    def _layout_cards(self) -> None:
+        cols = 1 if self._portrait else 2
+        for c in range(3):
+            self._grid.grid_columnconfigure(c, weight=1 if c < cols else 0, uniform="room" if c < cols else "")
+        for i, rid in enumerate(r.id for r in self._rooms):
+            w = self._cards.get(rid)
+            if w:
+                w["frame"].grid(row=i // cols, column=i % cols, sticky="nsew", padx=4, pady=4)
+
+    def _build_card(self, room: C.Room) -> dict:
+        f = ctk.CTkFrame(self._grid, fg_color=COLOR_CARD, corner_radius=18, border_width=1, border_color=COLOR_BORDER)
+        head = ctk.CTkFrame(f, fg_color="transparent")
+        head.pack(fill=tk.X, padx=14, pady=(10, 0))
+        name = ctk.CTkLabel(head, text=room.name, text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 15, "bold"))
+        name.pack(side=tk.LEFT)
+        mode = ctk.CTkLabel(head, text="", corner_radius=10, height=26, text_color=COLOR_TEXT,
+                            font=get_safe_font("Bahnschrift", 11, "bold"))
+        mode.pack(side=tk.RIGHT)
+        heat = ctk.CTkLabel(head, text="", text_color=COLOR_WARNING, font=get_safe_font("Bahnschrift", 12, "bold"))
+        heat.pack(side=tk.RIGHT, padx=8)
+
+        mid = ctk.CTkFrame(f, fg_color="transparent")
+        mid.pack(fill=tk.X, padx=14)
+        cur = ctk.CTkLabel(mid, text="--", text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 30, "bold"))
+        cur.pack(side=tk.LEFT)
+        info = ctk.CTkLabel(mid, text="", text_color=COLOR_SUBTEXT, justify="left",
+                            font=get_safe_font("Bahnschrift", 12))
+        info.pack(side=tk.LEFT, padx=12)
+
+        rid = room.id
+        slider = TouchSlider(f, from_=C.TARGET_MIN, to=C.TARGET_MAX, value=room.target or 20.0, height=50,
+                             gradient=TARGET_GRADIENT, snap_points=(18, 19, 20, 21, 22), snap_range=0.25,
+                             formatter=_target_fmt, on_release=lambda v, r=rid: self._set_target(r, v))
+        slider.pack(fill=tk.X, padx=14, pady=(6, 6))
+
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill=tk.X, padx=10, pady=(0, 10))
+        for text, cmd, color, w in (
+            ("−", lambda r=rid: self._nudge(r, -0.5), COLOR_BORDER, 56),
+            ("+", lambda r=rid: self._nudge(r, +0.5), COLOR_BORDER, 56),
+            ("⏱  1 h", lambda r=rid: self._set_timer(r), COLOR_WARNING, 90),
+            ("📅  Plan", lambda r=rid: self._set_plan(r), COLOR_PRIMARY, 100),
+        ):
+            self._pill(row, text, cmd, color, w).pack(side=tk.LEFT, padx=4)
+        return {"frame": f, "name": name, "mode": mode, "heat": heat, "cur": cur, "info": info, "slider": slider}
+
+    def _render(self, rooms: list) -> None:
+        """Nur auf dem UI-Thread aufrufen."""
+        old_ids = [r.id for r in self._rooms]
+        self._rooms = list(rooms)
+        if [r.id for r in rooms] != old_ids:
+            for w in self._cards.values():
+                w["frame"].destroy()
+            self._cards = {r.id: self._build_card(r) for r in rooms}
+            self._layout_cards()
+        if rooms:
+            self._empty_lbl.grid_remove()
+        else:
+            self._empty_lbl.configure(text="Keine Räume gefunden.")
+            self._empty_lbl.grid()
+        for r in rooms:
+            self._update_card(r)
+        self._update_summary()
+
+    def _update_card(self, r: C.Room, force_slider: bool = False) -> None:
+        w = self._cards.get(r.id)
+        if not w:
+            return
+        w["name"].configure(text=r.name)
+        mode_col = {"plan": COLOR_PRIMARY, "manual": COLOR_WARNING, "off": COLOR_BORDER}.get(r.mode, COLOR_BORDER)
+        w["mode"].configure(text=f"  {r.mode_text}  " if r.available else "  offline  ", fg_color=mode_col)
+        if r.heating:
+            w["heat"].configure(text="🔥 heizt" + (f" {r.power_pct} %" if r.power_pct else ""))
+        else:
+            w["heat"].configure(text="")
+        w["cur"].configure(text=C.fmt_temp(r.current))
+        lines = [f"Ziel {C.fmt_temp(r.target) if r.mode != 'off' else 'Aus'}"]
+        if r.humidity is not None:
+            lines.append(f"💧 {r.humidity:.0f} %")
+        if r.window_open:
+            lines.append("🪟 Fenster offen")
+        w["info"].configure(text="\n".join(lines))
+        if r.target is not None:
+            w["slider"].set_value(r.target, force=force_slider)
+
+    def _update_summary(self) -> None:
+        s = C.summarize(self._rooms)
+        self._summary_lbl.configure(text="🌡️  " + s.text)
+        parts = []
+        if self.source == "ha":
+            parts.append("Quelle: Home Assistant")
+        elif self.source == "direct":
+            parts.append("Quelle: Tado direkt")
+        if self._last_update:
+            parts.append(f"aktualisiert {self._last_update:%H:%M}")
+        if self.source == "direct":
+            if self._next_poll:
+                parts.append(f"nächste Abfrage {self._next_poll:%H:%M}")
+            parts.append(f"{self._req_count}/{DAILY_LIMIT} Tado-Abfragen heute")
+        self._info_lbl.configure(text=" · ".join(parts))
+
+    # ------------------------------------------------------------ Befehle --
+
+    def _room(self, rid: str):
+        return next((r for r in self._rooms if r.id == rid), None)
+
+    def _optimistic(self, rid: str, target=None, mode=None, force_slider=False) -> None:
+        r = self._room(rid)
+        if not r:
+            return
+        if target is not None:
+            r.target = target
+        if mode:
+            r.mode = mode
+        self._update_card(r, force_slider=force_slider)
+        self._update_summary()
+
+    def _set_target(self, rid: str, value: float) -> None:
+        temp = _round_half(value)
+        self._optimistic(rid, temp, "manual")
+        self._command(lambda: self._do_set_temp([rid], temp), f"{self._name(rid)}: {C.fmt_temp(temp)}")
+
+    def _nudge(self, rid: str, delta: float) -> None:
+        r = self._room(rid)
+        if not r:
+            return
+        base = r.target if r.target is not None else 20.0
+        temp = max(C.TARGET_MIN, min(C.TARGET_MAX, _round_half(base + delta)))
+        self._optimistic(rid, temp, "manual", force_slider=True)
+        job = self._nudge_jobs.pop(rid, None)
+        if job is not None:
             try:
-                self.root.after_cancel(self._manual_timer_after_id)
+                self.root.after_cancel(job)
             except Exception:
                 pass
-            self._manual_timer_after_id = None
-            self._manual_timer_deadline_mono = None
+        # mehrere Tipper zu einem Befehl zusammenfassen (spart Tado-Abfragen)
+        self._nudge_jobs[rid] = self.root.after(1500, lambda: self._flush_nudge(rid))
+
+    def _flush_nudge(self, rid: str) -> None:
+        self._nudge_jobs.pop(rid, None)
+        r = self._room(rid)
+        if r and r.target is not None:
+            t = r.target
+            self._command(lambda: self._do_set_temp([rid], t), f"{r.name}: {C.fmt_temp(t)}")
+
+    def _set_timer(self, rid: str) -> None:
+        r = self._room(rid)
+        if not r:
+            return
+        temp = r.target if r.target is not None else TADO_COMFORT_TEMP
+        self._optimistic(rid, temp, "manual")
+        self._command(lambda: self._do_set_temp([rid], temp, duration_s=3600),
+                      f"{r.name}: {C.fmt_temp(temp)} für 1 Stunde")
+
+    def _set_plan(self, rid: str) -> None:
+        self._optimistic(rid, mode="plan")
+        self._command(lambda: self._do_plan([rid]), f"{self._name(rid)}: zurück auf Zeitplan")
+
+    def _all_plan(self) -> None:
+        ids = [r.id for r in self._rooms]
+        for rid in ids:
+            self._optimistic(rid, mode="plan")
+        self._command(lambda: self._do_plan(ids), "Alle Räume auf Zeitplan")
+
+    def _all_temp(self, temp: float) -> None:
+        ids = [r.id for r in self._rooms]
+        for rid in ids:
+            self._optimistic(rid, temp, "manual", force_slider=True)
+        self._command(lambda: self._do_set_temp(ids, temp), f"Alle Räume: {C.fmt_temp(temp)}")
+
+    def apply_profile_safe(self, profile: str) -> bool:
+        """eco / comfort / auto fuer alle Raeume (fuer Automationen)."""
+        p = (profile or "").strip().lower()
+        ids = [r.id for r in self._rooms]
+        if not ids:
+            return False
+        try:
+            if p in ("auto", "schedule"):
+                return self._do_plan(ids)
+            if p in ("eco", "spar", "save"):
+                return self._do_set_temp(ids, float(TADO_ECO_TEMP))
+            if p in ("comfort", "komfort", "home"):
+                return self._do_set_temp(ids, float(TADO_COMFORT_TEMP))
+        except Exception:
+            return False
+        return False
+
+    def _name(self, rid: str) -> str:
+        r = self._room(rid)
+        return r.name if r else rid
+
+    def _command(self, fn, label: str) -> None:
+        if not self._rooms or self.source is None:
+            return
+
+        def worker():
+            try:
+                ok = bool(fn())
+            except Exception as exc:
+                logging.warning("[TADO] Befehl fehlgeschlagen (%s): %s", label, exc)
+                ok = False
+            self._post_ui(lambda: self.var_status.set(("✓ " if ok else "⚠️ Fehlgeschlagen: ") + label))
+            # Danach echten Zustand nachladen. Direkt ohne Abo (100/Tag) nicht -
+            # dann bleibt der angezeigte Wert bis zur naechsten Abfrage stehen.
+            if self.source == "ha" or DAILY_LIMIT >= 1000:
+                time.sleep(3.0)
+                self._wake.set()
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _do_set_temp(self, ids: list, temp: float, duration_s: int | None = None) -> bool:
+        if self.source == "ha":
+            c = self._ha_client
+            if duration_s:
+                ok = True
+                for ent in ids:   # Tado-spezifischer Dienst, je Entitaet
+                    try:
+                        c.call_service("tado", "set_climate_timer", {
+                            "entity_id": ent, "temperature": temp,
+                            "time_period": f"{duration_s // 3600:02d}:{duration_s % 3600 // 60:02d}:00"})
+                    except Exception:
+                        ok = c.call_service("climate", "set_temperature", {"entity_id": ent, "temperature": temp}) and ok
+                return ok
+            return c.call_service("climate", "set_temperature", {"entity_id": ids, "temperature": temp})
+        if self.source == "direct":
+            for rid in ids:
+                self._direct_set_temp(self._zone_ids.get(rid, rid), temp, duration_s)
+            return True
+        return False
+
+    def _do_plan(self, ids: list) -> bool:
+        if self.source == "ha":
+            return self._ha_client.call_service("climate", "set_hvac_mode", {"entity_id": ids, "hvac_mode": "auto"})
+        if self.source == "direct":
+            for rid in ids:
+                self._direct_reset(self._zone_ids.get(rid, rid))
+            return True
+        return False
+
+    def _count_request(self, n: int = 1) -> None:
+        today = date.today()
+        if today != self._req_day:
+            self._req_day, self._req_count = today, 0
+        self._req_count += n
+
+    def _try_api(self, attempts) -> None:
+        """Erste passende API-Variante ausfuehren (python-tado vs. PyTado)."""
+        last = None
+        for name, args, kwargs in attempts:
+            fn = getattr(self.api, name, None)
+            if not callable(fn):
+                continue
+            try:
+                self._count_request()
+                fn(*args, **kwargs)
+                return
+            except TypeError as exc:
+                last = exc
+        raise last or RuntimeError("Keine passende Tado-API-Methode gefunden")
+
+    def _direct_set_temp(self, zone, temp: float, duration_s: int | None = None) -> None:
+        if duration_s:
+            attempts = [
+                ("set_zone_overlay", (zone,), dict(overlay_mode="TIMER", set_temp=float(temp), duration=duration_s,
+                                                    device_type="HEATING", power="ON")),
+                ("setZoneOverlay", (zone, "TIMER", float(temp), duration_s), {}),
+            ]
+        else:
+            # bis zur naechsten Planaenderung (wie in der Tado-App) - vergisst man nicht
+            attempts = [
+                ("set_zone_overlay", (zone,), dict(overlay_mode="NEXT_TIME_BLOCK", set_temp=float(temp),
+                                                    device_type="HEATING", power="ON")),
+                ("setZoneOverlay", (zone, "NEXT_TIME_BLOCK", float(temp)), {}),
+                ("set_temperature", (zone, float(temp)), {}),
+            ]
+        self._try_api(attempts)
+
+    def _direct_reset(self, zone) -> None:
+        self._try_api([
+            ("reset_zone_overlay", (zone,), {}),
+            ("resetZoneOverlay", (zone,), {}),
+            ("reset_zone_override", (zone,), {}),
+        ])
+
+    def _refresh_now(self) -> None:
+        if self.source == "direct" and self._req_count >= DAILY_LIMIT - 10:
+            self.var_status.set("Tageslimit fast erreicht - nächste Abfrage automatisch")
+            return
+        self._wake.set()
+
+    def health_text(self) -> str:
+        """Fuer den Health-Tab - ohne eigene Tado-Abfrage."""
+        if self.source == "ha":
+            return f"Tado: OK (Home Assistant, {len(self._rooms)} Räume)"
+        if self.source == "direct":
+            if self._last_update:
+                return f"Tado: OK ({self._req_count}/{DAILY_LIMIT} Abfragen heute)"
+            return "Tado: verbinde ..."
+        return "Tado: –"
+
+    # ------------------------------------------------------- Datenquelle --
+
+    def _publish(self, rooms: list, status: str) -> None:
+        def apply():
+            self._last_update = datetime.now()
+            self.var_status.set(status)
+            self._render(rooms)
+        self._post_ui(apply)
+
+    def _wait(self, seconds: float) -> None:
+        self._wake.clear()
+        self._wake.wait(timeout=seconds)
+
+    def _loop(self) -> None:
+        source = self._detect_source()
+        self.source = source
+        if source == "ha":
+            self._ha_loop()
+        elif source == "direct":
+            self._direct_loop()
+        else:
+            self._ui_set(self.var_status, "Tado nicht eingerichtet")
+            self._set_hint("Weder Thermostate in Home Assistant (climate.*) gefunden noch python-tado installiert. "
+                           "Am einfachsten die Tado-Integration in Home Assistant hinzufügen und das Dashboard neu starten.")
+            self._post_ui(lambda: self._render([]))
+
+    def _detect_source(self) -> str | None:
+        want = TADO_SOURCE
+        if want in ("auto", "ha"):
+            cfg = None
+            try:
+                cfg = load_homeassistant_config()
+            except Exception:
+                cfg = None
+            if cfg:
+                self._ha_client = HomeAssistantClient(cfg)
+                for attempt in range(3):
+                    if not self.alive:
+                        return None
+                    try:
+                        if C.rooms_from_ha(self._ha_client.get_states()):
+                            return "ha"
+                        break   # HA erreichbar, aber keine Thermostate
+                    except Exception as exc:
+                        logging.info("[TADO] HA nicht erreichbar (%s), Versuch %s", exc, attempt + 1)
+                        time.sleep(10)
+            if want == "ha":
+                return "ha" if self._ha_client else None
+        return "direct" if Tado is not None else None
+
+    def _ha_loop(self) -> None:
+        logging.info("[TADO] Quelle: Home Assistant")
+        while self.alive:
+            try:
+                rooms = C.rooms_from_ha(self._ha_client.get_states())
+                self._publish(rooms, "Verbunden über Home Assistant" if rooms else "Keine climate.*-Entitäten in HA")
+            except Exception as exc:
+                self._ui_set(self.var_status, f"⚠️ Home Assistant nicht erreichbar ({type(exc).__name__})")
+            self._wait(C.HA_POLL_S)
+
+    def _direct_loop(self) -> None:
+        logging.info("[TADO] Quelle: Tado direkt (%s)", _TADO_IMPL)
+        if not self._perform_login():
+            return
+        self._count_request()   # get_zones beim Login
+        zones = [z for z in (self.zones or []) if isinstance(z, dict)
+                 and str(z.get("type", "HEATING")).upper() == "HEATING"]
+        self._zone_ids = {str(z.get("id")): z.get("id") for z in zones}
+        names = {str(z.get("id")): str(z.get("name") or z.get("id")) for z in zones}
+        if zones:
+            self.zone_id = zones[0].get("id")
+        self._set_hint("", clear_url=True)
+        if not zones:
+            self._ui_set(self.var_status, "Tado: keine Heizungs-Zonen gefunden")
+            self._post_ui(lambda: self._render([]))
+            return
+        while self.alive:
+            calls = 1
+            try:
+                rooms, calls = self._fetch_direct(names)
+                self._publish(rooms, "Verbunden mit Tado")
+            except Exception as exc:
+                logging.warning("[TADO] zoneStates fehlgeschlagen: %s: %s", type(exc).__name__, exc)
+                self._ui_set(self.var_status, f"⚠️ Tado-Abfrage fehlgeschlagen ({type(exc).__name__})")
+            interval = C.direct_poll_s(DAILY_LIMIT) * max(1, calls)
+            if self._req_count >= DAILY_LIMIT - 5:
+                # Limit fast erreicht: bis Mitternacht pausieren
+                now = datetime.now()
+                interval = max(interval, (datetime.combine(now.date() + timedelta(days=1), dtime(0, 5)) - now).total_seconds())
+            self._next_poll = datetime.now() + timedelta(seconds=interval)
+            self._post_ui(self._update_summary)
+            self._wait(interval)
+
+    def _fetch_direct(self, names: dict):
+        """Alle Zonen mit einer Abfrage; Rueckfall: je Zone eine (teuer)."""
+        states: dict = {}
+        calls = 0
+        for meth in ("get_zone_states", "getZoneStates"):
+            fn = getattr(self.api, meth, None)
+            if callable(fn):
+                calls += 1
+                self._count_request()
+                raw = self._state_to_dict(fn())
+                zs = raw.get("zoneStates", raw) if isinstance(raw, dict) else None
+                if isinstance(zs, dict):
+                    states = {str(k): self._state_to_dict(v) for k, v in zs.items()}
+                break
+        if not any(k in states for k in names):
+            states = {}
+            for zid in names:
+                calls += 1
+                self._count_request()
+                states[zid] = self._state_to_dict(self._get_zone_state(self._zone_ids.get(zid, zid)))
+        rooms = [C.room_from_tado_state(zid, names[zid], states[zid]) for zid in names if zid in states]
+        rooms.sort(key=lambda r: r.name.lower())
+        return rooms, calls
+
+    # ------------------------------------------------- Thread-Helfer --
+
+    def _ui_set(self, var: tk.StringVar, value: str):
+        self._post_ui(lambda: var.set(value))
+
+    def _ui_call(self, fn, *args, **kwargs) -> None:
+        self._post_ui(lambda: fn(*args, **kwargs))
+
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        for w in self._cards.values():
+            try:
+                w["slider"].set_enabled(enabled)
+            except Exception:
+                pass
+
+    def _get_zone_state(self, zone_id):
+        for meth in ("get_zone_state", "getZoneState", "getState"):
+            fn = getattr(self.api, meth, None)
+            if callable(fn):
+                return fn(zone_id)
+        raise AttributeError("get_zone_state")
+
+    # ---------------------------------------- Login / Praesenz (unveraendert) --
 
     def set_away_safe(self) -> bool:
         """Set Tado to 'Away' presence (best-effort).
@@ -224,235 +769,6 @@ class TadoTab:
                 return False
 
         return False
-
-    def _build_ui(self) -> None:
-        # Shared page shell plus a scrollable content region for smaller windows.
-        self._shell = TabShell(self.tab_frame, "Raumtemperatur", "Tado-Zone und Heizungssteuerung")
-        self._shell.pack(fill=tk.BOTH, expand=True)
-        try:
-            container = ctk.CTkScrollableFrame(self._shell.body, fg_color="transparent")
-        except Exception:
-            container = ctk.CTkFrame(self._shell.body, fg_color="transparent")
-        container.pack(fill=tk.BOTH, expand=True)
-
-        self._shell.subtitle_label.configure(textvariable=self.var_status)
-
-        hint = ctk.CTkFrame(container, fg_color="transparent")
-        hint.pack(fill=tk.X, pady=(0, 16))
-        self._hint_label = ctk.CTkLabel(
-            hint,
-            textvariable=self.var_hint,
-            font=("Segoe UI", 12),
-            text_color=COLOR_SUBTEXT,
-            wraplength=900,
-            justify="left",
-        )
-        self._hint_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self._open_url_btn = ctk.CTkButton(
-            hint,
-            text="Im Browser öffnen",
-            width=180,
-            height=48,
-            fg_color=COLOR_PRIMARY,
-            hover_color=COLOR_SUCCESS,
-            command=self._open_device_url,
-        )
-        self._open_url_btn.pack(side=tk.RIGHT, padx=(10, 0))
-        self._open_url_btn.configure(state="disabled")
-        # Manueller Reset-Weg fuer eine moeglicherweise beschaedigte/alte
-        # Token-Datei, die den Geraete-Code-Flow blockiert - ohne Konsolen-/
-        # SSH-Zugriff auf den Pi war das bisher nur per Hand im Dateisystem
-        # loesbar. Wirkt erst nach einem manuellen Neustart (siehe
-        # _reset_tado_token).
-        self._reset_token_btn = ctk.CTkButton(
-            hint,
-            text="Token zurücksetzen",
-            width=170,
-            height=48,
-            fg_color=COLOR_DANGER,
-            hover_color="#B91C1C",
-            command=self._reset_tado_token,
-        )
-        self._reset_token_btn.pack(side=tk.RIGHT, padx=(10, 0))
-
-        content = ctk.CTkFrame(container, fg_color="transparent")
-        content.pack(fill=tk.BOTH, expand=True)
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=1)
-
-        # Left: live data
-        self.card_live = Card(content)
-        self.card_live.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=0)
-        self.card_live.add_title("Aktuell", icon="📊")
-
-        live = ctk.CTkFrame(self.card_live.content(), fg_color="transparent")
-        live.pack(fill=tk.BOTH, expand=True)
-
-        ctk.CTkLabel(live, text="Zone", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(anchor="w")
-        ctk.CTkLabel(live, textvariable=self.var_zone, font=("Segoe UI", 14, "bold"), text_color=COLOR_TEXT).pack(anchor="w", pady=(0, 10))
-
-        ctk.CTkLabel(live, text="Temperatur", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(anchor="w")
-        ctk.CTkLabel(live, textvariable=self.var_temp_ist, font=("Segoe UI", 34, "bold"), text_color=COLOR_PRIMARY).pack(anchor="w", pady=(0, 10))
-
-        ctk.CTkLabel(live, text="Luftfeuchtigkeit", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(anchor="w")
-        ctk.CTkLabel(live, textvariable=self.var_humidity, font=("Segoe UI", 20, "bold"), text_color=COLOR_TEXT).pack(anchor="w", pady=(0, 10))
-
-        ctk.CTkLabel(live, text="Heizleistung", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(anchor="w")
-        self._power_bar = ctk.CTkProgressBar(live, height=12, fg_color=COLOR_CARD, progress_color=COLOR_WARNING)
-        self._power_bar.pack(fill=tk.X, pady=(6, 0))
-        self._power_bar.set(0.0)
-
-        # Right: controls
-        self.card_ctrl = Card(content)
-        self.card_ctrl.grid(row=0, column=1, sticky="nsew", padx=(10, 0), pady=0)
-        self.card_ctrl.add_title("Steuerung", icon="⚙️")
-
-        ctrl = ctk.CTkFrame(self.card_ctrl.content(), fg_color="transparent")
-        ctrl.pack(fill=tk.BOTH, expand=True)
-
-        ctk.CTkLabel(ctrl, text="Zone", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(anchor="w")
-        ctk.CTkLabel(ctrl, textvariable=self.var_zone, font=("Segoe UI", 13, "bold"), text_color=COLOR_TEXT).pack(anchor="w", pady=(4, 14))
-
-        ctk.CTkLabel(ctrl, text="Modus", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(anchor="w")
-        try:
-            self._mode_toggle = ctk.CTkSegmentedButton(
-                ctrl,
-                values=["Auto", "Manuell"],
-                variable=self.var_mode,
-                command=self._on_mode_changed,
-                # Hatte keine explizite Hoehe (CTk-Default) - fuer einen
-                # Touch-Modus-Umschalter zu knapp.
-                height=44,
-                fg_color=COLOR_CARD,
-                selected_color=COLOR_PRIMARY,
-                selected_hover_color=COLOR_SUCCESS,
-                unselected_color=COLOR_CARD,
-                unselected_hover_color=COLOR_BORDER,
-                text_color=COLOR_TEXT,
-            )
-            self._mode_toggle.pack(fill=tk.X, pady=(6, 14))
-        except Exception:
-            # Fallback if segmented button not available in installed customtkinter
-            mode_row = ctk.CTkFrame(ctrl, fg_color="transparent")
-            mode_row.pack(fill=tk.X, pady=(6, 14))
-            self._mode_auto = ctk.CTkRadioButton(mode_row, text="Auto", variable=self.var_mode, value="Auto", command=self._on_mode_changed)
-            self._mode_manual = ctk.CTkRadioButton(mode_row, text="Manuell", variable=self.var_mode, value="Manuell", command=self._on_mode_changed)
-            self._mode_auto.pack(side=tk.LEFT, padx=(0, 10))
-            self._mode_manual.pack(side=tk.LEFT)
-
-        ctk.CTkLabel(ctrl, text="Zieltemperatur", font=("Segoe UI", 11), text_color=COLOR_SUBTEXT).pack(anchor="w")
-
-        # Large target display
-        self._target_label = ctk.CTkLabel(
-            ctrl,
-            textvariable=self.var_temp_soll,
-            font=("Segoe UI", 28, "bold"),
-            text_color=COLOR_WARNING,
-        )
-        self._target_label.pack(anchor="w", pady=(4, 8))
-
-        # Slider + +/- (0.5°C steps)
-        slider_row = ctk.CTkFrame(ctrl, fg_color="transparent")
-        slider_row.pack(fill=tk.X)
-        minus_btn = ctk.CTkButton(
-            slider_row,
-            text="−",
-            width=52,
-            height=48,
-            fg_color=COLOR_CARD,
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            command=lambda: self._nudge_target(-0.5),
-        )
-        minus_btn.pack(side=tk.LEFT)
-        self._target_slider = ctk.CTkSlider(
-            slider_row,
-            from_=12,
-            to=30,
-            number_of_steps=36,
-            # Hatte keine explizite Hoehe (CTk-Default, duenner Track) -
-            # fuer die Zieltemperatur (der wichtigste Regler auf dem Tab)
-            # jetzt konsistent mit den anderen Slidern/Switches vergroessert.
-            height=36,
-            variable=self.var_target,
-            command=self._on_target_slider,
-            fg_color=COLOR_CARD,
-            progress_color=COLOR_PRIMARY,
-            button_color=COLOR_PRIMARY,
-            button_hover_color=COLOR_SUCCESS,
-        )
-        self._target_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
-        plus_btn = ctk.CTkButton(
-            slider_row,
-            text="+",
-            width=52,
-            height=48,
-            fg_color=COLOR_CARD,
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            command=lambda: self._nudge_target(+0.5),
-        )
-        plus_btn.pack(side=tk.LEFT)
-
-        btn_row = ctk.CTkFrame(ctrl, fg_color="transparent")
-        btn_row.pack(fill=tk.X, pady=(14, 0))
-        self._apply_btn = ctk.CTkButton(
-            btn_row,
-            text="Anwenden",
-            fg_color=COLOR_PRIMARY,
-            hover_color=COLOR_SUCCESS,
-            command=self._apply_target_temperature,
-        )
-        self._apply_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
-
-        self._apply_1h_btn = ctk.CTkButton(
-            btn_row,
-            text="1h",
-            fg_color=COLOR_CARD,
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            command=self._apply_target_temperature_1h,
-        )
-        self._apply_1h_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 6))
-        self._auto_btn = ctk.CTkButton(
-            btn_row,
-            text="Auto",
-            fg_color=COLOR_CARD,
-            text_color=COLOR_TEXT,
-            hover_color=COLOR_BORDER,
-            command=self._set_auto,
-        )
-        self._auto_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
-
-    def set_portrait_layout(self, portrait: bool) -> None:
-        """Stack the live and control cards when the dashboard is portrait."""
-        try:
-            if hasattr(self, "_shell"):
-                self._shell.set_portrait_layout(portrait)
-            if portrait:
-                self.card_live.grid_configure(row=0, column=0, columnspan=2, padx=0, pady=(0, 12))
-                self.card_ctrl.grid_configure(row=1, column=0, columnspan=2, padx=0, pady=0)
-                self.card_live.master.grid_columnconfigure(0, weight=1)
-                self.card_live.master.grid_columnconfigure(1, weight=0)
-            else:
-                self.card_live.grid_configure(row=0, column=0, columnspan=1, padx=(0, 10), pady=0)
-                self.card_ctrl.grid_configure(row=0, column=1, columnspan=1, padx=(10, 0), pady=0)
-                self.card_live.master.grid_columnconfigure(0, weight=1)
-                self.card_live.master.grid_columnconfigure(1, weight=1)
-        except Exception:
-            pass
-
-    def _ui_set(self, var: tk.StringVar, value: str):
-        try:
-            self.root.after(0, var.set, value)
-        except Exception:
-            pass
-
-    def _ui_call(self, fn, *args, **kwargs) -> None:
-        try:
-            self.root.after(0, lambda: fn(*args, **kwargs))
-        except Exception:
-            pass
 
     def _check_tado_reachable(self) -> str:
         """Simpler TCP-Connect-Test auf den Tado-OAuth-Host (siehe Aufrufstelle).
@@ -562,9 +878,6 @@ class TadoTab:
             logging.error("[TADO] Browser öffnen fehlgeschlagen: %s", e)
             self._ui_set(self.var_hint, f"Fehler beim Öffnen: {e}\nURL manuell öffnen: {url}")
 
-    # Sentinel to distinguish "not passed" from "passed as None"
-    _KEEP_URL = object()
-
     def _set_hint(self, text: str, device_url: str | None | object = _KEEP_URL, clear_url: bool = False) -> None:
         # Only update _device_url if explicitly passed or clear_url=True
         if clear_url:
@@ -586,142 +899,6 @@ class TadoTab:
             except Exception as e:
                 logging.warning("[TADO] Button state update failed: %s", e)
         self._ui_call(_btn_state)
-
-    def _set_power_bar(self, pct: int) -> None:
-        try:
-            self._power_bar.set(max(0.0, min(1.0, float(pct) / 100.0)))
-        except Exception:
-            pass
-
-    def _set_controls_enabled(self, enabled: bool) -> None:
-        state = "normal" if enabled else "disabled"
-        try:
-            self._target_slider.configure(state=state)
-        except Exception:
-            pass
-        for btn in (getattr(self, "_apply_btn", None), getattr(self, "_minus_half_btn", None), getattr(self, "_plus_half_btn", None)):
-            if btn is None:
-                continue
-            try:
-                btn.configure(state=state)
-            except Exception:
-                pass
-        try:
-            if getattr(self, "_apply_1h_btn", None) is not None:
-                self._apply_1h_btn.configure(state=state)
-        except Exception:
-            pass
-
-    def _on_mode_changed(self, *_args) -> None:
-        if self._suppress_mode_send:
-            return
-        mode = (self.var_mode.get() or "Auto").strip()
-        if mode == "Manuell":
-            self._ui_call(self._set_controls_enabled, True)
-            self._ui_set(self.var_status, "Manuell")
-            return
-        # Auto selected
-        self._set_auto()
-
-    def _nudge_target(self, delta: float) -> None:
-        try:
-            current = float(self.var_target.get())
-        except Exception:
-            current = 20.0
-        new_temp = max(12.0, min(30.0, current + delta))
-        self.var_target.set(new_temp)
-        self._on_target_slider(new_temp)
-
-    def _on_target_slider(self, value) -> None:
-        try:
-            temp = float(value)
-        except Exception:
-            return
-        # Display only; apply is explicit via button
-        if abs(temp - round(temp)) < 0.01:
-            self._ui_set(self.var_temp_soll, f"{temp:.0f} °C")
-        else:
-            self._ui_set(self.var_temp_soll, f"{temp:.1f} °C")
-
-    def _apply_target_temperature(self) -> None:
-        self._pending_apply_job = None
-        if not (self.api and self.zone_id):
-            return
-        self._cancel_manual_timer()
-        try:
-            temp = float(self.var_target.get())
-        except Exception:
-            return
-        try:
-            self._set_zone_temperature(temp)
-            self._ui_set(self.var_status, "Manuell")
-            self._ui_set(self.var_mode, "Manuell")
-            self._ui_call(self._set_controls_enabled, True)
-        except Exception as e:
-            self._ui_set(self.var_status, f"Fehler: {type(e).__name__}")
-
-    def _apply_target_temperature_1h(self) -> None:
-        """Apply manual target temperature and automatically return to Auto after 1 hour.
-
-        This is a local timer (dashboard must remain running).
-        """
-        self._pending_apply_job = None
-        if not (self.api and self.zone_id):
-            return
-        self._cancel_manual_timer()
-        try:
-            temp = float(self.var_target.get())
-        except Exception:
-            return
-        try:
-            self._set_zone_temperature(temp)
-            self._ui_set(self.var_status, "Manuell (1h)")
-            self._ui_set(self.var_mode, "Manuell")
-            self._ui_call(self._set_controls_enabled, True)
-            self._start_manual_timer(seconds=3600)
-        except Exception as e:
-            self._ui_set(self.var_status, f"Fehler: {type(e).__name__}")
-
-    def _cancel_manual_timer(self) -> None:
-        try:
-            if self._manual_timer_after_id is not None:
-                self.root.after_cancel(self._manual_timer_after_id)
-        except Exception:
-            pass
-        self._manual_timer_after_id = None
-        self._manual_timer_deadline_mono = None
-
-    def _start_manual_timer(self, seconds: int) -> None:
-        try:
-            import time as _time
-            self._manual_timer_deadline_mono = _time.monotonic() + float(seconds)
-        except Exception:
-            self._manual_timer_deadline_mono = None
-
-        def _timer_fire() -> None:
-            self._manual_timer_after_id = None
-            # Only revert if we're still in manual mode.
-            try:
-                manual = (self.var_mode.get() or "").strip().lower().startswith("man")
-            except Exception:
-                manual = True
-            if not manual:
-                self._manual_timer_deadline_mono = None
-                return
-            try:
-                self._reset_zone_override()
-                self._ui_set(self.var_status, "Auto (Timer)")
-                self._ui_set(self.var_mode, "Auto")
-                self._ui_call(self._set_controls_enabled, False)
-            except Exception:
-                # Best-effort; keep UI as-is.
-                pass
-            self._manual_timer_deadline_mono = None
-
-        try:
-            self._manual_timer_after_id = self.root.after(int(max(1, seconds) * 1000), _timer_fire)
-        except Exception:
-            self._manual_timer_after_id = None
 
     def _get_nested(self, data: dict, *keys, default=None):
         cur = data
@@ -769,33 +946,6 @@ class TadoTab:
         except Exception:
             return url
 
-    def _change_temp(self, delta: int):
-        """Legacy helper (kept for compatibility)."""
-        self._nudge_target(float(delta))
-
-    def _set_heating(self):
-        """Aktiviere Heizung."""
-        try:
-            if self.api and self.zone_id:
-                current = float(self.var_target.get())
-                self._set_zone_temperature(current)
-                self.var_status.set("Heizung aktiviert")
-        except Exception:
-            self.var_status.set("Fehler")
-
-    def _set_auto(self):
-        """Zurück auf Automatik/Plan (reset override)."""
-        try:
-            if self.api and self.zone_id:
-                self._cancel_manual_timer()
-                self._reset_zone_override()
-                self._ui_set(self.var_status, "Auto")
-                self._ui_set(self.var_mode, "Auto")
-                self._ui_call(self._set_controls_enabled, False)
-        except Exception:
-            self._ui_set(self.var_status, "Fehler")
-
-    # --- API compatibility helpers (python-tado vs PyTado) ---
     def _call_any(self, *names: str, **kwargs):
         api = getattr(self, "api", None)
         if api is None:
@@ -814,73 +964,6 @@ class TadoTab:
 
     def _get_zones(self):
         return self._call_any("get_zones", "getZones")
-
-    def _get_zone_state(self, zone_id: int):
-        try:
-            fn = getattr(self.api, "get_zone_state")
-            return fn(zone_id)
-        except Exception:
-            fn = getattr(self.api, "getZoneState")
-            return fn(zone_id)
-
-    def _set_zone_temperature(self, temp_c: float) -> None:
-        # python-tado
-        try:
-            fn = getattr(self.api, "set_temperature")
-            fn(self.zone_id, temp_c)
-            return
-        except Exception:
-            pass
-        # PyTado via deprecated wrapper -> dynamic snake_case endpoint
-        try:
-            fn = getattr(self.api, "setZoneOverlay")
-            fn(self.zone_id, "MANUAL", setTemp=float(temp_c))
-            return
-        except Exception:
-            pass
-        # Try direct snake_case if available (dynamic)
-        fn = getattr(self.api, "set_zone_overlay")
-        fn(self.zone_id, overlay_mode="MANUAL", set_temp=float(temp_c), device_type="HEATING", power="ON")
-
-    def _reset_zone_override(self) -> None:
-        # python-tado
-        try:
-            fn = getattr(self.api, "reset_zone_override")
-            fn(self.zone_id)
-            return
-        except Exception:
-            pass
-        # PyTado
-        try:
-            fn = getattr(self.api, "resetZoneOverlay")
-            fn(self.zone_id)
-            return
-        except Exception:
-            pass
-        fn = getattr(self.api, "reset_zone_overlay")
-        fn(self.zone_id)
-
-    def apply_profile_safe(self, profile: str) -> bool:
-        """Apply a simple profile to the current zone.
-
-        - eco: set manual overlay to TADO_ECO_TEMP
-        - comfort: set manual overlay to TADO_COMFORT_TEMP
-        - auto: reset zone override
-        """
-        try:
-            p = (profile or "").strip().lower()
-            if p in ("auto", "schedule"):
-                self._reset_zone_override()
-                return True
-            if p in ("eco", "spar", "save"):
-                self._set_zone_temperature(float(TADO_ECO_TEMP))
-                return True
-            if p in ("comfort", "komfort", "home"):
-                self._set_zone_temperature(float(TADO_COMFORT_TEMP))
-                return True
-        except Exception:
-            return False
-        return False
 
     def _perform_login(self) -> bool:
         """Tado-Login mit automatischem Retry.
@@ -1020,8 +1103,6 @@ class TadoTab:
                                     f"login.tado.com: {reachability})",
                                     device_url=None,
                                 )
-                            self._ui_set(self.var_temp_ist, "N/A")
-                            self._ui_set(self.var_humidity, "N/A")
                             logging.warning(
                                 "[TADO] Login-Versuch %s fehlgeschlagen (status=%s), naechster Versuch in %ss",
                                 login_attempt, status, wait_s,
@@ -1040,8 +1121,6 @@ class TadoTab:
             except ImportError:
                 self._ui_set(self.var_status, "python-tado nicht installiert! Bitte im Terminal ausführen: 'pip install python-tado' (im .venv falls vorhanden). Dann Dashboard neu starten.")
                 self._set_hint("Bitte `pip install python-tado` ausführen und Dashboard neu starten.")
-                self._ui_set(self.var_temp_ist, "N/A")
-                self._ui_set(self.var_humidity, "N/A")
                 self._ui_call(self._set_controls_enabled, False)
                 while self.alive:
                     time.sleep(5)
@@ -1055,8 +1134,6 @@ class TadoTab:
                 if err_msg:
                     msg += f" – {err_msg}"
                 self._ui_set(self.var_status, msg)
-                self._ui_set(self.var_temp_ist, "N/A")
-                self._ui_set(self.var_humidity, "N/A")
                 self._set_hint(f"Login/Verbindung fehlgeschlagen, naechster Versuch in {wait_s}s...")
                 self._ui_call(self._set_controls_enabled, False)
                 logging.exception(
@@ -1069,145 +1146,3 @@ class TadoTab:
                     time.sleep(1)
                 continue
         return False
-
-    def _loop(self):
-        """Hintergrund-Update Loop."""
-        logging.info("[TADO] Loop gestartet")
-
-        if Tado is None:
-            self._ui_set(self.var_status, "python-tado nicht installiert")
-            self._set_hint("Bitte `pip install python-tado` ausführen und Dashboard neu starten.")
-            self._ui_set(self.var_temp_ist, "N/A")
-            self._ui_set(self.var_humidity, "N/A")
-            self._ui_call(self._set_controls_enabled, False)
-            while self.alive:
-                time.sleep(30)
-            return
-
-        # Login (mit automatischem Retry bei Fehlschlag, siehe _perform_login)
-        if not self._perform_login():
-            return
-
-        # Single-zone setup: pick best match (Schlaf/Bed) else first.
-        picked = None
-        for z in self.zones:
-            name = (z.get("name") or "")
-            if "schlaf" in name.lower() or "bed" in name.lower():
-                picked = z
-                break
-        if picked is None and self.zones:
-            picked = self.zones[0]
-
-        if picked is not None:
-            self.zone_id = picked.get("id")
-            self._ui_set(self.var_zone, picked.get("name", "-"))
-
-        if not self.zone_id:
-            self._ui_set(self.var_status, "Tado: Keine Zone gefunden")
-            self._ui_call(self._set_controls_enabled, False)
-            while self.alive:
-                time.sleep(30)
-            return
-
-        self._ui_set(self.var_status, "Verbunden")
-        self._set_hint("", clear_url=True)  # Clear URL after successful connection
-        # Start in Auto mode until we see an overlay
-        self._ui_set(self.var_mode, "Auto")
-        self._ui_call(self._set_controls_enabled, False)
-
-        # Update Loop
-        while self.alive:
-            try:
-                state = self._get_zone_state(self.zone_id)
-                state = self._state_to_dict(state)
-
-                if not getattr(self, "_state_logged", False):
-                    logging.debug("[TADO] zone_state keys: %s", list(state.keys()))
-                    logging.debug("[TADO] sensorDataPoints keys: %s", list(state.get("sensorDataPoints", {}).keys()))
-                    logging.debug("[TADO] activityDataPoints keys: %s", list(state.get("activityDataPoints", {}).keys()))
-                    logging.debug("[TADO] setting keys: %s", list(state.get("setting", {}).keys()))
-                    logging.debug("[TADO] overlay keys: %s", list(state.get("overlay", {}).keys()))
-                    self._state_logged = True
-                
-                # Temperatur
-                current = state.get("current_temp")
-                if current is None:
-                    current = self._get_nested(state, "sensorDataPoints", "insideTemperature", "celsius")
-                if current is None:
-                    current = self._get_nested(state, "sensorDataPoints", "insideTemperature", "value")
-                if current is None:
-                    current = self._get_nested(state, "insideTemperature", "celsius")
-                if current is None:
-                    current = self._get_nested(state, "setting", "temperature", "celsius")
-                if current is None:
-                    current = 0.0
-                self._ui_set(self.var_temp_ist, f"{current:.1f} °C")
-                
-                # Feuchtigkeit
-                humidity = state.get("current_humidity")
-                if humidity is None:
-                    humidity = self._get_nested(state, "sensorDataPoints", "humidity", "percentage")
-                if humidity is None:
-                    humidity = self._get_nested(state, "sensorDataPoints", "humidity", "value")
-                if humidity is None:
-                    humidity = 0.0
-                self._ui_set(self.var_humidity, f"{humidity:.0f} %")
-                
-                # Zieltemperatur
-                target = state.get("target_temp")
-                overlay = state.get('overlay')
-                setting = (overlay or {}).get("setting") or state.get("setting", {})
-                if target is None and setting:
-                    target = self._get_nested(setting, "temperature", "celsius")
-                if target is None and setting:
-                    target = 20
-
-                # Mode: overlay present => manual override
-                try:
-                    manual = bool(overlay)
-                except Exception:
-                    manual = False
-                try:
-                    self._suppress_mode_send = True
-                    self._ui_set(self.var_mode, "Manuell" if manual else "Auto")
-                    self._ui_call(self._set_controls_enabled, manual)
-                finally:
-                    self._suppress_mode_send = False
-
-                if target is not None:
-                    if abs(float(target) - round(float(target))) < 0.01:
-                        self._ui_set(self.var_temp_soll, f"{float(target):.0f} °C")
-                    else:
-                        self._ui_set(self.var_temp_soll, f"{float(target):.1f} °C")
-                    # Update slider value without triggering a write-back
-                    try:
-                        self._suppress_target_send = True
-                        self._ui_call(self.var_target.set, float(target))
-                    finally:
-                        self._suppress_target_send = False
-                    
-                power = state.get("power") or setting.get('power', 'OFF')
-                if power == 'ON':
-                    power_pct = state.get("heating_power_percentage")
-                    if power_pct is None:
-                        power_pct = self._get_nested(state, "activityDataPoints", "heatingPower", "percentage")
-                    if power_pct is None:
-                        power_pct = 75
-                    self.var_power.set(int(power_pct))
-                    self._ui_call(self._set_power_bar, int(power_pct))
-                    self._ui_set(self.var_status, "Heizung aktiv")
-                else:
-                    self.var_power.set(0)
-                    self._ui_call(self._set_power_bar, 0)
-                    self._ui_set(self.var_status, "Auto" if not manual else "Manuell")
-                if target is None:
-                    self._ui_set(self.var_temp_soll, "-- °C")
-                    self._ui_set(self.var_status, "Automatik")
-                    
-            except Exception as e:
-                if not getattr(self, "_state_error_logged", False):
-                    logging.warning("[TADO] zone_state error: %s: %s", type(e).__name__, e)
-                    self._state_error_logged = True
-            
-            time.sleep(30)  # Update alle 30 Sekunden
-

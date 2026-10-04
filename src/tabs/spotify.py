@@ -23,6 +23,7 @@ from ui.styles import (
     get_safe_font,
 )
 from ui.components.tab_shell import TabShell
+from ui.components.touch_slider import TouchSlider
 from ui.components.card import Card
 from ui.components.glyph_icon import ctk_icon
 try:
@@ -435,13 +436,13 @@ class SpotifyTab:
             fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, text_color=COLOR_TEXT,
             command=lambda: self._adjust_volume(-10),
         ).pack(side=LEFT, padx=3)
-        self._volume_ctk_var = tk.DoubleVar(value=50)
-        self.volume_scale = ctk.CTkSlider(
-            volume_controls, from_=0, to=100, number_of_steps=100,
-            variable=self._volume_ctk_var, command=self._on_volume_change,
-            height=32,
-            fg_color=COLOR_BORDER, progress_color=COLOR_PRIMARY,
-            button_color=COLOR_TEXT, button_hover_color=COLOR_TEXT,
+        # Touch-Slider wie im Licht-Tab: Lautstaerke geht beim Ziehen live mit,
+        # Wert steht im Regler, Rastpunkte bei 25/50/75 %.
+        self.volume_scale = TouchSlider(
+            volume_controls, from_=0, to=100, value=50, height=48,
+            fill_color=COLOR_PRIMARY, snap_points=(25, 50, 75), bg=COLOR_CARD,
+            formatter=lambda v: "Stumm" if v < 1 else f"{v:.0f} %",
+            on_change=self._on_volume_change, on_release=self._on_volume_change,
         )
         self.volume_scale.pack(side=LEFT, expand=True, fill=tk.X, padx=6)
         ctk.CTkButton(
@@ -723,9 +724,8 @@ class SpotifyTab:
 
         volume = playback.get("device", {}).get("volume_percent")
         if volume is not None:
-            self._ignore_volume_event = True
-            self.volume_scale.set(volume)
-            self._ignore_volume_event = False
+            # set_value ignoriert Updates, waehrend der Finger auf dem Regler ist
+            self.volume_scale.set_value(volume)
 
         self.shuffle_var.set(bool(playback.get("shuffle_state", False)))
         repeat = playback.get("repeat_state", "off")
@@ -829,14 +829,13 @@ class SpotifyTab:
         self._queue_volume_update(volume)
 
     def _queue_volume_update(self, volume: int) -> None:
+        # Gedrosselt statt entprellt: waehrend des Ziehens geht hoechstens alle
+        # 400 ms ein Wert an Spotify - die Lautstaerke folgt also live, ohne die
+        # API zu fluten (vorher wurde erst nach dem Loslassen gesendet).
         volume = max(0, min(100, int(volume)))
         self._pending_volume = volume
-        if self._volume_after_id:
-            try:
-                self.root.after_cancel(self._volume_after_id)
-            except Exception:
-                pass
-        self._volume_after_id = self.root.after(400, self._apply_volume_change)
+        if not self._volume_after_id:
+            self._volume_after_id = self.root.after(400, self._apply_volume_change)
 
     def _apply_volume_change(self) -> None:
         self._volume_after_id = None
