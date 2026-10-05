@@ -2,14 +2,15 @@
 
 Vorgehen
 --------
-1. **Verbrauch**: Waermebedarfs-Modell aus core/heat_demand (Grundlast +
-   Faktor * Grad unter 18 °C, aus der Historie gelernt) mit der stuendlichen
-   Temperaturprognose. Ohne Modell/Prognose: mittlere Abkuehlrate der
-   letzten 24 h in ruhigen Phasen (Kessel aus, kein Anstieg).
+1. **Verbrauch**: lernendes Waermebedarfs-Modell aus core/heat_demand
+   (traege Aussentemperatur + Sonne, aehnliches Wetter zaehlt mehr) mit der
+   stuendlichen Wetterprognose. Ohne Modell/Prognose: mittlere Abkuehlrate
+   der letzten 24 h in ruhigen Phasen (Kessel aus, kein Anstieg).
 2. **Solar-Faktor**: Wie viel Waerme die Solarthermie bringt, wird an der
-   PV-Anlage abgelesen (gleiche Sonne): k = Solarthermie-kWh / PV-kWh,
-   aus den Tagen der laufenden Saison. Die PV-Prognose (core/pv_forecast)
-   liefert damit eine Solarthermie-Prognose ohne eigene Kalibrierung.
+   PV-Anlage abgelesen (gleiche Sonne): k = Solarthermie-kWh / PV-kWh.
+   Gelernt aus den Speicher-Anstiegen der Historie, abhaengig von Aussen-
+   und Speichertemperatur (core/heat_demand.SolarThermalModel). Rueckfall:
+   ein fester Faktor aus den Tagen der laufenden Saison.
 3. **Simulation**: Stuendlich fuer die naechsten 36 h:
        E(t+1h) = E(t) - Verbrauch + k * PV-Prognose(t)
    Startwert ist der aktuell nutzbare Speicherinhalt. Faellt E auf 0, ist
@@ -101,9 +102,12 @@ def _fmt_when(ts: datetime, now: datetime) -> str:
 
 def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional[float],
          pv_forecast_utc: Optional[dict], now: Optional[datetime] = None,
-         kessel_active_now: bool = False, rate_fn=None) -> Recommendation:
-    """rate_fn(lokale Zeit) -> kW ueberschreibt den konstanten rate_kw (temperaturabhaengig)."""
-    """Simuliert die naechsten 36 h und leitet die Empfehlung ab."""
+         kessel_active_now: bool = False, rate_fn=None, factor_fn=None) -> Recommendation:
+    """Simuliert die naechsten 36 h und leitet die Empfehlung ab.
+
+    rate_fn(lokale Zeit) -> kW ueberschreibt den konstanten rate_kw (temperaturabhaengig),
+    factor_fn(lokale Zeit) -> Solar-kWh je PV-kWh ueberschreibt den festen factor.
+    """
     now = (now or datetime.now()).replace(second=0, microsecond=0)
     if usable_now is None or rate_kw is None:
         return Recommendation("unknown", "Noch zu wenig Daten",
@@ -127,7 +131,8 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
     while t < now + timedelta(hours=HORIZON_H):
         t_next = min(next_hour, now + timedelta(hours=HORIZON_H))
         frac = (t_next - t).total_seconds() / 3600.0
-        solar = k * pv_kw_at(next_hour) * frac
+        k_here = factor_fn(t) if factor_fn is not None else k
+        solar = k_here * pv_kw_at(next_hour) * frac
         if t.date() == now.date():
             solar_today += solar
         elif t.date() == now.date() + timedelta(days=1):
@@ -205,18 +210,22 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
             pv_daily = {}
         factor = solar_factor(season, pv_daily)
 
-    # Temperaturabhaengiges Verbrauchsmodell
-    if temps_utc is None:
-        try:
-            from .weather import fetch_hourly_temperature
-            temps_utc = fetch_hourly_temperature(past_days=heat_demand.FIT_DAYS, forecast_days=8)
-        except Exception:
-            temps_utc = {}
-    model = None
+    # Lernende Modelle (einmal nach Start und taeglich neu gelernt) + Wetterprognose
+    model = solar_model = None
     try:
-        model = heat_demand.get_model(store, cfg, temps_utc)
+        model, solar_model = heat_demand.get_models(store, cfg)
     except Exception:
-        model = None
+        model = solar_model = None
+    try:
+        wx = heat_demand.weather_series()
+    except Exception:
+        wx = {}
+    if temps_utc is None:
+        temps_utc = {}
+        if wx and len(wx.get("t", [])):
+            for ts, v in zip(wx["t"], wx["temp"]):
+                if v == v:     # nicht NaN
+                    temps_utc[datetime.fromtimestamp(int(ts), timezone.utc)] = float(v)
     outdoor_now = heat_demand._temp_for(now.replace(minute=0, second=0, microsecond=0), temps_utc or {}, None)
     if outdoor_now is None:
         outdoor_now = next((b.outdoor for b in reversed(buckets) if b.outdoor is not None), None)
@@ -224,11 +233,28 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
     rate_fn = None
     rate_now = rate_24h
     if model is not None and (model.temperature_dependent or rate_24h is None):
-        rate_fn = lambda t: model.kw_at(heat_demand._temp_for(t.replace(minute=0, second=0, microsecond=0),
-                                                               temps_utc or {}, outdoor_now))
-        rate_now = model.kw_at(outdoor_now)
+        if getattr(model, "version", 1) >= 2 and wx:
+            rate_fn = model.predictor(wx)
+        else:
+            rate_fn = lambda t: model.kw_at(heat_demand._temp_for(t.replace(minute=0, second=0, microsecond=0),
+                                                                   temps_utc or {}, outdoor_now))
+        rate_now = rate_fn(now)
 
-    rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now, rate_fn=rate_fn)
+    factor_fn = None
+    if solar_model is not None:
+        tank_now = None
+        for b in reversed(buckets):
+            layers = [v for v in (b.top, b.mid, b.bot) if v is not None]
+            if layers:
+                tank_now = sum(layers) / len(layers)
+                break
+        factor = solar_model.mean_ratio
+        factor_fn = lambda t: solar_model.ratio(
+            heat_demand._temp_for(t.replace(minute=0, second=0, microsecond=0), temps_utc or {}, outdoor_now),
+            tank_now)
+
+    rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now,
+               rate_fn=rate_fn, factor_fn=factor_fn)
     rec.outdoor_now = outdoor_now
     if temps_utc:
         hour0 = now.replace(minute=0, second=0, microsecond=0)
@@ -245,5 +271,6 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
         if factor:
             solar_by_day = {now.date(): rec.solar_rest_today_kwh or 0.0,
                             now.date() + timedelta(days=1): rec.solar_tomorrow_kwh or 0.0}
-        rec.outlook = heat_demand.week_outlook(model, temps_utc or {}, usable, avg, solar_by_day, now=now)
+        rec.outlook = heat_demand.week_outlook(model, temps_utc or {}, usable, avg, solar_by_day, now=now,
+                                               rate_fn=rate_fn)
     return rec

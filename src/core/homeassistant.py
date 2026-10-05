@@ -457,6 +457,22 @@ class HomeAssistantClient:
         r.raise_for_status()
         return True
 
+    def get_history(self, entity_ids: List[str], start_iso: str, end_iso: Optional[str] = None) -> List[List[Dict[str, Any]]]:
+        """Zustandsverlauf (/api/history/period) inkl. Attributaenderungen, je Entitaet eine Liste."""
+        params = {"filter_entity_id": ",".join(entity_ids), "significant_changes_only": "0"}
+        if end_iso:
+            params["end_time"] = end_iso
+        r = self._resilient_get(
+            self._url(f"/api/history/period/{start_iso}"),
+            headers=self._headers(),
+            params=params,
+            timeout=max(self.config.timeout_s, 30),
+            verify=self.config.verify_ssl,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data if isinstance(data, list) else []
+
     def update_entity(self, entity_ids: str | List[str]) -> bool:
         """Ask Home Assistant to refresh one or multiple entities."""
 

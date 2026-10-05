@@ -1,31 +1,35 @@
-"""PV-Prognose aus der Open-Meteo-Einstrahlungsvorhersage.
+"""PV-Prognose, die aus der eigenen Historie lernt.
 
-Die Anlage muss nicht beschrieben werden (kWp, Neigung, Ausrichtung): das
-Modul kalibriert sich selbst gegen die eigenen Fronius-Messwerte.
+Die Anlage muss nicht beschrieben werden (kWp, Neigung, Ausrichtung) - alles
+wird aus den Fronius-Messwerten und dem Wetter-Archiv (core/forecast_learning)
+gelernt, aus ALLEN gesammelten Stunden.
 
-Modell
-------
-Fuer eine feste Neigung wird die Einstrahlung auf die geneigte Flaeche
-(global_tilted_irradiance, W/m^2) fuer mehrere Ausrichtungen abgefragt
-(Ost ... Sued ... West). Die gemessene PV-Leistung wird als nicht-negative
-Linearkombination dieser Einstrahlungen angenaehert:
+1. Physik (global)
+   Sonnenstand je Stunde (core/solar_geometry) + Open-Meteo-Strahlung
+   (GHI/DNI/DHI) -> Einstrahlung auf Modulflaechen verschiedener Ausrichtung
+   (Ost ... Sued ... West) und Neigung, mit Temperaturverlust der Module
+   (-0,37 %/K Zelltemperatur, Zelle ~ Luft + 25 K bei 800 W/m^2):
+       P(t) ~= sum_i k_i * POA_i(t) * f_T(t)        (k_i >= 0)
+   Die Neigung mit dem kleinsten Fehler gewinnt; Ost-West- oder gemischte
+   Daecher ergeben sich von selbst. Ausreisser (Schnee, Ausfall, Abregelung)
+   werden erkannt und beim Fit ignoriert.
 
-    P_pv(t) ~= sum_i  k_i * GTI(t, azimut_i)        (k_i >= 0, in kW pro W/m^2)
+2. "Aehnliches Wetter zaehlt mehr" (Korrektur)
+   Verhaeltnis gemessen / Physik, gelernt je Sonnenstand (Azimut, Hoehe) und
+   Bewoelkung (Klarheitsindex kt): Fuer jeden Rasterpunkt zaehlen alte Stunden
+   mit aehnlichem Sonnenstand und aehnlichem Himmel am meisten. So werden
+   Verschattung (Baeume, Nachbarhaus, Gaube), Morgendunst, Reflexionen und
+   Fehler der Wettervorhersage bei bestimmten Lagen gelernt. Wenig Daten in
+   der Naehe -> Faktor geht gegen 1 (reine Physik).
 
-Damit werden Sued-, Ost-West- und gemischte Daecher automatisch abgebildet.
-Die Neigung mit dem kleinsten Fehler gewinnt. Nach oben wird auf die
-groesste beobachtete Stundenleistung begrenzt (Wechselrichter-Limit).
+Neu gelernt wird einmal nach jedem Programmstart und dann einmal pro Tag
+(im Worker-Thread des aufrufenden Tabs). Modell: data/pv_forecast_model.json.
+Prognose: eine Open-Meteo-Abfrage, gecacht 30 min in data/pv_forecast_cache.json.
 
-Zeitbasis: Open-Meteo liefert Stundenmittel der *vorangegangenen* Stunde,
-abgefragt in UTC. Ein Wert mit Zeitstempel 12:00 UTC ist also das Mittel
-von 11:00-12:00 UTC und wird mit dem PV-Mittel desselben Intervalls
-verglichen.
-
-Netzwerkzugriffe passieren nur im Aufrufer-Thread (die Tabs rufen das aus
-einem Worker-Thread auf) und sind gecacht:
-  * Kalibrierung: data/pv_forecast_model.json, Erneuerung alle 7 Tage
-  * Prognose:     data/pv_forecast_cache.json, Erneuerung alle 30 Minuten
-Bei fehlendem Netz wird der letzte Cache verwendet bzw. None geliefert.
+Zeitbasis: Open-Meteo-Strahlung = Mittel der vorangegangenen Stunde (UTC).
+Ein Wert mit Zeitstempel 12:00 UTC gilt fuer 11:00-12:00 und wird mit dem
+PV-Mittel desselben Intervalls verglichen; der Sonnenstand wird zur
+Intervallmitte berechnet.
 """
 from __future__ import annotations
 
@@ -35,110 +39,64 @@ import threading
 import time
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 import numpy as np
-import requests
 
+from . import forecast_learning as fl
+from .solar_geometry import clearness, poa, sun_position
 from .time_utils import DB_TS_FORMAT, parse_db_ts
 from .weather import WeatherConfig, load_weather_config
 
 logger = logging.getLogger(__name__)
 
-API_URL = "https://api.open-meteo.com/v1/forecast"
-AZIMUTHS: tuple[int, ...] = (-90, -45, 0, 45, 90)   # 0 = Sued, -90 = Ost, 90 = West
-TILTS: tuple[int, ...] = (15, 30, 45)
+MODEL_VERSION = 2
+AZIMUTHS: tuple[int, ...] = (-90, -60, -30, 0, 30, 60, 90)   # 0 = Sued, -90 = Ost, 90 = West
+TILTS: tuple[int, ...] = tuple(range(10, 65, 5))
+GAMMA_PER_K = -0.0037            # Leistungs-Temperaturkoeffizient kristalliner Module
+NOCT_K_PER_WM2 = 25.0 / 800.0    # Zellerwaermung ueber Luft
+MIN_ELEV_DEG = 2.0
+MIN_CALIBRATION_HOURS = 48
 
-CALIBRATION_DAYS = 60            # wie viele Tage Historie fuer den Fit
-MIN_CALIBRATION_HOURS = 48       # mindestens so viele Sonnenstunden mit Messwerten
-MODEL_MAX_AGE_S = 7 * 24 * 3600
+# Korrektur-Raster (aehnliches Wetter)
+CORR_AZ = np.arange(-130.0, 131.0, 5.0)
+CORR_EL = np.arange(2.0, 69.0, 2.0)
+CORR_KT = np.arange(0.05, 0.86, 0.1)
+CORR_SIGMA = (7.0, 3.0, 0.08)
+CORR_STRENGTH_H = 3.0            # so viele "typische Stunden" wiegt der Ausgangswert 1,0
+CORR_CLIP = (0.2, 1.5)
+
 FORECAST_MAX_AGE_S = 30 * 60
-FORECAST_PAST_DAYS = 7           # zum Vergleich Prognose/Ist der letzten Tage
-FORECAST_DAYS = 2                # heute + morgen
+FORECAST_PAST_DAYS = 7
+FORECAST_DAYS = 2
 CACHE_KEEP_DAYS = 60
 
 _DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 MODEL_PATH = _DATA_DIR / "pv_forecast_model.json"
 CACHE_PATH = _DATA_DIR / "pv_forecast_cache.json"
 
-_LOCK = threading.Lock()
-_session = requests.Session()
+_LOCK = threading.RLock()
+_attempted_day: Optional[date] = None
+_model_mem: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
-# Open-Meteo
+# Merkmale
 # ---------------------------------------------------------------------------
 
-def _fetch_gti(cfg: WeatherConfig, tilt: int, azimuth: int, past_days: int, forecast_days: int) -> dict[datetime, float]:
-    """Stuendliche Einstrahlung auf die geneigte Flaeche, Schluessel = Stundenende (UTC, aware)."""
-    resp = _session.get(
-        API_URL,
-        params={
-            "latitude": cfg.latitude,
-            "longitude": cfg.longitude,
-            "hourly": "global_tilted_irradiance",
-            "tilt": tilt,
-            "azimuth": azimuth,
-            "past_days": past_days,
-            "forecast_days": forecast_days,
-            "timezone": "UTC",
-        },
-        timeout=max(5.0, cfg.timeout_s),
-    )
-    resp.raise_for_status()
-    hourly = (resp.json() or {}).get("hourly") or {}
-    out: dict[datetime, float] = {}
-    for t, v in zip(hourly.get("time") or [], hourly.get("global_tilted_irradiance") or []):
-        if v is None:
-            continue
-        try:
-            ts = datetime.fromisoformat(str(t)).replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-        out[ts] = max(0.0, float(v))
-    return out
+def plane_features(t_end, ghi, dni, dhi, temp, lat: float, lon: float, tilt: float, azimuths):
+    """Je Ausrichtung: Einstrahlung * Temperaturfaktor (kW/m^2) und deren Direktanteil."""
+    t_mid = np.asarray(t_end, float) - 1800.0
+    el, az = sun_position(t_mid, lat, lon)
+    temp = np.where(np.isnan(temp), 10.0, temp)
+    cols, beams = [], []
+    for a in azimuths:
+        tot, beam = poa(ghi, dni, dhi, el, az, tilt, a)
+        f_t = 1.0 + GAMMA_PER_K * (temp + NOCT_K_PER_WM2 * tot - 25.0)
+        cols.append(tot * f_t / 1000.0)
+        beams.append(beam * f_t / 1000.0)
+    return np.column_stack(cols), np.column_stack(beams), el, az
 
-
-def _fetch_bases(cfg: WeatherConfig, tilt: int, azimuths: Iterable[int], past_days: int, forecast_days: int):
-    """Matrix der Einstrahlungen: (Zeitpunkte, Matrix[n_zeit, n_azimut])."""
-    azimuths = list(azimuths)
-    series = [_fetch_gti(cfg, tilt, az, past_days, forecast_days) for az in azimuths]
-    times = sorted(set.intersection(*(set(s) for s in series))) if series else []
-    mat = np.array([[s[t] for s in series] for t in times], dtype=float).reshape(len(times), len(azimuths))
-    return times, mat
-
-
-# ---------------------------------------------------------------------------
-# Messwerte
-# ---------------------------------------------------------------------------
-
-def hourly_pv_means(store, start_utc: datetime, end_utc: datetime) -> dict[datetime, float]:
-    """Mittlere PV-Leistung (kW) je Stunde, Schluessel = Stundenende (UTC, aware)."""
-    conn = getattr(store, "conn", None)
-    if conn is None:
-        return {}
-    rows = conn.execute(
-        "SELECT timestamp, pv_power FROM fronius WHERE timestamp >= ? AND timestamp < ? AND pv_power IS NOT NULL",
-        (start_utc.strftime(DB_TS_FORMAT), end_utc.strftime(DB_TS_FORMAT)),
-    ).fetchall()
-    sums: dict[datetime, list[float]] = {}
-    for ts, pv in rows:
-        dt = parse_db_ts(ts)
-        if dt is None:
-            continue
-        kw = float(pv)
-        if kw > 200.0:            # alte Daten in W
-            kw /= 1000.0
-        hour_end = dt.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-        acc = sums.setdefault(hour_end, [0.0, 0])
-        acc[0] += max(0.0, kw)
-        acc[1] += 1
-    return {k: v[0] / v[1] for k, v in sums.items() if v[1] > 0}
-
-
-# ---------------------------------------------------------------------------
-# Fit
-# ---------------------------------------------------------------------------
 
 def nnls(a: np.ndarray, b: np.ndarray, max_iter: int = 200) -> np.ndarray:
     """Nicht-negative kleinste Quadrate (Lawson-Hanson), ohne scipy."""
@@ -170,56 +128,131 @@ def nnls(a: np.ndarray, b: np.ndarray, max_iter: int = 200) -> np.ndarray:
     return x
 
 
-def fit_model(times: list[datetime], bases: np.ndarray, pv: dict[datetime, float]) -> Optional[dict]:
-    """Fit fuer eine Neigung. Gibt Koeffizienten und Fehlermasse zurueck."""
-    rows = [i for i, t in enumerate(times) if t in pv and bases[i].max() > 20.0]
-    if len(rows) < MIN_CALIBRATION_HOURS:
-        return None
-    a = bases[rows]
-    b = np.array([pv[times[i]] for i in rows], dtype=float)
-    coef = nnls(a, b)
-    pred = a @ coef
-    rmse = float(np.sqrt(np.mean((pred - b) ** 2)))
-    ss_tot = float(np.sum((b - b.mean()) ** 2)) or 1.0
-    r2 = 1.0 - float(np.sum((pred - b) ** 2)) / ss_tot
-    return {"coef": [float(c) for c in coef], "rmse_kw": rmse, "r2": r2, "hours": len(rows),
-            "cap_kw": float(b.max()) * 1.05}
+def _robust_fit(x: np.ndarray, y: np.ndarray, cap: float):
+    """NNLS, dann Ausreisser (Schnee/Ausfall/Abregelung) entfernen und erneut fitten."""
+    coef = nnls(x, y)
+    pred = x @ coef
+    res = y - pred
+    mad = float(np.median(np.abs(res - np.median(res)))) * 1.4826 or 1e-3
+    keep = np.abs(res) <= 4.0 * mad
+    keep &= ~((pred > 0.15 * cap) & (y < 0.3 * pred))          # Schnee/Ausfall
+    keep &= ~((y >= 0.98 * cap) & (pred > 1.1 * y))             # Wechselrichter-Limit
+    if keep.sum() >= MIN_CALIBRATION_HOURS:
+        coef = nnls(x[keep], y[keep])
+        pred = x @ coef
+    rmse = float(np.sqrt(np.mean((pred[keep] - y[keep]) ** 2)))
+    return coef, keep, rmse
 
 
-def calibrate(store, cfg: Optional[WeatherConfig] = None, days: int = CALIBRATION_DAYS) -> Optional[dict]:
-    """Kalibriert das Modell gegen die Fronius-Historie (Netzwerk!)."""
-    cfg = cfg or load_weather_config()
-    days = max(3, min(92, int(days)))
-    now = datetime.now(timezone.utc)
-    pv = hourly_pv_means(store, now - timedelta(days=days + 1), now)
-    if len(pv) < MIN_CALIBRATION_HOURS:
-        logger.info("[PV-Prognose] Zu wenig PV-Historie fuer Kalibrierung (%d h)", len(pv))
+# ---------------------------------------------------------------------------
+# Lernen
+# ---------------------------------------------------------------------------
+
+def training_data(conn) -> dict:
+    rows = conn.execute(
+        "SELECT p.hour_end, p.pv_kw, w.ghi, w.dni, w.dhi, w.temp FROM pv_hours p "
+        "JOIN weather w ON w.hour_end = p.hour_end WHERE w.ghi IS NOT NULL ORDER BY p.hour_end").fetchall()
+    arr = np.array([[np.nan if v is None else v for v in r] for r in rows], dtype=float).reshape(-1, 6)
+    return {k: arr[:, i] for i, k in enumerate(("t", "pv", "ghi", "dni", "dhi", "temp"))}
+
+
+def fit_from_data(d: dict, lat: float, lon: float) -> Optional[dict]:
+    if len(d["t"]) == 0:
         return None
+    dni = np.where(np.isnan(d["dni"]), 0.0, d["dni"])
+    dhi = np.where(np.isnan(d["dhi"]), d["ghi"], d["dhi"])
+    el, _ = sun_position(d["t"] - 1800.0, lat, lon)
+    use = (el > MIN_ELEV_DEG) & ~np.isnan(d["pv"]) & ~np.isnan(d["ghi"])
+    if use.sum() < MIN_CALIBRATION_HOURS:
+        logger.info("[PV-Prognose] Zu wenig Lernstunden (%d)", int(use.sum()))
+        return None
+    t, y = d["t"][use], d["pv"][use]
+    ghi, dni, dhi, temp = d["ghi"][use], dni[use], dhi[use], d["temp"][use]
+    cap = float(np.percentile(y, 99.9)) * 1.02 if len(y) > 20 else float(y.max()) * 1.05
+
     best = None
     for tilt in TILTS:
-        times, bases = _fetch_bases(cfg, tilt, AZIMUTHS, past_days=days, forecast_days=1)
-        res = fit_model(times, bases, pv)
-        if res and (best is None or res["rmse_kw"] < best["rmse_kw"]):
-            best = {**res, "tilt": tilt}
-    if best is None:
-        return None
-    best.update({
-        "azimuths": list(AZIMUTHS),
-        "calibrated_at": now.isoformat(timespec="seconds"),
-        "days": days,
-        "latitude": cfg.latitude,
-        "longitude": cfg.longitude,
-    })
-    logger.info("[PV-Prognose] Kalibriert: Neigung %s°, R²=%.2f, RMSE=%.2f kW, %d h",
-                best["tilt"], best["r2"], best["rmse_kw"], best["hours"])
-    return best
+        x, _, _, _ = plane_features(t, ghi, dni, dhi, temp, lat, lon, tilt, AZIMUTHS)
+        coef, keep, rmse = _robust_fit(x, y, cap)
+        if best is None or rmse < best["rmse"]:
+            best = {"tilt": tilt, "coef": coef, "keep": keep, "rmse": rmse}
+    tilt, coef, keep = best["tilt"], best["coef"], best["keep"]
+    x, beam, el_u, az_u = plane_features(t, ghi, dni, dhi, temp, lat, lon, tilt, AZIMUTHS)
+    phys = np.clip(x @ coef, 0.0, cap)
+
+    # Tage mit Schnee/Ausfall (ganzer Tag weit unter Physik) - Verschattung dagegen
+    # betrifft nur einzelne Stunden und bleibt fuer die Korrektur erhalten.
+    day = (t // 86400).astype(int)
+    day_idx = day - day.min()
+    d_meas = np.bincount(day_idx, weights=y)
+    d_phys = np.bincount(day_idx, weights=phys)
+    bad_day = (d_phys > 1.0) & (d_meas < 0.4 * d_phys)
+    good = ~bad_day[day_idx] & ~((y >= 0.98 * cap) & (phys > 1.1 * y))
+
+    # --- Korrektur nach aehnlichem Wetter (Sonnenstand + Bewoelkung)
+    kt = clearness(ghi, t - 1800.0, el_u)
+    sel = good & (phys > 0.03 * cap)
+    corr_table = None
+    if sel.sum() >= MIN_CALIBRATION_HOURS:
+        ratio = np.clip(y[sel] / phys[sel], 0.0, 2.0)
+        w = phys[sel]
+        table, neff = fl.kernel_grid((CORR_AZ, CORR_EL, CORR_KT), (az_u[sel], el_u[sel], kt[sel]), CORR_SIGMA,
+                                     ratio, w, prior=1.0, strength=CORR_STRENGTH_H * float(np.mean(w)))
+        corr_table = np.clip(table, *CORR_CLIP)
+    model = {
+        "version": MODEL_VERSION, "tilt": tilt, "azimuths": list(AZIMUTHS), "coef": [float(c) for c in coef],
+        "cap_kw": cap, "hours": int(good.sum()), "outliers": int((~good).sum()),
+        "first_hour": int(t.min()), "last_hour": int(t.max()), "latitude": lat, "longitude": lon,
+        "fitted_at": time.time(), "fitted_at_iso": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    if corr_table is not None:
+        model["corr"] = {"az": CORR_AZ.tolist(), "el": CORR_EL.tolist(), "kt": CORR_KT.tolist(),
+                         "table": np.round(corr_table, 3).tolist()}
+    pred = predict_arrays(model, t, ghi, dni, dhi, temp)
+    for name, p in (("phys", phys), ("final", pred)):
+        err = p[good] - y[good]
+        model[f"rmse_{name}_kw"] = float(np.sqrt(np.mean(err ** 2)))
+    ss_tot = float(np.sum((y[good] - y[good].mean()) ** 2)) or 1.0
+    model["r2"] = 1.0 - float(np.sum((pred[good] - y[good]) ** 2)) / ss_tot
+    # Tagessummen-Fehler (aussagekraeftiger als Stunden)
+    days = (t[good] // 86400).astype(int)
+    dm = np.bincount(days - days.min(), weights=y[good])
+    dp = np.bincount(days - days.min(), weights=pred[good])
+    nz = dm > 0.5
+    if nz.any():
+        model["day_mape_pct"] = float(np.mean(np.abs(dp[nz] - dm[nz]) / dm[nz]) * 100.0)
+    logger.info("[PV-Prognose] Gelernt aus %d h: Neigung %d°, R²=%.3f, RMSE %.2f -> %.2f kW (Aehnlich-Korrektur), "
+                "Tagesfehler %.0f %%", model["hours"], tilt, model["r2"], model["rmse_phys_kw"],
+                model["rmse_final_kw"], model.get("day_mape_pct", float("nan")))
+    return model
 
 
-def predict(model: dict, times: list[datetime], bases: np.ndarray, azimuths: list[int]) -> dict[datetime, float]:
-    coef_by_az = dict(zip(model["azimuths"], model["coef"]))
-    coef = np.array([coef_by_az.get(az, 0.0) for az in azimuths], dtype=float)
-    pred = np.clip(bases @ coef, 0.0, model.get("cap_kw") or None)
-    return {t: float(p) for t, p in zip(times, pred)}
+def predict_arrays(model: dict, t_end, ghi, dni, dhi, temp) -> np.ndarray:
+    t_end = np.asarray(t_end, float)
+    ghi = np.nan_to_num(np.asarray(ghi, float))
+    dni = np.nan_to_num(np.asarray(dni, float))
+    dhi = np.where(np.isnan(np.asarray(dhi, float)), ghi, dhi)
+    temp = np.asarray(temp, float)
+    x, _, el, az = plane_features(t_end, ghi, dni, dhi, temp, model["latitude"], model["longitude"],
+                                  model["tilt"], model["azimuths"])
+    pred = x @ np.asarray(model["coef"], float)
+    corr = model.get("corr")
+    if corr:
+        kt = clearness(ghi, t_end - 1800.0, el)
+        f = fl.grid_lookup((corr["az"], corr["el"], corr["kt"]), np.asarray(corr["table"], float), az, el, kt)
+        pred = pred * np.where(el > MIN_ELEV_DEG, f, 1.0)
+    return np.clip(pred, 0.0, model.get("cap_kw") or None)
+
+
+def calibrate(store, cfg: Optional[WeatherConfig] = None, allow_network: bool = True) -> Optional[dict]:
+    cfg = cfg or load_weather_config()
+    fl.update(store, cfg, allow_network=allow_network)
+    conn = fl.connect()
+    try:
+        data = training_data(conn)
+    finally:
+        conn.close()
+    return fit_from_data(data, cfg.latitude, cfg.longitude)
 
 
 # ---------------------------------------------------------------------------
@@ -237,63 +270,67 @@ def _write_json(path: Path, data: dict) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
         tmp.replace(path)
     except Exception as exc:
         logger.warning("[PV-Prognose] Konnte %s nicht schreiben: %s", path.name, exc)
 
 
-def _model_is_fresh(model: Optional[dict], cfg: WeatherConfig) -> bool:
-    if not model:
-        return False
-    if abs(model.get("latitude", 0) - cfg.latitude) > 1e-3 or abs(model.get("longitude", 0) - cfg.longitude) > 1e-3:
-        return False
-    ts = parse_db_ts(model.get("calibrated_at"))
-    return ts is not None and (datetime.now(timezone.utc) - ts).total_seconds() < MODEL_MAX_AGE_S
+def _usable(model: Optional[dict], cfg: WeatherConfig) -> bool:
+    return bool(model) and model.get("version") == MODEL_VERSION \
+        and abs(model.get("latitude", 0) - cfg.latitude) < 1e-3 and abs(model.get("longitude", 0) - cfg.longitude) < 1e-3
 
 
-def get_model(store, cfg: Optional[WeatherConfig] = None, allow_network: bool = True) -> Optional[dict]:
+def get_model(store, cfg: Optional[WeatherConfig] = None, allow_network: bool = True,
+              force: bool = False) -> Optional[dict]:
+    """Gelerntes Modell. Neu gelernt einmal nach Programmstart und dann taeglich."""
+    global _attempted_day, _model_mem
     cfg = cfg or load_weather_config()
-    model = _read_json(MODEL_PATH)
-    if _model_is_fresh(model, cfg) or not allow_network or not cfg.enabled:
+    with _LOCK:
+        model = _model_mem if _model_mem is not None else _read_json(MODEL_PATH)
+        if not _usable(model, cfg):
+            model = None
+        if force or _attempted_day != date.today():
+            _attempted_day = date.today()
+            try:
+                new_model = calibrate(store, cfg, allow_network=allow_network)
+            except Exception as exc:
+                logger.warning("[PV-Prognose] Lernen fehlgeschlagen: %s", exc)
+                new_model = None
+            if new_model:
+                _write_json(MODEL_PATH, new_model)
+                _write_json(CACHE_PATH, {})        # Prognose mit neuem Modell neu rechnen
+                model = new_model
+        _model_mem = model
         return model
-    try:
-        new_model = calibrate(store, cfg)
-    except Exception as exc:
-        logger.info("[PV-Prognose] Kalibrierung fehlgeschlagen: %s", exc)
-        new_model = None
-    if new_model:
-        _write_json(MODEL_PATH, new_model)
-        return new_model
-    return model   # alter Stand ist besser als nichts
 
 
 def get_forecast(store, cfg: Optional[WeatherConfig] = None, allow_network: bool = True) -> Optional[dict]:
     """Stuendliche Prognose {Stundenende UTC (aware): kW}, oder None.
 
-    Gecacht; Netzwerk nur wenn der Cache aelter als 30 Minuten ist.
-    Enthaelt auch die letzten Tage (aus der Einstrahlung berechnet), damit
-    Prognose und Ist fuer vergangene Tage verglichen werden koennen.
+    Gecacht; Netzwerk nur wenn der Cache aelter als 30 Minuten ist. Enthaelt
+    auch die letzten Tage, damit Prognose und Ist verglichen werden koennen.
     """
     cfg = cfg or load_weather_config()
     with _LOCK:
+        model = get_model(store, cfg, allow_network=allow_network)
         cache = _read_json(CACHE_PATH) or {}
         values: dict[str, float] = dict(cache.get("values") or {})
-        fetched = cache.get("fetched_at", 0.0)
-        stale = (time.time() - float(fetched or 0.0)) > FORECAST_MAX_AGE_S
-        if stale and allow_network and cfg.enabled:
-            model = get_model(store, cfg, allow_network=True)
-            if model:
-                try:
-                    azs = [az for az, c in zip(model["azimuths"], model["coef"]) if c > 0] or [0]
-                    times, bases = _fetch_bases(cfg, int(model["tilt"]), azs, FORECAST_PAST_DAYS, FORECAST_DAYS)
-                    for t, kw in predict(model, times, bases, azs).items():
-                        values[t.strftime(DB_TS_FORMAT)] = round(kw, 4)
+        stale = (time.time() - float(cache.get("fetched_at", 0.0) or 0.0)) > FORECAST_MAX_AGE_S
+        if stale and allow_network and cfg.enabled and model:
+            try:
+                rows = fl.fetch_weather(cfg, FORECAST_PAST_DAYS, FORECAST_DAYS)
+                if rows:
+                    arr = np.array([[np.nan if v is None else v for v in r] for r in rows], dtype=float)
+                    pred = predict_arrays(model, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4])
+                    for ts, kw in zip(arr[:, 0], pred):
+                        key = datetime.fromtimestamp(int(ts), timezone.utc).strftime(DB_TS_FORMAT)
+                        values[key] = round(float(kw), 4)
                     cutoff = (datetime.now(timezone.utc) - timedelta(days=CACHE_KEEP_DAYS)).strftime(DB_TS_FORMAT)
                     values = {k: v for k, v in values.items() if k >= cutoff}
                     _write_json(CACHE_PATH, {"fetched_at": time.time(), "values": values})
-                except Exception as exc:
-                    logger.info("[PV-Prognose] Abruf fehlgeschlagen, nutze Cache: %s", exc)
+            except Exception as exc:
+                logger.info("[PV-Prognose] Abruf fehlgeschlagen, nutze Cache: %s", exc)
         if not values:
             return None
         out = {}

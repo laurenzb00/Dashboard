@@ -3,6 +3,7 @@
 * 270°-Ring, Luecke unten. Der gefuellte Bogen zeigt die Zieltemperatur,
   ein weisser Strich die aktuelle Raumtemperatur.
 * In der Mitte gross die Ist-Temperatur, darunter Ziel und Status.
+* Unten in der Ring-Luecke zwei runde Tasten − / + (on_step(-0.5 / +0.5)).
 * Am Ring ziehen stellt das Ziel ein (0,5er-Schritte); beim Loslassen wird
   `on_release(wert)` aufgerufen. Waehrend des Ziehens zeigt die Mitte das Ziel.
 * Farbe des Bogens: orange = heizt gerade, blau = haelt die Temperatur, grau = aus.
@@ -21,6 +22,7 @@ SWEEP_DEG = 270.0
 HEAT_COLOR = "#F97316"
 IDLE_COLOR = "#60A5FA"
 OFF_COLOR = "#4B5563"
+EXTRA_H = 16            # Platz unter dem Ring fuer die − / + Tasten
 
 
 def _fmt(v: Optional[float], unit: str = "°") -> str:
@@ -52,8 +54,11 @@ def angle_to_fraction(deg: float) -> float:
 
 class ThermostatRing(tk.Canvas):
     def __init__(self, parent, from_: float = 5.0, to: float = 25.0, size: int = 220,
-                 on_release: Optional[Callable[[float], None]] = None, bg: str = COLOR_CARD, **kw):
-        super().__init__(parent, width=size, height=size, bg=bg, highlightthickness=0, **kw)
+                 on_release: Optional[Callable[[float], None]] = None,
+                 on_step: Optional[Callable[[float], None]] = None, bg: str = COLOR_CARD, **kw):
+        super().__init__(parent, width=size, height=size + EXTRA_H, bg=bg, highlightthickness=0, **kw)
+        self.on_step = on_step
+        self._buttons = []   # (x, y, r, delta)
         self.from_, self.to = float(from_), float(to)
         self.on_release = on_release
         self.current: Optional[float] = None
@@ -92,7 +97,7 @@ class ThermostatRing(tk.Canvas):
     def set_size(self, size: int) -> None:
         size = int(size)
         if size != int(self.cget("width")):
-            self.configure(width=size, height=size)
+            self.configure(width=size, height=size + EXTRA_H)
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
@@ -101,7 +106,7 @@ class ThermostatRing(tk.Canvas):
     # --- Zeichnen ----------------------------------------------------------
 
     def _geom(self):
-        w, h = max(self.winfo_width(), 10), max(self.winfo_height(), 10)
+        w, h = max(self.winfo_width(), 10), max(self.winfo_height() - EXTRA_H, 10)
         s = min(w, h)
         thick = max(10, int(s * 0.075))
         r = s / 2 - thick / 2 - 6
@@ -146,16 +151,26 @@ class ThermostatRing(tk.Canvas):
         else:
             big, big_col = _fmt(self.current), COLOR_TEXT
             sub = "Aus" if off else f"Ziel {_fmt(self.target)}"
-        if self.humidity is not None:
-            self.create_text(cx, cy - s * 0.22, text=f"💧 {self.humidity:.0f} %", fill=COLOR_SUBTEXT,
-                             font=(family, max(9, int(s * 0.055))))
-        self.create_text(cx, cy - s * 0.03, text=big, fill=big_col,
-                         font=(family, max(16, int(s * 0.15)), "bold"))
-        self.create_text(cx, cy + s * 0.14, text=sub, fill=COLOR_SUBTEXT if not self._dragging else big_col,
-                         font=(family, max(10, int(s * 0.065)), "bold" if self._dragging else ""))
+        # oben: Status (heizt / Fenster / Manuell / Zeitplan), darunter gross Ist, dann Ziel + Feuchte
         status, col = self._status()
         if status:
-            self.create_text(cx, cy + s * 0.27, text=status, fill=col, font=(family, max(9, int(s * 0.05)), "bold"))
+            self.create_text(cx, cy - s * 0.21, text=status, fill=col, font=(family, max(9, int(s * 0.058)), "bold"))
+        if self.humidity is not None and not self._dragging:
+            sub = f"{sub} · {self.humidity:.0f} %"
+        self.create_text(cx, cy - s * 0.03, text=big, fill=big_col,
+                         font=(family, max(16, int(s * 0.15)), "bold"))
+        self.create_text(cx, cy + s * 0.15, text=sub, fill=COLOR_SUBTEXT if not self._dragging else big_col,
+                         font=(family, max(9, int(s * 0.058)), "bold" if self._dragging else ""))
+        # − / + in der Luecke unten
+        self._buttons = []
+        if self.on_step is not None:
+            br = max(17, int(s * 0.11))
+            for deg, txt, delta in ((246, "−", -0.5), (294, "+", 0.5)):
+                bx, by = self._xy(cx, cy, r * 0.98, deg)
+                col = COLOR_BORDER if self.enabled else OFF_COLOR
+                self.create_oval(bx - br, by - br, bx + br, by + br, fill="#111317", outline=col, width=2)
+                self.create_text(bx, by - 1, text=txt, fill=COLOR_TEXT, font=(family, max(12, int(br * 0.9)), "bold"))
+                self._buttons.append((bx, by, br + 4, delta))
 
     def _status(self):
         if self.window_open:
@@ -182,6 +197,11 @@ class ThermostatRing(tk.Canvas):
     def _press(self, e) -> None:
         if not self.enabled:
             return
+        for bx, by, br, delta in self._buttons:
+            if math.hypot(e.x - bx, e.y - by) <= br:
+                if self.on_step:
+                    self.on_step(delta)
+                return
         v = self._value_at(e)
         if v is None:
             return

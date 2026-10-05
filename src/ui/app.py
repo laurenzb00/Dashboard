@@ -1137,13 +1137,13 @@ class MainApp(UiQueuePumpMixin):
         if TadoTab:
             try:
                 _dbg_print("[TABS] TadoTab wird erstellt...")
-                # Gekuerzt ("Raumtemperatur" -> "Raum"): der volle Name war
+                # Kurz gehalten ("Thermo", Titel im Tab: "Thermostate"): ein langer Name war
                 # einer der Hauptgruende, warum die Tab-Leiste bei 10 Tabs
                 # rechts/links ueber den Bildschirmrand hinaus lief und Tabs
                 # abgeschnitten wurden. Der volle Titel steht weiterhin oben
                 # im Tab selbst (TabShell in tado.py).
-                self.tabview.add(emoji("🌡️\nRaum", "Raum"))
-                tado_frame = self.tabview.tab(emoji("🌡️\nRaum", "Raum"))
+                self.tabview.add(emoji("🌡️\nThermo", "Thermo"))
+                tado_frame = self.tabview.tab(emoji("🌡️\nThermo", "Thermo"))
                 try:
                     tado_frame.configure(fg_color=COLOR_ROOT)
                 except:

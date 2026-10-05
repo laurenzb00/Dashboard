@@ -13,15 +13,17 @@ import threading
 import time
 import tkinter as tk
 import webbrowser
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from tkinter import ttk
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import customtkinter as ctk
 
 from core import climate as C
+from core.climate_history import ClimateHistory, points_from_ha_history, points_from_tado_day_report
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.tab_shell import TabShell
+from ui.components.temp_chart import TempChart
 from ui.components.thermostat_ring import ThermostatRing
 from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
@@ -146,6 +148,14 @@ class TadoTab(UiQueuePumpMixin):
         self._req_day = date.today()
         self._req_count = 0
         self._portrait = False
+        self._hist_hours = 24
+        self._series: dict = {}
+        self._backfill_started = False
+        try:
+            self._history = ClimateHistory()
+        except Exception as exc:
+            logging.warning("[TADO] Verlauf-DB nicht verfuegbar: %s", exc)
+            self._history = None
 
         self.var_status = tk.StringVar(value="Verbinde ...")
         self.var_hint = tk.StringVar(value="")
@@ -155,7 +165,7 @@ class TadoTab(UiQueuePumpMixin):
             self.tab_frame = tab_frame
         else:
             self.tab_frame = tk.Frame(notebook, bg=COLOR_ROOT)
-            notebook.add(self.tab_frame, text=emoji("🌡️ Raumtemperatur", "Raumtemperatur"))
+            notebook.add(self.tab_frame, text=emoji("🌡️ Thermo", "Thermo"))
         try:
             self.tab_frame.configure(fg_color=COLOR_ROOT)
         except Exception:
@@ -173,7 +183,7 @@ class TadoTab(UiQueuePumpMixin):
     # ------------------------------------------------------------------ UI --
 
     def _build_ui(self) -> None:
-        self._shell = TabShell(self.tab_frame, "Raumtemperatur", "Alle Räume – am Ring ziehen stellt die Zieltemperatur")
+        self._shell = TabShell(self.tab_frame, "Thermostate", "Alle Räume – am Ring ziehen stellt die Zieltemperatur")
         self._shell.pack(fill=tk.BOTH, expand=True)
         self._shell.subtitle_label.configure(textvariable=self.var_status)
         body = self._shell.body
@@ -190,6 +200,18 @@ class TadoTab(UiQueuePumpMixin):
         self._info_lbl = ctk.CTkLabel(left, text="", text_color=COLOR_SUBTEXT, anchor="w", justify="left",
                                       font=get_safe_font("Bahnschrift", 11), wraplength=520)
         self._info_lbl.pack(anchor="w")
+        rng = ctk.CTkFrame(self._shell.header, fg_color="transparent")
+        rng.grid(row=0, column=1, rowspan=2, sticky="e", padx=18)
+        ctk.CTkLabel(rng, text="Verlauf", text_color=COLOR_SUBTEXT,
+                     font=get_safe_font("Bahnschrift", 12)).pack(side=tk.LEFT, padx=(0, 8))
+        self._range_btns = {}
+        for hrs, text in ((6, "6 h"), (24, "24 h"), (48, "2 Tage")):
+            b = ctk.CTkButton(rng, text=text, width=64, height=32, corner_radius=16,
+                              font=get_safe_font("Bahnschrift", 12, "bold"), text_color=COLOR_TEXT,
+                              hover_color=COLOR_BORDER, command=lambda h=hrs: self._set_range(h))
+            b.pack(side=tk.LEFT, padx=2)
+            self._range_btns[hrs] = b
+        self._update_range_buttons()
         btns = ctk.CTkFrame(top, fg_color="transparent")
         self._top_btns = btns
         btns.grid(row=0, column=1, sticky="e", padx=10, pady=10)
@@ -275,6 +297,7 @@ class TadoTab(UiQueuePumpMixin):
         size = max(130, min(RING_SIZE, int((width - 40) / cols) - 34))
         for w in self._cards.values():
             w["ring"].set_size(size)
+            w["chart"].set_width(size + 20)
 
     def _layout_cards(self) -> None:
         cols = self._columns()
@@ -289,26 +312,26 @@ class TadoTab(UiQueuePumpMixin):
     def _build_card(self, room: C.Room) -> dict:
         f = ctk.CTkFrame(self._grid, fg_color=COLOR_CARD, corner_radius=22)
         name = ctk.CTkLabel(f, text=room.name, text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 16, "bold"))
-        name.pack(pady=(12, 0))
+        name.pack(pady=(8, 0))
         rid = room.id
         ring = ThermostatRing(f, from_=C.TARGET_MIN, to=C.TARGET_MAX, size=160,
-                              on_release=lambda v, r=rid: self._set_target(r, v))
+                              on_release=lambda v, r=rid: self._set_target(r, v),
+                              on_step=lambda d, r=rid: self._nudge(r, d))
         ring.pack(padx=10, pady=(2, 4))
-        # 2 x 2 Buttons: passt auch bei 5 Raeumen nebeneinander
+        chart = TempChart(f, width=180, height=72, on_tap=self._cycle_range)
+        chart.pack(fill=tk.X, padx=10, pady=(0, 8))
+        # − / + sitzen im Ring; hier nur Timer und Zeitplan
         btns = ctk.CTkFrame(f, fg_color="transparent")
-        btns.pack(fill=tk.X, padx=10, pady=(0, 12))
+        btns.pack(fill=tk.X, padx=10, pady=(0, 10))
         btns.grid_columnconfigure((0, 1), weight=1, uniform="b")
         small = dict(height=40, width=40, corner_radius=20, fg_color=COLOR_ROOT, hover_color=COLOR_BORDER,
                      text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 13, "bold"))
-        for i, (text, cmd) in enumerate((("−", lambda r=rid: self._nudge(r, -0.5)),
-                                         ("+", lambda r=rid: self._nudge(r, +0.5)),
-                                         ("1 h", lambda r=rid: self._set_timer(r)),
-                                         ("Plan", lambda r=rid: self._set_plan(r)))):
-            ctk.CTkButton(btns, text=text, command=cmd, **small).grid(row=i // 2, column=i % 2, sticky="ew",
-                                                                      padx=3, pady=3)
-        return {"frame": f, "name": name, "ring": ring}
+        for i, (text, cmd) in enumerate((("⏱ 1 h", lambda r=rid: self._set_timer(r)),
+                                         ("📅 Plan", lambda r=rid: self._set_plan(r)))):
+            ctk.CTkButton(btns, text=text, command=cmd, **small).grid(row=0, column=i, sticky="ew", padx=3)
+        return {"frame": f, "name": name, "ring": ring, "chart": chart}
 
-    def _render(self, rooms: list) -> None:
+    def _render(self, rooms: list, series: dict | None = None) -> None:
         """Nur auf dem UI-Thread aufrufen."""
         old_ids = [r.id for r in self._rooms]
         self._rooms = list(rooms)
@@ -324,6 +347,8 @@ class TadoTab(UiQueuePumpMixin):
             self._empty_lbl.grid()
         for r in rooms:
             self._update_card(r)
+        if series is not None:
+            self._apply_series(series)
         self._update_summary()
 
     def _update_card(self, r: C.Room, force_slider: bool = False) -> None:
@@ -551,11 +576,98 @@ class TadoTab(UiQueuePumpMixin):
     # ------------------------------------------------------- Datenquelle --
 
     def _publish(self, rooms: list, status: str) -> None:
+        """Aus dem Worker-Thread: Werte speichern, Verlauf lesen, UI aktualisieren."""
+        series = None
+        if self._history is not None and rooms:
+            try:
+                self._history.add_rooms(rooms)
+                series = self._load_series([r.id for r in rooms], self._hist_hours)
+            except Exception as exc:
+                logging.warning("[TADO] Verlauf speichern fehlgeschlagen: %s", exc)
+
         def apply():
             self._last_update = datetime.now()
             self.var_status.set(status)
-            self._render(rooms)
+            self._render(rooms, series)
         self._post_ui(apply)
+        if rooms and not self._backfill_started and self._history is not None:
+            self._backfill_started = True
+            threading.Thread(target=self._backfill, args=([r.id for r in rooms],), daemon=True).start()
+
+    # ------------------------------------------------------------ Verlauf --
+
+    def _load_series(self, ids: list, hours: float) -> dict:
+        since = time.time() - hours * 3600 - 600
+        return {rid: self._history.query(rid, since) for rid in ids}
+
+    def _apply_series(self, series: dict) -> None:
+        self._series = series
+        now = time.time()
+        for rid, w in self._cards.items():
+            w["chart"].set_data(series.get(rid, []), self._hist_hours, now)
+
+    def _update_range_buttons(self) -> None:
+        for hrs, b in self._range_btns.items():
+            on = hrs == self._hist_hours
+            b.configure(fg_color=COLOR_PRIMARY if on else COLOR_ROOT)
+
+    def _set_range(self, hours: int) -> None:
+        self._hist_hours = hours
+        self._update_range_buttons()
+        if self._history is None:
+            return
+        ids = [r.id for r in self._rooms]
+
+        def work():
+            try:
+                series = self._load_series(ids, hours)
+            except Exception:
+                return
+            self._post_ui(lambda: self._apply_series(series))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _cycle_range(self) -> None:
+        order = [6, 24, 48]
+        self._set_range(order[(order.index(self._hist_hours) + 1) % 3] if self._hist_hours in order else 24)
+
+    def _backfill(self, ids: list) -> None:
+        """Einmal beim Start: die letzten 2 Tage aus HA bzw. dem Tado-Tagesreport nachladen."""
+        hist = self._history
+        todo = [rid for rid in ids if hist.needs_backfill(rid, 48)]
+        if not todo:
+            return
+        start = time.time() - 48 * 3600
+        added = 0
+        try:
+            if self.source == "ha" and self._ha_client is not None:
+                iso = datetime.fromtimestamp(start, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+                for states in self._ha_client.get_history(todo, iso):
+                    if not states:
+                        continue
+                    ent = states[0].get("entity_id")
+                    for st in states:          # minimal_response liefert entity_id nur im ersten Eintrag
+                        st.setdefault("entity_id", ent)
+                    added += hist.add_points(ent, points_from_ha_history(states, start))
+            elif self.source == "direct" and DAILY_LIMIT >= 1000:
+                # Tagesreport je Zone und Tag (3 Tage = 3 Abfragen pro Raum, nur mit Abo)
+                days = [(date.today() - timedelta(days=d)).isoformat() for d in (2, 1, 0)]
+                for rid in todo:
+                    zone = self._zone_ids.get(rid, rid)
+                    for day in days:
+                        fn = getattr(self.api, "get_historic", None) or getattr(self.api, "getHistoric", None)
+                        if not callable(fn):
+                            return
+                        self._count_request()
+                        rep = self._state_to_dict(fn(zone, day))
+                        added += hist.add_points(rid, [p for p in points_from_tado_day_report(rep) if p[0] >= start])
+        except Exception as exc:
+            logging.warning("[TADO] Verlauf nachladen fehlgeschlagen: %s: %s", type(exc).__name__, exc)
+        logging.info("[TADO] Verlauf nachgeladen: %s Punkte", added)
+        if added:
+            self._set_range_from_thread()
+
+    def _set_range_from_thread(self) -> None:
+        self._post_ui(lambda: self._set_range(self._hist_hours))
 
     def _wait(self, seconds: float) -> None:
         self._wake.clear()
