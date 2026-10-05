@@ -74,6 +74,12 @@ ST_MIN_PV_KW = 0.3
 ST_MIN_HOURS = 30
 SUN_PV_KW = 0.1                  # ab dieser PV-Leistung gilt eine Stunde als "Sonne im Spiel"
 
+# Ausreisser (robuste Statistik: Median und MAD statt Mittelwert und Standardabweichung)
+DAY_MIN_HOURS = 6                # Tag braucht so viele ruhige Stunden fuer ein Urteil
+DAY_LOW_Z, DAY_LOW_RATIO = -3.0, 0.75     # Urlaub: deutlich UND statistisch auffaellig zu wenig
+DAY_HIGH_Z, DAY_HIGH_RATIO = 5.0, 1.6     # extrem zu viel (Messfehler, Sensor haengt)
+HOUR_Z = 6.0                     # einzelne Stunde extrem daneben
+
 _DATA = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 _MODEL_PATH = os.path.join(_DATA, "heat_demand_model.json")
 _SOLAR_PATH = os.path.join(_DATA, "solar_thermal_model.json")
@@ -109,6 +115,8 @@ class DemandModel:
     cv_rmse: Optional[float] = None
     first_day: Optional[str] = None
     typical_g: float = 0.0
+    anomaly_days: Optional[list] = None      # ignorierte Tage (Urlaub, Messfehler), ISO-Datum
+    outlier_hours: int = 0                   # einzelne ignorierte Stunden (Sensorfehler)
 
     def _global_kw(self, t, g=0.0):
         t = np.asarray(t, float)
@@ -299,16 +307,79 @@ def _cv_rmse(t_eff, g_eff, y, tb, folds: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.concatenate(err)))) if err else float("inf")
 
 
+def _robust_z(x: np.ndarray, floor: float) -> np.ndarray:
+    med = float(np.median(x))
+    mad = float(np.median(np.abs(x - med))) * 1.4826
+    return (x - med) / max(mad, floor)
+
+
+def find_anomalies(hour_start: np.ndarray, y: np.ndarray, bmk_outdoor: np.ndarray, wx: dict,
+                   tau_h: float = 6.0, tb: float = 16.0):
+    """Urlaubs-/Ausreisser-Tage und extreme Einzelstunden erkennen.
+
+    Vorlaeufiges Grundmodell auf allen Daten -> je Tag Verhaeltnis Ist / erwartet
+    (bei diesem Wetter). Ein Tag gilt als Ausreisser, wenn er BEIDES ist:
+    statistisch auffaellig (robuster z-Wert aus Median/MAD aller Tage) und
+    deutlich (z.B. unter 75 % des Erwarteten). So fallen Urlaube, Besuch mit
+    Dauerduschen oder ein haengender Sensor heraus, normale Schwankung nicht.
+    Rueckgabe: (Maske behalten, [ignorierte Tage ISO], Anzahl ignorierter Stunden).
+    """
+    keep = np.ones(len(y), dtype=bool)
+    t_eff, g_eff = _hour_features(hour_start, wx, bmk_outdoor, tau_h)
+    ok = ~np.isnan(t_eff)
+    if ok.sum() < MIN_HOURS:
+        return keep, [], 0
+    coef = _fit_global(t_eff[ok], g_eff[ok], y[ok], tb)
+    pred = np.full(len(y), np.nan)
+    pred[ok] = np.maximum(0.05, _global_design(t_eff[ok], g_eff[ok], tb) @ coef)
+
+    # 0) extreme Spitzen nach oben (Sensorsprung) - verfaelschen sonst die Tagessumme
+    spike = np.zeros(len(y), dtype=bool)
+    spike[np.flatnonzero(ok)[_robust_z((y - pred)[ok], 0.05) > HOUR_Z]] = True
+    use = ok & ~spike
+
+    # 1) ganze Tage (lokales Datum) - vor den Einzelstunden, damit ein Urlaubstag
+    #    nicht stundenweise zerfaellt
+    days = np.array([datetime.fromtimestamp(float(h)).date().toordinal() for h in hour_start])
+    uniq, inv = np.unique(days, return_inverse=True)
+    n = np.bincount(inv[use], minlength=len(uniq))
+    sy = np.bincount(inv[use], weights=y[use], minlength=len(uniq))
+    sp = np.bincount(inv[use], weights=pred[use], minlength=len(uniq))
+    judged = (n >= DAY_MIN_HOURS) & (sp > 0)
+    bad_day = np.zeros(len(uniq), dtype=bool)
+    if judged.sum() >= 10:
+        ratio = np.where(judged, sy / np.where(sp > 0, sp, 1.0), 1.0)
+        z_d = np.zeros(len(uniq))
+        z_d[judged] = _robust_z(np.log(np.maximum(ratio[judged], 1e-3)), 0.05)
+        bad_day = judged & (((z_d < DAY_LOW_Z) & (ratio < DAY_LOW_RATIO)) |
+                            ((z_d > DAY_HIGH_Z) & (ratio > DAY_HIGH_RATIO)))
+
+    # 2) einzelne Stunden (Sensorspruenge) auf den uebrigen Tagen
+    rest = use & ~bad_day[inv]
+    bad_h = spike.copy()
+    if rest.sum() >= MIN_HOURS:
+        z_h = _robust_z((y - pred)[rest], 0.05)
+        bad_h[np.flatnonzero(rest)[np.abs(z_h) > HOUR_Z]] = True
+    keep = ~bad_h & ~bad_day[inv]
+    anomaly_days = [date.fromordinal(int(d)).isoformat() for d in uniq[bad_day]]
+    if anomaly_days:
+        logger.info("[Waermebedarf] %d auffaellige Tage ignoriert (z.B. Urlaub): %s", len(anomaly_days),
+                    ", ".join(anomaly_days[-10:]))
+    return keep, anomaly_days, int(bad_h.sum())
+
+
 def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor: np.ndarray,
                      wx: dict) -> Optional[DemandModel]:
     ok = ~np.isnan(demand_kw)
     hour_start, demand_kw, bmk_outdoor = hour_start[ok], demand_kw[ok], bmk_outdoor[ok]
     if len(demand_kw) < MIN_HOURS:
         return None
-    # robuste Obergrenze (Messfehler, Warmwasser-Zapfspitzen)
-    hi = np.percentile(demand_kw, 99.5)
-    keep = demand_kw <= hi
-    hour_start, y, bmk_outdoor = hour_start[keep], demand_kw[keep], bmk_outdoor[keep]
+    # Ausreisser (Urlaub, Sensorfehler) robust erkennen statt pauschal abschneiden
+    y = demand_kw
+    clean, anomaly_days, outlier_hours = find_anomalies(hour_start, y, bmk_outdoor, wx)
+    hour_start, y, bmk_outdoor = hour_start[clean], y[clean], bmk_outdoor[clean]
+    if len(y) < MIN_HOURS:
+        return None
     folds = ((hour_start // 86400).astype(int) // 3) % 5          # 3-Tages-Bloecke
     best = None
     for tau in TAU_CANDIDATES_H:
@@ -337,7 +408,8 @@ def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor:
         temperature_dependent=spread >= MIN_TEMP_SPREAD_K and coef[1] > 0,
         mean_deficit_k=float(np.mean(np.maximum(0.0, tb - t_eff))), version=MODEL_VERSION,
         tb_c=tb, tau_h=tau, sun_kw_per_wm2=float(coef[2]), cv_rmse_global=cv_global,
-        first_day=datetime.fromtimestamp(float(hs_.min())).date().isoformat(), typical_g=float(np.median(g_eff)))
+        first_day=datetime.fromtimestamp(float(hs_.min())).date().isoformat(), typical_g=float(np.median(g_eff)),
+        anomaly_days=anomaly_days, outlier_hours=outlier_hours)
 
     # "Aehnliches Wetter zaehlt mehr": lokale Ebenen auf dem Raster, Grundmodell als Prior
     prior = lambda c0, c1: float(model._global_kw(np.array([c0]), np.array([c1]))[0])
@@ -388,7 +460,9 @@ def fit_solar_thermal(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_ou
     gain = free_kwh[ok] / (free_min[ok] / 60.0) + use_demand
     ratio = np.clip(gain / pv_kw[ok], 0.0, None)
     w = pv_kw[ok]
-    good = ~np.isnan(t_now) & (ratio < np.percentile(ratio, 99))
+    good = ~np.isnan(t_now)
+    if good.sum() >= ST_MIN_HOURS:
+        good &= np.abs(_robust_z(np.where(good, ratio, np.nanmedian(ratio)), 0.02)) <= HOUR_Z
     if good.sum() < ST_MIN_HOURS:
         return None
     ratio, w, t_out, tank = ratio[good], w[good], t_now[good], tank_c[ok][good]

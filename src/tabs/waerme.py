@@ -480,8 +480,10 @@ class WaermeTab(UiQueuePumpMixin):
         if model is not None:
             if model.temperature_dependent and getattr(model, "version", 1) >= 2:
                 since = f" seit {datetime.fromisoformat(model.first_day):%m/%Y}" if model.first_day else ""
+                skipped = len(model.anomaly_days or [])
+                note = f", {skipped} auffällige Tage ignoriert" if skipped else ""
                 parts.append(f"Bedarf {model.kw_at(10.0):.1f} kW bei 10 °C · {model.kw_at(-5.0):.1f} kW bei −5 °C "
-                             f"(gelernt aus {model.hours} h{since}, Haus-Trägheit {model.tau_h:.0f} h)")
+                             f"(gelernt aus {model.hours} h{since}, Haus-Trägheit {model.tau_h:.0f} h{note})")
             elif model.temperature_dependent:
                 parts.append(f"Bedarf {model.base_kw:.1f} kW + {model.per_k_kw:.2f} kW/Grad unter 18 °C "
                              f"(gelernt aus {model.hours} h)")

@@ -94,6 +94,24 @@ class TestDemandLearning(unittest.TestCase):
         m2 = hd.DemandModel.from_dict(m.to_dict())
         self.assertAlmostEqual(m2.kw_at(-3.0), m.kw_at(-3.0))
 
+    def test_vacation_days_ignored(self):
+        y = self.demand.copy()
+        days = (self.hours - self.hours[0]) // 86400
+        vac = (days >= 40) & (days < 50)                 # 10 Tage Urlaub: nur 40 % Verbrauch
+        y[vac] *= 0.4
+        y[100] = 40.0                                    # Sensorsprung
+        m = hd.fit_from_archive(self.hours, y, np.full(len(self.hours), np.nan), self.wx)
+        self.assertGreaterEqual(len(m.anomaly_days), 8)
+        self.assertLessEqual(len(m.anomaly_days), 12)
+        self.assertGreaterEqual(m.outlier_hours, 1)
+        for temp in (-5.0, 5.0):
+            self.assertAlmostEqual(m.kw_at(temp, 50.0), float(true_demand(np.array([temp]), np.array([50.0]))[0]),
+                                   delta=0.2)
+
+    def test_normal_variation_not_flagged(self):
+        m = hd.fit_from_archive(self.hours, self.demand.copy(), np.full(len(self.hours), np.nan), self.wx)
+        self.assertLessEqual(len(m.anomaly_days), 1)
+
     def test_predictor_uses_weather_series(self):
         m = hd.fit_from_archive(self.hours, self.demand.copy(), np.full(len(self.hours), np.nan), self.wx)
         f = m.predictor(self.wx)
