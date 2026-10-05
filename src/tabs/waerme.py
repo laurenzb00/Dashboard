@@ -396,6 +396,14 @@ class WaermeTab(UiQueuePumpMixin):
             except Exception:
                 logger.exception("[WAERME] Empfehlung fehlgeschlagen")
                 rec = hf.Recommendation("unknown", "Keine Empfehlung möglich")
+            heat_alert = None
+            try:
+                from core import alerts
+                heat_alert = next(((ts, title) for ts, kind, title, _m in alerts.recent_alerts(24)
+                                   if kind == "waerme"), None)
+            except Exception:
+                heat_alert = None
+            self._heat_alert = heat_alert
 
             def apply() -> None:
                 if not self.alive or token != self._update_token:
@@ -476,6 +484,9 @@ class WaermeTab(UiQueuePumpMixin):
             parts.append(f"zuletzt {ev.start:%d.%m. %H:%M}, {h} h {m:02d} min, max {ev.peak_kessel:.0f}°, {ev.wood_kwh:.0f} kWh")
         else:
             parts.append("In dieser Saison noch kein Einheizen erkannt")
+        alert = getattr(self, "_heat_alert", None)
+        if alert:
+            parts.insert(0, f"⚠ {alert[1]} ({datetime.fromtimestamp(alert[0]):%H:%M})")
         model = getattr(rec, "model", None) if rec is not None else None
         if model is not None:
             if model.temperature_dependent and getattr(model, "version", 1) >= 2:
@@ -540,10 +551,12 @@ class _WaermeChart(MatplotlibCanvasResizeMixin):
     def _layout(self) -> None:
         w = int(self.canvas_widget.winfo_width() or 0)
         compact = w < 560
+        extra = getattr(self, "_bottom_extra", 0.0)      # zweizeilige Achsenbeschriftung (Wochenansicht)
         self.fig.subplots_adjust(left=0.15 if compact else 0.11, right=0.97, top=0.88,
-                                 bottom=0.17 if compact else 0.15)
+                                 bottom=(0.17 if compact else 0.15) + extra)
 
     def _reset(self):
+        self._bottom_extra = 0.0
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(COLOR_CARD)
@@ -613,41 +626,39 @@ class _WaermeChart(MatplotlibCanvasResizeMixin):
         self.canvas.draw_idle()
 
     def render_week(self, outlook, model) -> None:
+        """Wärmebedarf je Tag als Balken; Außentemperatur steht unter dem Wochentag.
+
+        Eine Achse (kWh) statt zweier - die Temperatur ist die Ursache, der Bedarf
+        das Ergebnis, beides direkt am Tag ablesbar.
+        """
         self._reset()
         if outlook is None or not outlook.days:
             self._no_data("Verbrauchsmodell lernt noch –\nnach einigen Tagen mit Daten verfügbar")
             return
         rows = outlook.days[:7]
-        xs = [datetime.combine(d, datetime.min.time()) + timedelta(hours=12) for d, _, _ in rows]
+        self._bottom_extra = 0.08
+        self._layout()
+        xs = np.arange(len(rows))
         kwh = np.array([v for _, v, _ in rows], dtype=float)
-        # erster Tag ist angebrochen -> auf ganzen Tag hochrechnen waere irrefuehrend; Rest-Tag markieren
-        self.ax.fill_between(xs, 0, kwh, color=COLOR_WOOD, alpha=0.35, linewidth=0)
-        (h_dem,) = self.ax.plot(xs, kwh, color=COLOR_WOOD, linewidth=2.0, marker="o", markersize=4,
-                                label="Wärmebedarf (kWh/Tag)")
-        for x, v in zip(xs, kwh):
-            self.ax.annotate(f"{v:.0f}", (x, v), xytext=(0, 6), textcoords="offset points", ha="center",
-                             fontsize=9, color=COLOR_TEXT)
-        handles = [h_dem]
-        temps = [t for _, _, t in rows]
-        if any(t is not None for t in temps):
-            ax2 = self.ax.twinx()
-            (h_t,) = ax2.plot(xs, [t if t is not None else np.nan for t in temps], color=COLOR_PRIMARY,
-                              linestyle=(0, (4, 3)), linewidth=1.5, marker="o", markersize=3, label="Ø Außentemp. (°C)")
-            ax2.tick_params(axis="y", labelsize=8, colors=COLOR_PRIMARY, length=2)
-            for spine in ("top", "left", "bottom"):
-                ax2.spines[spine].set_visible(False)
-            ax2.spines["right"].set_color(COLOR_BORDER)
-            tv = [t for t in temps if t is not None]
-            ax2.set_ylim(min(tv) - 3, max(tv) + 3)
-            handles.append(h_t)
-            self.fig.subplots_adjust(right=0.91)
+        # erster Tag ist angebrochen ("Rest heute") -> heller, damit er nicht wie ein ganzer Tag wirkt
+        colors = [COLOR_WOOD] * len(rows)
+        alphas = [0.45] + [0.9] * (len(rows) - 1)
+        for x, v, c, a in zip(xs, kwh, colors, alphas):
+            self.ax.bar(x, v, width=0.62, color=c, alpha=a, linewidth=0)
+            self.ax.annotate(f"{v:.0f}", (x, v), xytext=(0, 4), textcoords="offset points", ha="center",
+                             va="bottom", fontsize=10, color=COLOR_TEXT)
         wd = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+        labels = []
+        for i, (d, _, t) in enumerate(rows):
+            name = "Rest heute" if i == 0 else wd[d.weekday()]
+            temp = f"{t:.0f} °C".replace("-", "−") if t is not None else "–"
+            labels.append(f"{name}\n{temp}")
         self.ax.set_xticks(xs)
-        self.ax.set_xticklabels([("Rest heute" if i == 0 else wd[d.weekday()]) for i, (d, _, _) in enumerate(rows)])
-        self.ax.set_xlim(xs[0] - timedelta(hours=12), xs[-1] + timedelta(hours=12))
-        self.ax.set_ylim(0, max(10.0, float(kwh.max()) * 1.25))
+        self.ax.set_xticklabels(labels, fontsize=9)
+        self.ax.set_xlim(-0.6, len(rows) - 0.4)
+        self.ax.set_ylim(0, max(10.0, float(kwh.max()) * 1.2))
         self.ax.set_ylabel("kWh", fontsize=9, color=COLOR_SUBTEXT, rotation=0, labelpad=12, va="center")
-        self._legend(handles)
+        self.ax.grid(axis="x", visible=False)
         self.canvas.draw_idle()
 
     def render_season(self, season, cfg) -> None:

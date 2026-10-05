@@ -1288,6 +1288,12 @@ class MainApp(UiQueuePumpMixin):
                 logger.error("HealthTab init failed: %s", e)
                 self.health_tab = None
         _dbg_print("[TABS] Alle weiteren Tabs wurden verarbeitet.")
+        # Warnmeldungen (PV liefert zu wenig, ungewoehnlicher Waermeverbrauch) im Hintergrund
+        try:
+            from core import alerts
+            alerts.start_background(self.datastore)
+        except Exception as e:
+            logger.error("Warnmeldungen konnten nicht gestartet werden: %s", e)
         # _style_tabview_buttons() lief bisher nur einmal ganz am Anfang,
         # bevor die meisten Tabs ueberhaupt existierten (nur "Energie" war
         # zu dem Zeitpunkt schon da) - hier nochmal aufrufen, jetzt wo alle

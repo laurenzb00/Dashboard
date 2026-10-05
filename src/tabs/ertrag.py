@@ -314,6 +314,7 @@ class ErtragTab(UiQueuePumpMixin):
                 logging.exception("[ERTRAG] PV-Prognose fehlgeschlagen")
                 forecast = None
             fc_day = pv_forecast.forecast_for_day(forecast, day)
+            skill_text = _forecast_status_text()
             key = (
                 "tag", day.isoformat(), len(samples),
                 samples[-1].ts.isoformat() if samples else None,
@@ -323,6 +324,7 @@ class ErtragTab(UiQueuePumpMixin):
             def apply() -> None:
                 if not self.alive or token != self._update_token:
                     return
+                self._skill_text = skill_text
                 self._apply_day_result(day, key, binned, summary, fc_day)
 
             self._post_ui(apply)
@@ -345,7 +347,7 @@ class ErtragTab(UiQueuePumpMixin):
 
         has_data = summary.samples > 0
         dash = "--"
-        self.topbar_status.config(text="")
+        self.topbar_status.config(text=getattr(self, "_skill_text", ""))
         self._set_tile("pv", f"{summary.pv_kwh:.1f} kWh" if has_data else dash)
         fc_kwh = pv_forecast.forecast_kwh(fc_day)
         if fc_kwh is None:
@@ -805,3 +807,29 @@ class ErtragTab(UiQueuePumpMixin):
     # Keine dynamische Größenanpassung nötig
 
 
+
+
+def _forecast_status_text() -> str:
+    """Kopfzeile: Treffsicherheit der Vortagsprognose + PV-Warnung der letzten 24 h."""
+    parts = []
+    try:
+        from core import alerts
+        for ts, kind, title, _msg in alerts.recent_alerts(24):
+            if kind == "pv":
+                parts.append(f"⚠ {title} ({datetime.fromtimestamp(ts):%H:%M})")
+                break
+    except Exception:
+        pass
+    try:
+        from core import forecast_log
+        sk = forecast_log.pv_skill(days=14)
+        if sk and sk["days"] >= 3:
+            tend = ""
+            if abs(sk["bias_pct"]) >= 5:
+                tend = " · eher zu hoch" if sk["bias_pct"] > 0 else " · eher zu niedrig"
+            parts.append(f"Prognose vom Vortag: Ø {sk['mape_pct']:.0f} % daneben ({sk['days']} Tage){tend}")
+        else:
+            parts.append("Prognose-Güte: wird gesammelt")
+    except Exception:
+        pass
+    return "   ".join(parts)

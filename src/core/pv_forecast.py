@@ -44,6 +44,7 @@ from typing import Optional
 import numpy as np
 
 from . import forecast_learning as fl
+from . import forecast_log
 from .solar_geometry import clearness, poa, sun_position
 from .time_utils import DB_TS_FORMAT, parse_db_ts
 from .weather import WeatherConfig, load_weather_config
@@ -250,9 +251,16 @@ def calibrate(store, cfg: Optional[WeatherConfig] = None, allow_network: bool = 
     conn = fl.connect()
     try:
         data = training_data(conn)
+        model = fit_from_data(data, cfg.latitude, cfg.longitude)
+        if model:
+            # Typische Fehler der Wettervorhersage (Prognose vom Vortag vs. gemessen)
+            try:
+                model["bias"] = forecast_log.learn_pv_bias(cfg.latitude, cfg.longitude, conn=conn)
+            except Exception as exc:
+                logger.info("[PV-Prognose] Vorhersagefehler nicht gelernt: %s", exc)
     finally:
         conn.close()
-    return fit_from_data(data, cfg.latitude, cfg.longitude)
+    return model
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +330,17 @@ def get_forecast(store, cfg: Optional[WeatherConfig] = None, allow_network: bool
                 rows = fl.fetch_weather(cfg, FORECAST_PAST_DAYS, FORECAST_DAYS)
                 if rows:
                     arr = np.array([[np.nan if v is None else v for v in r] for r in rows], dtype=float)
-                    pred = predict_arrays(model, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4])
+                    raw = predict_arrays(model, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4])
+                    # Lern-Korrektur der Wettervorhersage nur fuer kommende Stunden; vergangene
+                    # Stunden beruhen schon auf (fast) gemessenem Wetter.
+                    future = arr[:, 0] - 3600 >= time.time()
+                    corrected = forecast_log.apply_bias(model.get("bias"), arr[:, 0], raw, arr[:, 1],
+                                                        model["latitude"], model["longitude"])
+                    pred = np.where(future, np.clip(corrected, 0.0, model.get("cap_kw") or None), raw)
+                    try:
+                        forecast_log.record_pv(arr[:, 0], pred, arr[:, 1], kw_raw=raw)
+                    except Exception as exc:
+                        logger.info("[PV-Prognose] Prognose nicht protokolliert: %s", exc)
                     for ts, kw in zip(arr[:, 0], pred):
                         key = datetime.fromtimestamp(int(ts), timezone.utc).strftime(DB_TS_FORMAT)
                         values[key] = round(float(kw), 4)

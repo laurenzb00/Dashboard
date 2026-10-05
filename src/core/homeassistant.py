@@ -31,6 +31,9 @@ class HomeAssistantConfig:
     force_away_webhook_id: Optional[str] = None
     force_home_webhook_id: Optional[str] = None
     actions: Optional[List[Dict[str, Any]]] = None
+    # z.B. "mobile_app_pixel_8" (HA: Entwicklerwerkzeuge -> Aktionen -> "notify."). Leer:
+    # Meldung erscheint als Benachrichtigung in Home Assistant selbst.
+    notify_service: Optional[str] = None
 
 
 def _read_json_file(path: str) -> Optional[dict]:
@@ -174,6 +177,7 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         force_away_webhook_id=_opt_str("force_away_webhook_id"),
         force_home_webhook_id=_opt_str("force_home_webhook_id"),
         actions=actions,
+        notify_service=_opt_str("notify_service"),
     )
 
 
@@ -472,6 +476,15 @@ class HomeAssistantClient:
         r.raise_for_status()
         data = r.json()
         return data if isinstance(data, list) else []
+
+    def notify(self, title: str, message: str) -> bool:
+        """Push aufs Handy (notify.<notify_service>) oder, ohne Konfiguration, als HA-Benachrichtigung."""
+        svc = (self.config.notify_service or "").strip()
+        if svc.startswith("notify."):
+            svc = svc[len("notify."):]
+        if svc:
+            return self.call_service("notify", svc, {"title": title, "message": message})
+        return self.call_service("persistent_notification", "create", {"title": title, "message": message})
 
     def update_entity(self, entity_ids: str | List[str]) -> bool:
         """Ask Home Assistant to refresh one or multiple entities."""
