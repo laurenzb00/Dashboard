@@ -47,6 +47,7 @@ MAX_PAST_DAYS = 92
 ARCHIVE_MAX_YEARS = 3
 OVERLAP_S = 24 * 3600
 HEAT_CHUNK_DAYS = 31
+HEAT_VERSION = 2       # 2: Feuer vs. Sonne per Speicher-Zuwachs / Rauchgas (heating_stats.classify_episodes)
 
 _DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DB_PATH = _DATA_DIR / "forecast_learning.db"
@@ -263,6 +264,11 @@ def heat_hour_rows(buckets: Sequence[hs.Bucket], cfg: hs.StorageConfig) -> list[
 def _update_heat(conn, store, cfg: hs.StorageConfig, now: float) -> None:
     if getattr(store, "conn", None) is None:
         return
+    if _meta_get(conn, "heat_version") != str(HEAT_VERSION):
+        # Erkennung "Kessel brennt" hat sich geaendert -> Stundenbilanz neu aufbauen
+        conn.execute("DELETE FROM heat_hours")
+        _meta_set(conn, "heat_version", HEAT_VERSION)
+        conn.commit()
     last = conn.execute("SELECT MAX(hour_start) FROM heat_hours").fetchone()[0]
     first = _first_measurement(store) if last is None else last - OVERLAP_S
     if first is None:
@@ -437,6 +443,10 @@ def local_linear_grid(axes: Sequence[np.ndarray], xs: Sequence[np.ndarray], sigm
 def grid_lookup(axes: Sequence[Sequence[float]], table: np.ndarray, *points: np.ndarray) -> np.ndarray:
     """Multilineare Interpolation im Raster (Werte ausserhalb: Randwert)."""
     pts = [np.asarray(p, float) for p in points]
+    bad = np.zeros(np.broadcast(*pts).shape, dtype=bool)
+    for p in pts:
+        bad = bad | np.isnan(p)
+    pts = [np.where(np.isnan(p), np.asarray(ax, float)[0], p) for p, ax in zip(pts, axes)]
     idx, frac = [], []
     for ax, p in zip(axes, pts):
         ax = np.asarray(ax, float)
@@ -454,4 +464,4 @@ def grid_lookup(axes: Sequence[Sequence[float]], table: np.ndarray, *points: np.
             wgt = wgt * (frac[d] if bit else 1.0 - frac[d])
             sel.append(idx[d] + bit)
         out = out + wgt * table[tuple(sel)]
-    return out
+    return np.where(bad, np.nan, out)

@@ -23,6 +23,42 @@ class TestKessel(unittest.TestCase):
         self.assertFalse(kessel_active(_b(t, 61, 63)))   # nur passiv mit Puffer temperiert
         self.assertFalse(kessel_active(_b(t, 45, 30)))   # zu kalt
 
+    def test_episode_sun_vs_fire(self):
+        from datetime import timedelta, timezone
+        from core.heating_stats import classify_episodes
+
+        def episode(start, gain_kwh):
+            out, p = [], 45.0
+            per_bucket = gain_kwh / 12 / (CFG.puffer_kwh_per_k)
+            for i in range(16):
+                ts = start + timedelta(minutes=15 * i)
+                hot = 1 <= i <= 8
+                if 1 <= i <= 12:
+                    p += per_bucket
+                out.append(Bucket(ts=ts, kessel=70.0 if hot else 40.0, top=p, mid=p, bot=p, warm=55, outdoor=20))
+            return out
+
+        def pv(start, kw):
+            return {(start + timedelta(hours=h)).astimezone(timezone.utc).strftime("%Y-%m-%d %H"): kw
+                    for h in range(-1, 6)}
+
+        sunny = episode(datetime(2026, 8, 20, 9), 45.0)
+        classify_episodes(sunny, pv(datetime(2026, 8, 20, 9), 6.0), CFG)       # 6 kW PV: Sonne erklaert 45 kWh
+        self.assertFalse(any(kessel_active(b) for b in sunny))
+        night = episode(datetime(2026, 8, 7, 21), 50.0)
+        classify_episodes(night, pv(datetime(2026, 8, 7, 21), 0.0), CFG)       # abends ohne Sonne: Feuer
+        self.assertTrue(any(kessel_active(b) for b in night))
+        small = episode(datetime(2026, 8, 7, 21), 5.0)
+        classify_episodes(small, {}, CFG)                                       # kaum Zuwachs: kein Feuer
+        self.assertFalse(any(kessel_active(b) for b in small))
+
+    def test_rauchgas_decides_when_recorded(self):
+        t = datetime(2026, 8, 5, 11)
+        solar = Bucket(ts=t, kessel=72, top=55, mid=50, bot=45, warm=55, outdoor=25, rauchgas=40.0)
+        feuer = Bucket(ts=t, kessel=58, top=55, mid=50, bot=45, warm=55, outdoor=5, rauchgas=160.0)
+        self.assertFalse(kessel_active(solar))    # Solar heizt den Kesselfuehler, kein Feuer
+        self.assertTrue(kessel_active(feuer))     # Feuer, auch wenn Kessel noch kalt
+
 
 class TestAnalyze(unittest.TestCase):
     def _day(self):

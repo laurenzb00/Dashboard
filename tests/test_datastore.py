@@ -79,6 +79,15 @@ class TestDataStoreBasic(unittest.TestCase):
         self.assertEqual(rec["timestamp"], ts)
         self.assertAlmostEqual(rec["bmk_kessel_c"], 75.0, places=1)
 
+    def test_heating_kessel_state_columns(self):
+        ts = "2025-06-15 12:00:00"
+        self.store.insert_heating_record({"Zeitstempel": ts, "Kesseltemperatur": 75.0, "Pufferspeicher Oben": 65.0,
+                                          "Pufferspeicher Mitte": 55.0, "Pufferspeicher Unten": 45.0,
+                                          "Rauchgastemperatur": 180.0, "Kesselrücklauf": 62.0, "Betriebsmodus": 3})
+        row = self.store.conn.execute("SELECT rauchgastemp, kessel_ruecklauf, betriebsmodus FROM heating "
+                                      "WHERE timestamp = ?", (ts,)).fetchone()
+        self.assertEqual(tuple(row), (180.0, 62.0, 3.0))
+
     # --- Recent queries ---
 
     def test_get_recent_fronius(self):

@@ -96,6 +96,9 @@ class Bucket:
     bot: Optional[float]
     warm: Optional[float]
     outdoor: Optional[float]
+    rauchgas: Optional[float] = None     # ab 2026-10 aufgezeichnet - eindeutigster Hinweis auf Feuer
+    modus: Optional[float] = None        # BMK-Betriebsmodus (Code)
+    firing: Optional[bool] = None        # Ergebnis der Episoden-Pruefung (load_buckets), sonst None
 
 
 @dataclass
@@ -189,8 +192,9 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
         cols = set()
     # Aeltere Datensaetze haben die Aussentemperatur in der Spalte "außentemp"
     outdoor_expr = 'COALESCE(aussentemp, "außentemp")' if "außentemp" in cols else "aussentemp"
+    extra = ", rauchgastemp, betriebsmodus" if {"rauchgastemp", "betriebsmodus"} <= cols else ", NULL, NULL"
     for row in conn.execute(
-        "SELECT timestamp, kesseltemp, puffer_top, puffer_mid, puffer_bot, warmwasser, " + outdoor_expr + " "
+        "SELECT timestamp, kesseltemp, puffer_top, puffer_mid, puffer_bot, warmwasser, " + outdoor_expr + extra + " "
         "FROM heating WHERE timestamp >= ? AND timestamp < ?", (s, e)
     ):
         k = _key(row[0])
@@ -204,6 +208,12 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
         o = _f(row[6])
         if o is not None and -40 <= o <= 60:
             slot.setdefault("outdoor", []).append(o)
+        rg = _f(row[7])
+        if rg is not None and 0 < rg < 600:
+            slot.setdefault("rauchgas", []).append(rg)
+        md = _f(row[8])
+        if md is not None:
+            slot.setdefault("modus", []).append(md)
 
     out = []
     for k in sorted(acc):
@@ -212,15 +222,107 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
         if "top" not in m and "kessel" not in m:
             continue
         out.append(Bucket(ts=k, kessel=m.get("kessel"), top=m.get("top"), mid=m.get("mid"),
-                          bot=m.get("bot"), warm=m.get("warm"), outdoor=m.get("outdoor")))
+                          bot=m.get("bot"), warm=m.get("warm"), outdoor=m.get("outdoor"),
+                          # Rauchgas: Spitzenwert im Bucket (brennt es irgendwann darin?)
+                          rauchgas=max(slot["rauchgas"]) if slot.get("rauchgas") else None,
+                          modus=max(slot["modus"]) if slot.get("modus") else None))
+    # Rauchgas-Spalte nur verwenden, wenn darin je ein Feuer zu sehen war (sonst ist
+    # der BMK-Index evtl. etwas anderes) - dann gilt die Episoden-Pruefung.
+    rg = [b.rauchgas for b in out if b.rauchgas is not None]
+    if rg and max(rg) < RAUCHGAS_PLAUSIBEL_C:
+        for b in out:
+            b.rauchgas = None
+    classify_episodes(out, _pv_hourly(conn, s, e))
     return out
+
+
+def _pv_hourly(conn, s: str, e: str) -> dict:
+    """PV-Stundenmittel (kW) je Stunde (Schluessel: UTC 'YYYY-MM-DD HH')."""
+    try:
+        rows = conn.execute(
+            "SELECT substr(timestamp, 1, 13), AVG(CASE WHEN pv_power > 200 THEN pv_power / 1000.0 "
+            "WHEN pv_power < 0 THEN 0 ELSE pv_power END) FROM fronius WHERE timestamp >= ? AND timestamp < ? "
+            "AND pv_power IS NOT NULL GROUP BY 1", (s, e)).fetchall()
+    except Exception:
+        return {}
+    return {h: float(v or 0.0) for h, v in rows}
+
+
+def classify_episodes(buckets: list[Bucket], pv_hourly: dict, cfg: Optional[StorageConfig] = None) -> None:
+    """Kessel-heiss-Phasen ohne Rauchgasdaten: Feuer oder Sonne?
+
+    Die Kesseltemperatur allein reicht nicht - Solar bringt den Kesselfuehler
+    ebenfalls schnell ueber 60 °C. Entscheidend ist, wie viel Waerme in den
+    Speicher kam und ob die Sonne das erklaeren kann:
+        Feuer  <=>  Zuwachs >= 15 kWh  UND  Zuwachs > 1,5 x PV-kWh + 10 kWh
+    (Fenster: Beginn bis 2 h nach Ende; 1,5 x PV mit Reserve fuer ~15 m^2 Kollektoren.)
+    Ergebnis in Bucket.firing; Buckets mit Rauchgas bleiben unberuehrt.
+    """
+    cfg = cfg or load_storage_config()
+    n = len(buckets)
+    i = 0
+    while i < n:
+        b = buckets[i]
+        if b.rauchgas is not None or not _kessel_hot(b):
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and buckets[j + 1].rauchgas is None and _kessel_hot(buckets[j + 1]) and \
+                (buckets[j + 1].ts - buckets[j].ts) <= timedelta(minutes=MAX_GAP_MIN):
+            j += 1
+        start, end = buckets[i].ts, buckets[j].ts + timedelta(minutes=BUCKET_MIN)
+        pre = [heat_content_kwh(x, cfg) for x in buckets[max(0, i - 2):i + 1]]
+        win = [heat_content_kwh(x, cfg) for x in buckets[i:n] if x.ts <= end + timedelta(hours=2)]
+        pre = [q for q in pre if q is not None]
+        win = [q for q in win if q is not None]
+        gain = (max(win) - min(pre)) if pre and win else 0.0
+        pv_kwh = 0.0
+        t = start.replace(minute=0)
+        while t <= end + timedelta(hours=2):
+            key = t.astimezone(timezone.utc).strftime("%Y-%m-%d %H")
+            pv_kwh += pv_hourly.get(key, 0.0)
+            t += timedelta(hours=1)
+        firing = gain >= EPISODE_MIN_GAIN_KWH and gain > SOLAR_KWH_PER_PV_KWH_MAX * pv_kwh + SOLAR_MARGIN_KWH
+        for x in buckets[i:j + 1]:
+            x.firing = firing
+        i = j + 1
 
 
 # ---------------------------------------------------------------------------
 # Auswertung
 # ---------------------------------------------------------------------------
 
+RAUCHGAS_FEUER_C = 90.0      # darueber brennt Holz (Abgas im Betrieb typ. 120-250 °C)
+
+
+RAUCHGAS_PLAUSIBEL_C = 100.0  # Rauchgas-Spalte nur nutzen, wenn je ein echtes Feuer darin zu sehen war
+EPISODE_MIN_GAIN_KWH = 15.0
+# Solarthermie ~15 m^2, 16-17 Jahre alt: Spitze grob 5-7 kW Waerme bei ~9-10 kW PV.
+# Mehr Waerme als das 1,5-fache der PV-Energie (+ Reserve) kann die Sonne nicht liefern.
+SOLAR_KWH_PER_PV_KWH_MAX = 1.5
+SOLAR_MARGIN_KWH = 10.0
+
+
+def _kessel_hot(b: Bucket) -> bool:
+    """Alte Regel: Kessel heiss und waermer als der Puffer (kann auch Solar sein)."""
+    if b.kessel is None:
+        return False
+    ref = b.top if b.top is not None else 0.0
+    return b.kessel >= KESSEL_MIN_C and b.kessel >= ref + KESSEL_OVER_PUFFER_K
+
+
 def kessel_active(b: Bucket) -> bool:
+    """Brennt Holz im Kessel?
+
+    1. Rauchgastemperatur (ab 2026-10 aufgezeichnet): eindeutig.
+    2. Sonst Ergebnis der Episoden-Pruefung aus load_buckets (Speicher-Zuwachs,
+       der nicht von der Sonne kommen kann).
+    3. Sonst (einzelne Buckets, Tests): Kessel heiss und waermer als der Puffer.
+    """
+    if b.rauchgas is not None:
+        return b.rauchgas >= RAUCHGAS_FEUER_C
+    if b.firing is not None:
+        return b.firing
     if b.kessel is None:
         return False
     ref = b.top if b.top is not None else 0.0

@@ -72,13 +72,16 @@ ST_GRID_TANK = np.arange(20.0, 91.0, 5.0)
 ST_SIGMA = (4.0, 6.0)
 ST_MIN_PV_KW = 0.3
 ST_MIN_HOURS = 30
+ST_MIN_DAYS = 8
 SUN_PV_KW = 0.1                  # ab dieser PV-Leistung gilt eine Stunde als "Sonne im Spiel"
 
 # Ausreisser (robuste Statistik: Median und MAD statt Mittelwert und Standardabweichung)
 DAY_MIN_HOURS = 6                # Tag braucht so viele ruhige Stunden fuer ein Urteil
 DAY_LOW_Z, DAY_LOW_RATIO = -3.0, 0.75     # Urlaub: deutlich UND statistisch auffaellig zu wenig
 DAY_HIGH_Z, DAY_HIGH_RATIO = 5.0, 1.6     # extrem zu viel (Messfehler, Sensor haengt)
-HOUR_Z = 6.0                     # einzelne Stunde extrem daneben
+HOUR_Z = 6.0                     # einzelner Block/Stunde extrem daneben
+BLOCK_H = 6                      # Lernen auf 6-Stunden-Bloecken (Schichtungs-Rauschen mitteln)
+BLOCK_MIN_QUIET_H = 2.0
 
 _DATA = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 _MODEL_PATH = os.path.join(_DATA, "heat_demand_model.json")
@@ -288,23 +291,88 @@ def _global_design(t_eff, g_eff, tb):
     return np.column_stack([np.ones_like(t_eff), np.maximum(0.0, tb - t_eff), -g_eff])
 
 
-def _fit_global(t_eff, g_eff, y, tb):
+def _fit_global(t_eff, g_eff, y, tb, w=None):
     from .pv_forecast import nnls
     a = _global_design(t_eff, g_eff, tb)
-    coef = nnls(a, y)
-    return coef
+    if w is None:
+        return nnls(a, y)
+    sw = np.sqrt(w)
+    return nnls(a * sw[:, None], y * sw)
 
 
-def _cv_rmse(t_eff, g_eff, y, tb, folds: np.ndarray) -> float:
-    err = []
+def _wrmse(err2: list, wts: list) -> float:
+    e, w = np.concatenate(err2), np.concatenate(wts)
+    return float(np.sqrt(np.sum(e * w) / np.sum(w)))
+
+
+def _cv_rmse(t_eff, g_eff, y, tb, folds: np.ndarray, w: np.ndarray) -> float:
+    err, wts = [], []
     for k in np.unique(folds):
         tr, te = folds != k, folds == k
-        if tr.sum() < MIN_HOURS or te.sum() == 0:
+        if w[tr].sum() < MIN_HOURS or te.sum() == 0:
             continue
-        coef = _fit_global(t_eff[tr], g_eff[tr], y[tr], tb)
+        coef = _fit_global(t_eff[tr], g_eff[tr], y[tr], tb, w[tr])
         pred = np.maximum(0.0, _global_design(t_eff[te], g_eff[te], tb) @ coef)
         err.append((pred - y[te]) ** 2)
-    return float(np.sqrt(np.mean(np.concatenate(err)))) if err else float("inf")
+        wts.append(w[te])
+    return _wrmse(err, wts) if err else float("inf")
+
+
+def _physical_demand(table: np.ndarray) -> np.ndarray:
+    """Physik erzwingen: kaelter -> nie weniger Bedarf, mehr Sonne -> nie mehr Bedarf.
+
+    Raster [Temperatur aufsteigend, Sonne aufsteigend]. Wo die Daten duenn sind
+    (z.B. selten erlebte Kaelte), verhindert das unplausible Knicke.
+    """
+    t = np.maximum(table, 0.0)
+    t = np.maximum.accumulate(t[::-1, :], axis=0)[::-1, :]      # von warm nach kalt nicht fallend
+    t = np.minimum.accumulate(t, axis=1)                         # mit mehr Sonne nicht steigend
+    return t
+
+
+def _physical_solar(table: np.ndarray) -> np.ndarray:
+    """Kollektor: waermere Luft hilft, heisserer Speicher schadet (Raster [T_aussen, T_speicher])."""
+    t = np.maximum(table, 0.0)
+    t = np.maximum.accumulate(t, axis=0)                         # mit T_aussen nicht fallend
+    t = np.minimum.accumulate(t, axis=1)                         # mit T_speicher nicht steigend
+    return t
+
+
+def aggregate_blocks(hour_start: np.ndarray, quiet_kwh: np.ndarray, quiet_min: np.ndarray,
+                     outdoor: np.ndarray, block_h: int = BLOCK_H):
+    """Ruhige Stunden zu Bloecken (lokal 0-6, 6-12, ... Uhr) zusammenfassen.
+
+    Einzelne Stunden sind sehr verrauscht: wandert die Temperaturschichtung im
+    Puffer an einem der 3 Fuehler vorbei, "verschwinden" scheinbar 10-20 kWh in
+    einer Stunde und tauchen spaeter wieder auf. Ueber mehrere Stunden gleicht
+    sich das aus (Energieerhaltung). Rueckgabe: (Pseudo-Stundenbeginn = Block-
+    mitte - 30 min, Bedarf kW, Gewicht = ruhige Stunden, Aussentemp. BMK).
+    """
+    ok = (quiet_min > 0) & ~np.isnan(quiet_kwh)
+    keys = np.array([datetime.fromtimestamp(float(h)).date().toordinal() * 24 + datetime.fromtimestamp(float(h)).hour // block_h * block_h
+                     for h in hour_start])
+    acc: dict = {}
+    for k, h, q, m, o, use in zip(keys, hour_start, quiet_kwh, quiet_min, outdoor, ok):
+        if not use:
+            continue
+        a = acc.setdefault(int(k), [0.0, 0.0, 0.0, 0.0, 0, h])
+        a[0] += max(0.0, q)
+        a[1] += m
+        a[2] += h * m
+        if not np.isnan(o):
+            a[3] += o
+            a[4] += 1
+    rows = []
+    for k, a in sorted(acc.items()):
+        if a[1] < 60.0 * BLOCK_MIN_QUIET_H:
+            continue
+        mid = a[2] / a[1] + 1800.0            # gewichtete Mitte der ruhigen Zeit
+        rows.append((mid - 1800.0, a[0] / a[1] * 60.0, a[1] / 60.0, (a[3] / a[4]) if a[4] else np.nan))
+    if not rows:
+        e = np.array([])
+        return e, e, e, e
+    arr = np.array(rows, dtype=float)
+    return arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
 
 
 def _robust_z(x: np.ndarray, floor: float) -> np.ndarray:
@@ -314,7 +382,7 @@ def _robust_z(x: np.ndarray, floor: float) -> np.ndarray:
 
 
 def find_anomalies(hour_start: np.ndarray, y: np.ndarray, bmk_outdoor: np.ndarray, wx: dict,
-                   tau_h: float = 6.0, tb: float = 16.0):
+                   tau_h: float = 6.0, tb: float = 16.0, w: Optional[np.ndarray] = None):
     """Urlaubs-/Ausreisser-Tage und extreme Einzelstunden erkennen.
 
     Vorlaeufiges Grundmodell auf allen Daten -> je Tag Verhaeltnis Ist / erwartet
@@ -325,11 +393,12 @@ def find_anomalies(hour_start: np.ndarray, y: np.ndarray, bmk_outdoor: np.ndarra
     Rueckgabe: (Maske behalten, [ignorierte Tage ISO], Anzahl ignorierter Stunden).
     """
     keep = np.ones(len(y), dtype=bool)
+    w = np.ones(len(y)) if w is None else w
     t_eff, g_eff = _hour_features(hour_start, wx, bmk_outdoor, tau_h)
     ok = ~np.isnan(t_eff)
-    if ok.sum() < MIN_HOURS:
+    if w[ok].sum() < MIN_HOURS:
         return keep, [], 0
-    coef = _fit_global(t_eff[ok], g_eff[ok], y[ok], tb)
+    coef = _fit_global(t_eff[ok], g_eff[ok], y[ok], tb, w[ok])
     pred = np.full(len(y), np.nan)
     pred[ok] = np.maximum(0.05, _global_design(t_eff[ok], g_eff[ok], tb) @ coef)
 
@@ -342,9 +411,9 @@ def find_anomalies(hour_start: np.ndarray, y: np.ndarray, bmk_outdoor: np.ndarra
     #    nicht stundenweise zerfaellt
     days = np.array([datetime.fromtimestamp(float(h)).date().toordinal() for h in hour_start])
     uniq, inv = np.unique(days, return_inverse=True)
-    n = np.bincount(inv[use], minlength=len(uniq))
-    sy = np.bincount(inv[use], weights=y[use], minlength=len(uniq))
-    sp = np.bincount(inv[use], weights=pred[use], minlength=len(uniq))
+    n = np.bincount(inv[use], weights=w[use], minlength=len(uniq))
+    sy = np.bincount(inv[use], weights=(y * w)[use], minlength=len(uniq))
+    sp = np.bincount(inv[use], weights=(pred * w)[use], minlength=len(uniq))
     judged = (n >= DAY_MIN_HOURS) & (sp > 0)
     bad_day = np.zeros(len(uniq), dtype=bool)
     if judged.sum() >= 10:
@@ -369,26 +438,28 @@ def find_anomalies(hour_start: np.ndarray, y: np.ndarray, bmk_outdoor: np.ndarra
 
 
 def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor: np.ndarray,
-                     wx: dict) -> Optional[DemandModel]:
+                     wx: dict, weights: Optional[np.ndarray] = None) -> Optional[DemandModel]:
+    """weights = Stunden je Wert (bei 6-h-Bloecken), sonst 1."""
+    w_all = np.ones(len(demand_kw)) if weights is None else np.asarray(weights, float)
     ok = ~np.isnan(demand_kw)
-    hour_start, demand_kw, bmk_outdoor = hour_start[ok], demand_kw[ok], bmk_outdoor[ok]
-    if len(demand_kw) < MIN_HOURS:
+    hour_start, demand_kw, bmk_outdoor, w_all = hour_start[ok], demand_kw[ok], bmk_outdoor[ok], w_all[ok]
+    if w_all.sum() < MIN_HOURS:
         return None
     # Ausreisser (Urlaub, Sensorfehler) robust erkennen statt pauschal abschneiden
     y = demand_kw
-    clean, anomaly_days, outlier_hours = find_anomalies(hour_start, y, bmk_outdoor, wx)
-    hour_start, y, bmk_outdoor = hour_start[clean], y[clean], bmk_outdoor[clean]
-    if len(y) < MIN_HOURS:
+    clean, anomaly_days, outlier_hours = find_anomalies(hour_start, y, bmk_outdoor, wx, w=w_all)
+    hour_start, y, bmk_outdoor, w_all = hour_start[clean], y[clean], bmk_outdoor[clean], w_all[clean]
+    if w_all.sum() < MIN_HOURS:
         return None
     folds = ((hour_start // 86400).astype(int) // 3) % 5          # 3-Tages-Bloecke
     best = None
     for tau in TAU_CANDIDATES_H:
         t_eff, g_eff = _hour_features(hour_start, wx, bmk_outdoor, tau)
         m = ~np.isnan(t_eff)
-        if m.sum() < MIN_HOURS:
+        if w_all[m].sum() < MIN_HOURS:
             continue
         for tb in TB_CANDIDATES_C:
-            e = _cv_rmse(t_eff[m], g_eff[m], y[m], tb, folds[m])
+            e = _cv_rmse(t_eff[m], g_eff[m], y[m], tb, folds[m], w_all[m])
             if best is None or e < best[0]:
                 best = (e, tau, float(tb))
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -397,13 +468,13 @@ def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor:
     cv_global, tau, tb = best
     t_eff, g_eff = _hour_features(hour_start, wx, bmk_outdoor, tau)
     m = ~np.isnan(t_eff)
-    t_eff, g_eff, y, hs_ = t_eff[m], g_eff[m], y[m], hour_start[m]
+    t_eff, g_eff, y, hs_, w = t_eff[m], g_eff[m], y[m], hour_start[m], w_all[m]
     spread = float(t_eff.max() - t_eff.min())
-    coef = _fit_global(t_eff, g_eff, y, tb)
+    coef = _fit_global(t_eff, g_eff, y, tb, w)
     if spread < MIN_TEMP_SPREAD_K:
-        coef = np.array([float(np.median(y)), 0.0, 0.0])
+        coef = np.array([float(np.average(y, weights=w)), 0.0, 0.0])
     model = DemandModel(
-        base_kw=float(coef[0]), per_k_kw=float(coef[1]), hours=int(len(y)), r2=None,
+        base_kw=float(coef[0]), per_k_kw=float(coef[1]), hours=int(round(w.sum())), r2=None,
         t_min=float(t_eff.min()), t_max=float(t_eff.max()), fitted_at=stamp,
         temperature_dependent=spread >= MIN_TEMP_SPREAD_K and coef[1] > 0,
         mean_deficit_k=float(np.mean(np.maximum(0.0, tb - t_eff))), version=MODEL_VERSION,
@@ -413,33 +484,41 @@ def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor:
 
     # "Aehnliches Wetter zaehlt mehr": lokale Ebenen auf dem Raster, Grundmodell als Prior
     prior = lambda c0, c1: float(model._global_kw(np.array([c0]), np.array([c1]))[0])
-    w = np.ones_like(y)
     table, _neff = fl.local_linear_grid((GRID_T, GRID_G), (t_eff, g_eff), (SIGMA_T, SIGMA_G), y, w,
                                         prior, STRENGTH_H)
     model.grid_t, model.grid_g = GRID_T.tolist(), GRID_G.tolist()
-    model.table = np.round(np.maximum(table, 0.0), 4).tolist()
+    model.table = np.round(_physical_demand(table), 4).tolist()
 
     # Guete: Kreuzvalidierung des Rasters (gleiche Bloecke)
-    err = []
+    err, wts = [], []
     for k in np.unique(folds[m]):
         tr, te = folds[m] != k, folds[m] == k
-        if tr.sum() < MIN_HOURS or te.sum() == 0:
+        if w[tr].sum() < MIN_HOURS or te.sum() == 0:
             continue
         sub = DemandModel(**{**model.to_dict(), "table": None})
-        c = _fit_global(t_eff[tr], g_eff[tr], y[tr], tb)
+        c = _fit_global(t_eff[tr], g_eff[tr], y[tr], tb, w[tr])
         sub.base_kw, sub.per_k_kw, sub.sun_kw_per_wm2 = float(c[0]), float(c[1]), float(c[2])
         pr = lambda c0, c1, s=sub: float(s._global_kw(np.array([c0]), np.array([c1]))[0])
         tab_k, _ = fl.local_linear_grid((GRID_T, GRID_G), (t_eff[tr], g_eff[tr]), (SIGMA_T, SIGMA_G),
-                                        y[tr], np.ones(int(tr.sum())), pr, STRENGTH_H)
-        sub.table, sub.grid_t, sub.grid_g = tab_k.tolist(), model.grid_t, model.grid_g
+                                        y[tr], w[tr], pr, STRENGTH_H)
+        sub.table, sub.grid_t, sub.grid_g = _physical_demand(tab_k).tolist(), model.grid_t, model.grid_g
         err.append((sub.kw_eff(t_eff[te], g_eff[te]) - y[te]) ** 2)
+        wts.append(w[te])
         if len(err) >= 3:            # 3 Folds reichen als Schaetzung (spart Rechenzeit am Pi)
             break
     if err:
-        model.cv_rmse = float(np.sqrt(np.mean(np.concatenate(err))))
+        model.cv_rmse = _wrmse(err, wts)
+        if model.cv_rmse > cv_global * 1.01:
+            # Die Daten geben (noch) nicht genug her: das Raster waere schlechter als das
+            # Grundmodell -> Grundmodell verwenden. Wird taeglich neu geprueft.
+            logger.info("[Waermebedarf] Aehnlich-Raster (%.2f kW) nicht besser als Grundmodell (%.2f kW) - "
+                        "nutze Grundmodell", model.cv_rmse, cv_global)
+            model.table = None
+            model.cv_rmse = cv_global
     pred = model.kw_eff(t_eff, g_eff)
-    ss_tot = float(np.sum((y - y.mean()) ** 2)) or 1.0
-    model.r2 = 1.0 - float(np.sum((pred - y) ** 2)) / ss_tot
+    ym = float(np.average(y, weights=w))
+    ss_tot = float(np.sum(w * (y - ym) ** 2)) or 1.0
+    model.r2 = 1.0 - float(np.sum(w * (pred - y) ** 2)) / ss_tot
     logger.info("[Waermebedarf] Gelernt aus %d h seit %s: Traegheit %g h, Heizgrenze %g °C, "
                 "Fehler (CV) %.2f kW global -> %s kW aehnlich", model.hours, model.first_day, tau, tb,
                 cv_global, f"{model.cv_rmse:.2f}" if model.cv_rmse is not None else "?")
@@ -448,7 +527,11 @@ def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor:
 
 def fit_solar_thermal(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_outdoor, pv_kw,
                       wx: dict, demand: DemandModel, lat: float, lon: float) -> Optional[SolarThermalModel]:
-    """Solar-Ertrag = Netto-Anstieg + Verbrauch, ins Verhaeltnis zur PV gesetzt."""
+    """Solar-Ertrag = Netto-Anstieg + Verbrauch, ins Verhaeltnis zur PV gesetzt.
+
+    Je Tag summiert (Sonnenstunden ohne Kessel): einzelne Stunden sind wegen der
+    Schichtung im Puffer zu verrauscht, ueber den Tag gleicht sich das aus.
+    """
     mid = hour_start + 1800.0
     el, _ = sun_position(mid, lat, lon)
     ok = (el > 5.0) & (free_min >= 45.0) & (kessel_min <= 0.0) & (pv_kw >= ST_MIN_PV_KW) & ~np.isnan(tank_c)
@@ -456,16 +539,27 @@ def fit_solar_thermal(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_ou
         return None
     t_eff, g_eff = _hour_features(hour_start[ok], wx, bmk_outdoor[ok], demand.tau_h)
     t_now = _hour_features(hour_start[ok], wx, bmk_outdoor[ok], 0.0)[0]
-    use_demand = demand.kw_eff(t_eff, g_eff)
-    gain = free_kwh[ok] / (free_min[ok] / 60.0) + use_demand
-    ratio = np.clip(gain / pv_kw[ok], 0.0, None)
-    w = pv_kw[ok]
-    good = ~np.isnan(t_now)
-    if good.sum() >= ST_MIN_HOURS:
-        good &= np.abs(_robust_z(np.where(good, ratio, np.nanmedian(ratio)), 0.02)) <= HOUR_Z
-    if good.sum() < ST_MIN_HOURS:
+    hours = free_min[ok] / 60.0
+    gain_kwh = free_kwh[ok] + demand.kw_eff(t_eff, g_eff) * hours
+    pv_kwh = pv_kw[ok] * hours
+    valid = ~np.isnan(gain_kwh) & ~np.isnan(t_now)
+    days = np.array([datetime.fromtimestamp(float(h)).date().toordinal() for h in hour_start[ok]])
+    uniq, inv = np.unique(days[valid], return_inverse=True)
+    n = np.bincount(inv, minlength=len(uniq))
+    g = np.bincount(inv, weights=gain_kwh[valid], minlength=len(uniq))
+    p = np.bincount(inv, weights=pv_kwh[valid], minlength=len(uniq))
+    to = np.bincount(inv, weights=(t_now * pv_kwh)[valid], minlength=len(uniq))
+    tk = np.bincount(inv, weights=(tank_c[ok] * pv_kwh)[valid], minlength=len(uniq))
+    use = (n >= 3) & (p >= 1.0)
+    if use.sum() < ST_MIN_DAYS:
         return None
-    ratio, w, t_out, tank = ratio[good], w[good], t_now[good], tank_c[ok][good]
+    ratio = np.clip(g[use] / p[use], 0.0, None)
+    w = p[use]
+    t_out, tank = to[use] / w, tk[use] / w          # PV-gewichtete Mittel (wann die Sonne schien)
+    good = np.abs(_robust_z(ratio, 0.02)) <= HOUR_Z
+    ratio, w, t_out, tank = ratio[good], w[good], t_out[good], tank[good]
+    if len(ratio) < ST_MIN_DAYS:
+        return None
     mean_ratio = float(np.sum(w * ratio) / np.sum(w))
     # Grundmodell: linear in (Speicher - Aussen), gewichtet
     dt = tank - t_out
@@ -473,12 +567,12 @@ def fit_solar_thermal(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_ou
     coef = np.linalg.lstsq(a, ratio * np.sqrt(w), rcond=None)[0]
     prior = lambda c0, c1: float(max(0.0, coef[0] + coef[1] * (c1 - c0)))
     table, _ = fl.local_linear_grid((ST_GRID_TOUT, ST_GRID_TANK), (t_out, tank), ST_SIGMA, ratio, w,
-                                    prior, 5.0 * float(np.mean(w)))
+                                    prior, 3.0 * float(np.mean(w)))
     mx = float(np.percentile(ratio, 95)) * 1.2
-    model = SolarThermalModel(mean_ratio=mean_ratio, hours=int(len(ratio)), grid_tout=ST_GRID_TOUT.tolist(),
-                              grid_tank=ST_GRID_TANK.tolist(), table=np.round(np.clip(table, 0, mx), 4).tolist(),
+    model = SolarThermalModel(mean_ratio=mean_ratio, hours=int(ok.sum()), grid_tout=ST_GRID_TOUT.tolist(),
+                              grid_tank=ST_GRID_TANK.tolist(), table=np.round(np.clip(_physical_solar(table), 0, mx), 4).tolist(),
                               max_ratio=mx, fitted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    logger.info("[Solarthermie] Gelernt aus %d Sonnenstunden: Ø %.2f kWh Waerme je kWh PV", model.hours, mean_ratio)
+    logger.info("[Solarthermie] Gelernt aus %d Sonnentagen: Ø %.2f kWh Waerme je kWh PV", len(ratio), mean_ratio)
     return model
 
 
@@ -505,15 +599,15 @@ def learn(store, cfg: Optional[hs.StorageConfig] = None, allow_network: bool = T
         return None, None
     hour_start = heat[:, 0]
     quiet_min = heat[:, 2]
-    demand_kw = np.where(quiet_min >= MIN_QUIET_MIN_PER_HOUR,
-                         np.maximum(0.0, heat[:, 1]) / np.maximum(quiet_min, 1e-9) * 60.0, np.nan)
     # Stunden mit Sonne ausschliessen: dort verdeckt der Solar-Ertrag einen Teil des
     # Verbrauchs (Speicher kuehlt langsamer ab) -> Bedarf waere zu niedrig gelernt.
     pv_kw = np.array([pv.get(int(h) + 3600, np.nan) for h in hour_start], dtype=float)
     el, _ = sun_position(hour_start + 1800.0, wcfg.latitude, wcfg.longitude)
     sunny = (pv_kw > SUN_PV_KW) | (np.isnan(pv_kw) & (el > 5.0))
-    demand_kw[sunny] = np.nan
-    demand = fit_from_archive(hour_start, demand_kw, heat[:, 7], wx)
+    usable = (quiet_min >= MIN_QUIET_MIN_PER_HOUR) & ~sunny
+    b_start, b_kw, b_w, b_out = aggregate_blocks(hour_start, np.where(usable, heat[:, 1], np.nan),
+                                                 np.where(usable, quiet_min, 0.0), heat[:, 7])
+    demand = fit_from_archive(b_start, b_kw, b_out, wx, weights=b_w) if len(b_kw) else None
     solar = None
     if demand is not None:
         solar = fit_solar_thermal(hour_start, heat[:, 3], heat[:, 4], heat[:, 5], heat[:, 6], heat[:, 7],

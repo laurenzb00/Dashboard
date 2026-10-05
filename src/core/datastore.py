@@ -199,6 +199,17 @@ class DataStore:
                 cursor.execute("ALTER TABLE heating ADD COLUMN aussentemp REAL")
         except Exception as e:
             logging.warning(f"Migration warning (aussentemp): {e}")
+        # Kessel-Zustand (ab 2026-10): Rauchgastemperatur und Betriebsmodus zeigen
+        # eindeutig, ob eingeheizt ist - die Kesseltemperatur allein nicht (Solar
+        # kann den Kesselfuehler ueber 60 °C bringen).
+        try:
+            cols = [row[1] for row in cursor.execute("PRAGMA table_info(heating)").fetchall()]
+            for col in ("rauchgastemp", "kessel_ruecklauf", "betriebsmodus"):
+                if col not in cols:
+                    logging.info("Migration: Adding '%s' column to heating table", col)
+                    cursor.execute(f"ALTER TABLE heating ADD COLUMN {col} REAL")
+        except Exception as e:
+            logging.warning(f"Migration warning (Kessel-Zustand): {e}")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_heating_ts ON heating(timestamp)")
         
         self.conn.commit()
@@ -552,15 +563,20 @@ class DataStore:
         mid = safe_float(record.get('Pufferspeicher Mitte') or record.get('Puffer_Mitte') or record.get('puffer_mid'))
         bot = safe_float(record.get('Pufferspeicher Unten') or record.get('Puffer_Unten') or record.get('puffer_bot'))
         warm = safe_float(record.get('Warmwasser') or record.get('Warmwassertemperatur'))
+        rauchgas = safe_float(record.get('Rauchgastemperatur') or record.get('rauchgastemp'))
+        ruecklauf = safe_float(record.get('Kesselrücklauf') or record.get('kessel_ruecklauf'))
+        modus = safe_float(record.get('Betriebsmodus') if record.get('Betriebsmodus') is not None
+                           else record.get('betriebsmodus'))
         logging.debug("[DB-INSERT] Values: kessel=%s outdoor=%s top=%s mid=%s bot=%s warm=%s", 
                       kessel, outdoor, top, mid, bot, warm)
         with self._lock:
             self._execute_with_retry(
                 """
-                INSERT OR REPLACE INTO heating (timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot, warmwasser)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO heating (timestamp, kesseltemp, aussentemp, puffer_top, puffer_mid, puffer_bot,
+                                                warmwasser, rauchgastemp, kessel_ruecklauf, betriebsmodus)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (ts, kessel, outdoor, top, mid, bot, warm),
+                (ts, kessel, outdoor, top, mid, bot, warm, rauchgas, ruecklauf, modus),
             )
             self._commit_with_retry()
             self._update_last_ingest_locked(ts)
@@ -873,7 +889,8 @@ class DataStore:
             """Fuer eine Tabelle: Buckets berechnen, dann in einer Transaktion
             die alten Rohzeilen durch die gebuckten Mittelwert-Zeilen
             ersetzen. Gibt (Zeilen vorher, Zeilen nachher) zurueck."""
-            select_cols = ", ".join(f"AVG({c})" for c in agg_cols)
+            # Betriebsmodus ist ein Code - Mittelwert waere sinnlos, haeufigster ~ MAX reicht
+            select_cols = ", ".join(f"MAX({c})" if c == "betriebsmodus" else f"AVG({c})" for c in agg_cols)
             rows = cursor.execute(
                 f"SELECT {bucket_expr} AS bucket_ts, {select_cols}, COUNT(*) "
                 f"FROM {table} WHERE timestamp < ? GROUP BY bucket_ts",
@@ -909,7 +926,8 @@ class DataStore:
             ht_before, ht_after = _compact_table(
                 cursor,
                 "heating",
-                ["kesseltemp", "aussentemp", "puffer_top", "puffer_mid", "puffer_bot", "warmwasser"],
+                ["kesseltemp", "aussentemp", "puffer_top", "puffer_mid", "puffer_bot", "warmwasser",
+                 "rauchgastemp", "kessel_ruecklauf", "betriebsmodus"],
             )
         freed_rows = (fr_before - fr_after) + (ht_before - ht_after)
         if fr_before > fr_after or ht_before > ht_after:
