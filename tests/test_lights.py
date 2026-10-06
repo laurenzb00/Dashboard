@@ -119,5 +119,22 @@ class TestRoutines(unittest.TestCase):
         self.assertEqual(c.calls[0][2]["effect"], "colorloop")
 
 
+
+class TestExcluded(unittest.TestCase):
+    def test_vorraum_excluded(self):
+        states = [st("light.vorraum_decke"), st("switch.deckenlampe_vorraum"), st("light.flur", friendly_name="Flur"),
+                  st("light.spot_3", friendly_name="Spot 3"), st("light.wohnzimmer_decke")]
+        ex = L.excluded_entities(states, {"light.spot_3": "Vorraum"}, {"switch.extra"})
+        self.assertEqual(ex, {"light.vorraum_decke", "switch.deckenlampe_vorraum", "light.spot_3", "switch.extra"})
+        self.assertTrue(L.scene_is_excluded("scene.vorraum_ein", "Vorraum ein"))
+        self.assertTrue(L.scene_is_excluded("scene.abc", "Licht", "Vorraum"))
+        self.assertFalse(L.scene_is_excluded("scene.hell", "Hell"))
+
+    def test_filter_scene_entities(self):
+        ents = {"light.a": {"state": "off"}, "switch.deckenlampe_vorraum": {"state": "off"}}
+        self.assertEqual(L.filter_scene_entities(ents, {"switch.deckenlampe_vorraum"}), {"light.a": {"state": "off"}})
+        self.assertIsNone(L.filter_scene_entities({"light.a": {}}, {"switch.deckenlampe_vorraum"}))
+        self.assertIsNone(L.filter_scene_entities({}, {"x"}))
+
 if __name__ == "__main__":
     unittest.main()

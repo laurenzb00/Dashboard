@@ -212,14 +212,11 @@ class MainApp(UiQueuePumpMixin):
         """
         if not getattr(self, "datastore", None):
             return None
-        try:
-            # Only 3h needed (2h window + 1h buffer for slopes)
-            rows = self.datastore.get_recent_heating(hours=3, limit=1200)
-        except Exception:
+        from core import heating_stats as hs
+        season = hs.season_stats(self.datastore, hs.load_storage_config())
+        if not season.events:
             return None
-
-        from core.heating_events import compute_last_heating_event
-        return compute_last_heating_event(rows)
+        return season.events[-1].start.astimezone()
 
     def _refresh_status_metrics_if_needed(self, now_monotonic: float) -> None:
         """Refresh status metrics (PV today, last heating event) if stale."""
@@ -251,10 +248,16 @@ class MainApp(UiQueuePumpMixin):
             except Exception:
                 pv_today_kwh = None
             
-            try:
-                last_heat_event_dt = self._compute_last_heating_event_dt()
-            except Exception:
-                last_heat_event_dt = None
+            # Letztes Einheizen aus derselben Auswertung wie der Waerme-Tab
+            # (heating_stats.season_stats) statt der alten 3-h-Heuristik, die
+            # fast immer "--" zeigte. Hoechstens alle 10 min neu berechnen.
+            last_heat_event_dt = self._status_metrics.get("last_heat_event_dt")
+            if now_monotonic - float(self._status_metrics.get("heat_ts") or -1e9) >= 600.0:
+                try:
+                    last_heat_event_dt = self._compute_last_heating_event_dt()
+                except Exception:
+                    last_heat_event_dt = None
+                self._status_metrics["heat_ts"] = now_monotonic
             
             def apply():
                 self._status_metrics["pv_today_kwh"] = pv_today_kwh
@@ -373,8 +376,15 @@ class MainApp(UiQueuePumpMixin):
             heat_part = "Einheizen: --"
             try:
                 if last_heat_event_dt is not None:
-                    age_s = (datetime.now().astimezone() - last_heat_event_dt).total_seconds()
-                    heat_part = f"Einheizen: {last_heat_event_dt.strftime('%H:%M')} (vor {format_age_short(age_s)})"
+                    d = last_heat_event_dt.date()
+                    today = datetime.now().date()
+                    if d == today:
+                        when = f"heute {last_heat_event_dt:%H:%M}"
+                    elif (today - d).days == 1:
+                        when = f"gestern {last_heat_event_dt:%H:%M}"
+                    else:
+                        when = f"{last_heat_event_dt:%d.%m.} (vor {(today - d).days} T)"
+                    heat_part = f"Einheizen: {when}"
             except Exception:
                 pass
 

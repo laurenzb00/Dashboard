@@ -71,7 +71,7 @@ class HeaderBar(ctk.CTkFrame):
         # --- Links: Aktionen als groessere, klar umrandete Chips statt
         # der vorherigen fast unsichtbaren Transparent-Buttons. ---
         actions_wrap = ctk.CTkFrame(bar, fg_color="transparent")
-        actions_wrap.pack(side=tk.LEFT, padx=(18, 0), pady=14)
+        actions_wrap.pack(side=tk.LEFT, padx=(18, 0), pady=10)
 
         leave_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
         leave_wrap.pack(side=tk.LEFT, padx=(0, 10))
@@ -110,11 +110,13 @@ class HeaderBar(ctk.CTkFrame):
             border_width=2,
             border_color=COLOR_WARNING,
         )
+        # Beschriftung IM Chip (Icon oben, Text darunter) statt als eigenes
+        # Label unter dem Chip - das wurde von der festen Kopfzeilen-Hoehe
+        # abgeschnitten.
+        self.leave_btn.configure(text="Weg", compound="top", text_color=COLOR_SUBTEXT,
+                                 font=get_safe_font("Bahnschrift", 11, "bold"))
         self.leave_btn.pack()
-        self.leave_caption = ctk.CTkLabel(
-            leave_wrap, text="Weg", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT
-        )
-        self.leave_caption.pack(pady=(4, 0))
+        self.leave_caption = self.leave_btn
 
         home_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
         home_wrap.pack(side=tk.LEFT, padx=(0, 10))
@@ -134,11 +136,13 @@ class HeaderBar(ctk.CTkFrame):
             border_width=2,
             border_color=COLOR_SUCCESS,
         )
+        # Beschriftung IM Chip (Icon oben, Text darunter) statt als eigenes
+        # Label unter dem Chip - das wurde von der festen Kopfzeilen-Hoehe
+        # abgeschnitten.
+        self.home_btn.configure(text="Zuhause", compound="top", text_color=COLOR_SUBTEXT,
+                                 font=get_safe_font("Bahnschrift", 11, "bold"))
         self.home_btn.pack()
-        self.home_caption = ctk.CTkLabel(
-            home_wrap, text="Zuhause", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT
-        )
-        self.home_caption.pack(pady=(4, 0))
+        self.home_caption = self.home_btn
 
         shower_wrap = ctk.CTkFrame(actions_wrap, fg_color="transparent")
         shower_wrap.pack(side=tk.LEFT)
@@ -156,11 +160,13 @@ class HeaderBar(ctk.CTkFrame):
             border_width=2,
             border_color=COLOR_INFO,
         )
+        # Beschriftung IM Chip (Icon oben, Text darunter) statt als eigenes
+        # Label unter dem Chip - das wurde von der festen Kopfzeilen-Hoehe
+        # abgeschnitten.
+        self.shower_btn.configure(text="Dusche", compound="top", text_color=COLOR_SUBTEXT,
+                                 font=get_safe_font("Bahnschrift", 11, "bold"))
         self.shower_btn.pack()
-        self.shower_caption = ctk.CTkLabel(
-            shower_wrap, text="Dusche", font=get_safe_font("Bahnschrift", 11), text_color=COLOR_SUBTEXT
-        )
-        self.shower_caption.pack(pady=(4, 0))
+        self.shower_caption = self.shower_btn
 
         # --- Mitte: Uhrzeit/Datum, per place() exakt auf der Bar-Mitte
         # zentriert - unabhaengig davon, wie breit links (Aktionen) und
@@ -322,15 +328,14 @@ class HeaderBar(ctk.CTkFrame):
             self.forecast_label.configure(font=get_safe_font("Bahnschrift", 14))
             # Groessere Icon-Varianten fuer die Touch-Hochformat-Chips (feste
             # Materialfarben-Palette, siehe ctk_icon_rich() weiter oben).
-            self._icon_leave_normal = ctk_icon_rich("door_exit", size=40)
+            self._icon_leave_normal = ctk_icon_rich("door_exit", size=38)
             self._icon_leave_active = self._icon_leave_normal
             self.leave_btn.configure(image=self._icon_leave_normal)
-            self.home_btn.configure(image=ctk_icon_rich("house", size=40))
-            self.shower_btn.configure(image=ctk_icon_rich("shower", size=40))
+            self.home_btn.configure(image=ctk_icon_rich("house", size=38))
+            self.shower_btn.configure(image=ctk_icon_rich("shower", size=38))
+            # Kopfzeile 150 px: 2x8 Rand + 2x10 Abstand + Chip 100 passt sicher
             for button in (self.leave_btn, self.home_btn, self.shower_btn):
-                button.configure(width=124, height=100)
-            for caption in (self.leave_caption, self.home_caption, self.shower_caption):
-                caption.configure(font=get_safe_font("Bahnschrift", 13))
+                button.configure(width=124, height=100, font=get_safe_font("Bahnschrift", 13, "bold"))
             self.light_switch.configure(width=80, height=40, switch_width=80, switch_height=40)
         except Exception:
             pass

@@ -475,3 +475,46 @@ class Party(Routine):
                 self.client.light_turn_on(loop, effect="none")
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Vom Dashboard ausgenommene Lichter (Vorraum: nur Bewegungsmelder)
+# ---------------------------------------------------------------------------
+
+EXCLUDE_KEYWORDS = ("vorraum",)
+
+
+def _has_keyword(*texts: Optional[str]) -> bool:
+    for t in texts:
+        low = str(t or "").lower()
+        if any(k in low for k in EXCLUDE_KEYWORDS):
+            return True
+    return False
+
+
+def excluded_entities(states: List[Dict[str, Any]], areas: Optional[Dict[str, str]] = None,
+                      extra: Optional[set] = None) -> set:
+    """Lichter/Schalter, die das Dashboard nie schalten darf (z.B. Vorraum mit
+    Bewegungsmelder). Erkannt ueber Entity-ID, Anzeigename oder HA-Bereich."""
+    areas = areas or {}
+    out = {e for e in (extra or set()) if e}
+    for st in states:
+        ent = str(st.get("entity_id") or "")
+        if not ent.startswith(("light.", "switch.")):
+            continue
+        name = (st.get("attributes") or {}).get("friendly_name")
+        if _has_keyword(ent, name, areas.get(ent)):
+            out.add(ent)
+    return out
+
+
+def scene_is_excluded(entity_id: str, name: Optional[str] = None, area: Optional[str] = None) -> bool:
+    """Szenen fuer ausgenommene Bereiche (z.B. 'Vorraum ein') nicht anzeigen."""
+    return _has_keyword(entity_id, name, area)
+
+
+def filter_scene_entities(entities: Dict[str, Any], excluded: set) -> Optional[Dict[str, Any]]:
+    """Szenen-Inhalt ohne ausgenommene Entitaeten. None = nichts auszunehmen."""
+    if not entities or not any(e in excluded for e in entities):
+        return None
+    return {e: v for e, v in entities.items() if e not in excluded}

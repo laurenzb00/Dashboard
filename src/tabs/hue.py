@@ -3,7 +3,11 @@
 Aufbau
 ------
 * Oben "Alle Lichter": grosser Live-Dimmer (TouchSlider), Lichtfarbe warm<->kalt,
-  Alles aus, Auto-Modus, Vorraum-Schalter.
+  Alles aus, Auto-Modus, Vorraum-Status (nur Anzeige).
+
+Vorraum: wird ausschliesslich vom Bewegungsmelder geschaltet. Das Dashboard
+nimmt alle Vorraum-Lichter aus Dimmer, Szenen, Stimmungen und Ablaeufen aus
+(core.lights.excluded_entities) und zeigt nur den Status an.
 * Ansicht "Szenen": Favoriten, Stimmungen (Film, Essen, Lesen, Arbeiten,
   Nachtlicht, Party), Home-Assistant-Szenen nach Bereich gruppiert, Kacheln in
   der Farbe der Szene, "Aktuelles Licht als Szene speichern" (Bildschirmtastatur).
@@ -51,6 +55,9 @@ from ui.styles import (
 POLL_MS = 10_000
 AREA_REFRESH_S = 300
 AUTO_TICK_MS = 120_000
+# Deckenlampe (Schalter) geht beim Dimmen ab diesem Wert mit an, darunter aus.
+# Ueberschreibbar mit "ceiling_threshold_pct" in config/homeassistant.json.
+CEILING_ON_PCT = 75
 KELVIN_GRADIENT = ["#ff9b3d", "#ffc58a", "#fff1dc", "#e6f0ff", "#b9d2ff"]
 
 
@@ -63,7 +70,7 @@ def _k_fmt(v: float) -> str:
 
 
 _SCENE_ICONS = [
-    (frozenset({"aus"}), "🌑"),
+    (frozenset({"aus"}), "power"),
     (frozenset({"ein", "hell", "an"}), "💡"),
     (frozenset({"nacht", "nachtlicht"}), "🌙"),
     (frozenset({"chill", "relax"}), "🛋️"),
@@ -157,9 +164,8 @@ class HueTab(UiQueuePumpMixin):
 
         self.status_var = tk.StringVar(value="⚠️ Home Assistant: nicht konfiguriert")
         self.last_refresh_var = tk.StringVar(value="")
-        self._vorraum_var = tk.BooleanVar(value=False)
-        self._vorraum_status_var = tk.StringVar(value="")
-        self._vorraum_ignore_callback = False
+        self._vorraum_status_var = tk.StringVar(value="Vorraum: –")
+        self._excluded: set = set()
         self._vorraum_status_entity_resolved: Optional[str] = None
 
         self._scenes: List[Dict[str, str]] = []
@@ -201,6 +207,9 @@ class HueTab(UiQueuePumpMixin):
         self._shell.pack(fill=tk.BOTH, expand=True)
         self._shell.subtitle_label.configure(textvariable=self.status_var)
         body = self._shell.body
+        # TabShell gibt Zeile 0 Gewicht 1 - hier muss nur der Inhalt (Zeile 2)
+        # wachsen, sonst entstehen grosse Luecken um die "Alle Lichter"-Karte.
+        body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(2, weight=1)
         body.grid_columnconfigure(0, weight=1)
 
@@ -233,16 +242,11 @@ class HueTab(UiQueuePumpMixin):
         self._btn_all_off.pack(side="left", padx=4)
         self._btn_auto = self._pill_button(btns, "☀  Auto", self._toggle_auto, COLOR_BORDER)
         self._btn_auto.pack(side="left", padx=4)
-        vor = ctk.CTkFrame(btns, fg_color="transparent")
-        vor.pack(side="left", padx=(14, 4))
-        ctk.CTkLabel(vor, text="Vorraum", text_color=COLOR_TEXT,
-                     font=get_safe_font("Bahnschrift", 13, "bold")).pack(side="left", padx=(0, 8))
-        ctk.CTkSwitch(vor, text="", width=60, height=30, switch_width=60, switch_height=30,
-                      variable=self._vorraum_var, command=self._on_vorraum_toggle, fg_color=COLOR_BORDER,
-                      progress_color=COLOR_WARNING, button_color=COLOR_TEXT,
-                      button_hover_color=COLOR_TEXT).pack(side="left")
-        ctk.CTkLabel(vor, textvariable=self._vorraum_status_var, text_color=COLOR_SUBTEXT,
-                     font=get_safe_font("Bahnschrift", 11)).pack(side="left", padx=6)
+        # Vorraum: nur Statusanzeige (geschaltet wird nur vom Bewegungsmelder)
+        self._vorraum_pill = ctk.CTkLabel(btns, textvariable=self._vorraum_status_var, height=40, corner_radius=20,
+                                          fg_color=COLOR_ROOT, text_color=COLOR_SUBTEXT, padx=14,
+                                          font=get_safe_font("Bahnschrift", 13, "bold"))
+        self._vorraum_pill.pack(side="left", padx=(10, 4))
         self._pill_button(btns, "↻", self._refresh_all_async, COLOR_BORDER, width=48).pack(side="right", padx=4)
         self._update_auto_button()
 
@@ -377,29 +381,38 @@ class HueTab(UiQueuePumpMixin):
                     continue
                 cid = (st.get("attributes") or {}).get("id")
                 color = None
+                cfg = None
                 if cid:
                     try:
                         cfg = client.get_scene_config(str(cid)) or {}
                         color = L.scene_preview_color(cfg.get("entities") or {})
                     except Exception:
                         color = None
-                meta[ent] = {"config_id": str(cid) if cid else None, "color": color}
+                meta[ent] = {"config_id": str(cid) if cid else None, "color": color,
+                             "entities": dict((cfg or {}).get("entities") or {}) if cid else {}}
+            vor_ent = str(getattr(self._ha_cfg, "vorraum_status_entity_id", "") or "").strip()
+            excluded = L.excluded_entities(states, areas.get("lights"), {vor_ent} if vor_ent else None)
             scenes = []
             allow = set(self._ha_cfg.scene_entity_ids or []) if self._ha_cfg else set()
+            scene_areas = areas.get("scenes") or {}
             for st in states:
                 ent = str(st.get("entity_id") or "")
                 if ent.startswith("scene.") and (not allow or ent in allow):
                     name = (st.get("attributes") or {}).get("friendly_name") or ent
+                    if L.scene_is_excluded(ent, str(name), scene_areas.get(ent)):
+                        continue
                     scenes.append({"entity_id": ent, "name": str(name)})
             scenes.sort(key=lambda s: s["name"].lower())
             only = list(self._ha_cfg.dim_entity_ids or []) if self._ha_cfg and self._ha_cfg.dim_entity_ids else None
-            lights = L.collect_lights(states, areas.get("lights"), only)
+            lights = [li for li in L.collect_lights(states, areas.get("lights"), only)
+                      if li.entity_id not in excluded]
 
             def apply() -> None:
                 if not self.alive:
                     return
                 self._states, self._areas, self._scene_meta = states, areas, meta
                 self._scenes, self._lights = scenes, lights
+                self._excluded = excluded
                 self.last_refresh_var.set(datetime.now().strftime("%H:%M:%S"))
                 if self.status_var.get().startswith(("⚠️ Home Assistant nicht", "🔌")):
                     self.status_var.set(f"✅ {len(lights)} Lichter · {len(scenes)} Szenen")
@@ -477,18 +490,37 @@ class HueTab(UiQueuePumpMixin):
                 ok = client.call_service("light", "turn_on", {"entity_id": other}) and ok
             return ok
 
+        ceiling, want_on = self._ceiling_target(room, pct)
+
         def do_with_ceiling():
             ok = do()
-            # Bisheriges Verhalten: Deckenlampe (Schalter) ab Schwelle zuschalten
-            cfg = self._ha_cfg
-            ceiling = str(getattr(cfg, "ceiling_entity_id", "") or "").strip() if cfg else ""
-            if room is None and ceiling:
-                thr = int(getattr(cfg, "ceiling_threshold_pct", 80) or 80)
-                svc = "turn_on" if pct > thr else "turn_off"
-                client.call_service("homeassistant", svc, {"entity_id": ceiling})
+            # Deckenlampe (Schalter) erst beim Loslassen und nur, wenn sich
+            # ihr Zustand wirklich aendern muss - vorher wurde sie bei jedem
+            # Loslassen geschaltet, auch wenn sie schon so war (kurzes Ein/Aus).
+            if ceiling and want_on is not None:
+                client.call_service("homeassistant", "turn_on" if want_on else "turn_off", {"entity_id": ceiling})
             return ok
 
         self._run(do_with_ceiling if final else do, refresh=1.5 if final else 3.0)
+
+    def _ceiling_target(self, room: Optional[str], pct: int) -> tuple[Optional[str], Optional[bool]]:
+        """Deckenlampe Schlafzimmer: ab CEILING_ON_PCT % an, darunter aus.
+
+        Gilt fuer den "Alle Lichter"-Dimmer und den Dimmer des Raums, in dem
+        die Deckenlampe haengt. Gibt (entity, gewuenschter Zustand) zurueck,
+        Zustand None = keine Aenderung noetig."""
+        cfg = self._ha_cfg
+        ceiling = str(getattr(cfg, "ceiling_entity_id", "") or "").strip() if cfg else ""
+        if not ceiling or ceiling in self._excluded:
+            return None, None
+        if room is not None and room.lower().replace(" ", "_") not in ceiling.lower():
+            return None, None
+        thr = int(getattr(cfg, "ceiling_threshold_pct", 0) or CEILING_ON_PCT)
+        want = pct >= thr
+        cur = next((str(s_.get("state") or "") for s_ in self._states if s_.get("entity_id") == ceiling), "")
+        if cur in ("on", "off") and (cur == "on") == want:
+            return ceiling, None
+        return ceiling, want
 
     def _set_kelvin(self, room: Optional[str], value: float) -> None:
         client = self._ha_client
@@ -517,7 +549,7 @@ class HueTab(UiQueuePumpMixin):
         if not client:
             return
         if cfg and cfg.scene_all_off:
-            self._run(lambda: client.activate_scene(cfg.scene_all_off))
+            self._run(lambda: self._apply_scene(cfg.scene_all_off))
         else:
             ids = [li.entity_id for li in self._lights]
             self._run(lambda: client.call_service("light", "turn_off", {"entity_id": ids}))
@@ -549,7 +581,23 @@ class HueTab(UiQueuePumpMixin):
         self._stop_routine("party")
         name = next((s["name"] for s in self._scenes if s["entity_id"] == entity_id), entity_id)
         self.status_var.set(f"✅ {_prettify_scene_name(name)}")
-        self._run(lambda: self._ha_client.activate_scene(entity_id))
+        self._run(lambda: self._apply_scene(entity_id))
+
+    def _apply_scene(self, entity_id: str) -> bool:
+        """Szene aktivieren - ohne ausgenommene Lichter (Vorraum).
+
+        Enthaelt die im HA-Editor gespeicherte Szene ein Vorraum-Licht, wird
+        sie per scene.apply ohne diese Entitaeten gesetzt; sonst normal."""
+        client = self._ha_client
+        if not client:
+            return False
+        ents = (self._scene_meta.get(entity_id) or {}).get("entities") or {}
+        filtered = L.filter_scene_entities(ents, self._excluded)
+        if filtered is None:
+            return bool(client.activate_scene(entity_id))
+        if not filtered:
+            return True
+        return bool(client.call_service("scene", "apply", {"entities": filtered}))
 
     # ------------------------------------------------------- Szenen-Edit --
 
@@ -653,12 +701,9 @@ class HueTab(UiQueuePumpMixin):
             return
         self._stop_routine("party")
         self._stop_routine("wakeup")
-        keep = None
-        if self._ha_cfg:
-            keep = getattr(self._ha_cfg, "vorraum_status_entity_id", None)
-        self._start_routine(L.GoodNight(self._ha_client, [li.entity_id for li in self._lights], keep,
+        self._start_routine(L.GoodNight(self._ha_client, [li.entity_id for li in self._lights], None,
                                         on_done=self._routine_done))
-        self.status_var.set("😴 Gute Nacht – Vorraum geht in 2 min aus")
+        self.status_var.set("😴 Gute Nacht")
 
     def _toggle_auto(self) -> None:
         self.prefs["auto"] = not bool(self.prefs.get("auto"))
@@ -735,31 +780,83 @@ class HueTab(UiQueuePumpMixin):
         grid.pack(fill="x", padx=2)
         return grid
 
+    TILE_H = 76
+
+    @staticmethod
+    def _round_rect(cv, x0, y0, x1, y1, r, **kw):
+        pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1,
+               x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
+        return cv.create_polygon(pts, smooth=True, splinesteps=12, **kw)
+
+    @staticmethod
+    def _draw_power(cv, cx, cy, r, color):
+        cv.create_arc(cx - r, cy - r, cx + r, cy + r, start=120, extent=300, style="arc", outline=color, width=3)
+        cv.create_line(cx, cy - r - 2, cx, cy - 1, fill=color, width=3, capstyle="round")
+
     def _tile(self, parent, idx, cols, icon, name, color, command, long_press=None, star=False, dashed=False):
+        """Kachel als EIN tk.Canvas (statt CTkFrame + 2 CTkLabels).
+
+        Auf dem Pi blieben bei den verschachtelten CTk-Widgets die Inhalte der
+        rechten Spalte schwarz (nicht neu gezeichnet). Eine einzige Zeichen-
+        flaeche zeichnet sich bei jeder Groessenaenderung komplett neu und
+        ist ausserdem deutlich schneller (3 statt ~8 Tk-Fenster je Kachel)."""
         r, c = divmod(idx, cols)
         for cc in range(cols):  # alle Spalten gleich breit, auch wenn die Zeile nicht voll ist
             parent.grid_columnconfigure(cc, weight=1, uniform="tile")
-        tile = ctk.CTkFrame(parent, fg_color=COLOR_CARD, corner_radius=16, border_width=2,
-                            border_color=color or COLOR_BORDER, height=74)
-        tile.grid(row=r, column=c, sticky="nsew", padx=5, pady=5)
-        tile.grid_propagate(False)
-        tile.grid_columnconfigure(1, weight=1)
-        tile.grid_rowconfigure(0, weight=1)
-        dot = ctk.CTkLabel(tile, text=icon, width=44, height=44, corner_radius=22, fg_color=color or COLOR_ROOT,
-                           font=get_safe_font("Segoe UI Emoji", 20))
-        dot.grid(row=0, column=0, padx=(12, 8))
-        lbl = ctk.CTkLabel(tile, text=(name + ("  ★" if star else "")), anchor="w", text_color=COLOR_TEXT,
-                           font=get_safe_font("Bahnschrift", 14, "bold"), wraplength=170, justify="left")
-        lbl.grid(row=0, column=1, sticky="w", padx=(0, 8))
-        for w in (tile, dot, lbl):
-            w.bind("<ButtonRelease-1>", lambda _e: self._tile_click(command), add="+")
+        h = self.TILE_H
+        cv = tk.Canvas(parent, height=h, bg=COLOR_ROOT, highlightthickness=0, bd=0, cursor="hand2")
+        cv.grid(row=r, column=c, sticky="ew", padx=5, pady=5)
+        accent = color or COLOR_BORDER
+        state = {"border": accent, "pressed": False}
+        icon_font = get_safe_font("Segoe UI Emoji", 20)
+        text_font = get_safe_font("Bahnschrift", 15, "bold")
+        label = name + ("  ★" if star else "")
+
+        def draw(_e=None):
+            cv.delete("all")
+            w = cv.winfo_width()
+            if w < 40:
+                return
+            fill = COLOR_BORDER if state["pressed"] else COLOR_CARD
+            self._round_rect(cv, 2, 2, w - 3, h - 3, 18, fill=fill, outline=state["border"], width=2,
+                             dash=(6, 4) if dashed else None)
+            cx, cy, rr = 38, h / 2, 23
+            cv.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, fill=color or COLOR_ROOT, outline="")
+            if icon == "power":
+                self._draw_power(cv, cx, cy, 11, COLOR_TEXT)
+            else:
+                cv.create_text(cx, cy, text=icon, font=icon_font, fill=COLOR_TEXT)
+            cv.create_text(cx + rr + 14, cy, text=label, anchor="w", fill=COLOR_TEXT, font=text_font,
+                           width=max(40, w - (cx + rr + 26)))
+
+        cv.bind("<Configure>", draw)
+
+        def press(_e):
+            state["pressed"] = True
+            draw()
+
+        def release(_e):
+            state["pressed"] = False
+            draw()
+            self._tile_click(command)
+        cv.bind("<ButtonPress-1>", press, add="+")
+        cv.bind("<ButtonRelease-1>", release, add="+")
+        cv.bind("<Leave>", lambda _e: (state.update(pressed=False), draw()), add="+")
+
         if long_press:
+            class _Feedback:  # bind_long_press setzt border_color als "gedrueckt"-Anzeige
+                @staticmethod
+                def configure(border_color=None, **_kw):
+                    if border_color:
+                        state["border"] = border_color
+                        draw()
+
             def fire():
                 self._suppress_click_until = time.monotonic() + 0.8
                 long_press()
-            bind_long_press(tile, fire, feedback_widget=tile, press_color=COLOR_PRIMARY,
-                            release_color=color or COLOR_BORDER)
-        return tile
+            bind_long_press(cv, fire, feedback_widget=_Feedback, press_color=COLOR_PRIMARY,
+                            release_color=accent)
+        return cv
 
     _suppress_click_until = 0.0
     _drag_moved = False
@@ -828,7 +925,8 @@ class HueTab(UiQueuePumpMixin):
                          text_color=COLOR_SUBTEXT).pack(anchor="w", padx=10)
 
         g = self._section("Eigene Szene")
-        self._tile(g, 0, cols, "＋", "Aktuelles Licht\nals Szene speichern", COLOR_BORDER, self._ask_save_scene)
+        self._tile(g, 0, cols, "＋", "Aktuelles Licht als Szene speichern", None, self._ask_save_scene,
+                   dashed=True)
         ctk.CTkLabel(self._content, text="Tipp: Szene lange drücken → Favorit / löschen",
                      text_color=COLOR_SUBTEXT, font=get_safe_font("Bahnschrift", 11)).pack(anchor="w", padx=10,
                                                                                             pady=(4, 10))
@@ -928,9 +1026,8 @@ class HueTab(UiQueuePumpMixin):
         target = "alle Lichter" if self._mood_target == "Alle" else self._mood_target
         card("🌅", "Aufwachen", f"Sanfter Sonnenaufgang: {target} von 1 % sehr warm auf 100 % neutral.",
              bool(wake and wake.running), self._start_wakeup, lambda: self._stop_routine("wakeup"), minutes_picker)
-        keep = getattr(self._ha_cfg, "vorraum_status_entity_id", None) if self._ha_cfg else None
         gn = self._routines.get("goodnight")
-        card("😴", "Gute Nacht", "Alle Lichter aus" + (" – der Vorraum bleibt noch 2 Minuten an." if keep else "."),
+        card("😴", "Gute Nacht", "Alle Lichter sanft aus (Vorraum bleibt beim Bewegungsmelder).",
              bool(gn and gn.running), self._start_goodnight, lambda: self._stop_routine("goodnight"))
         party = self._routines.get("party")
         card("🎉", "Party", "Farbwechsel auf allen Farb-Lampen (Effekt der Lampe oder alle 4 s eine neue Farbe).",
@@ -978,9 +1075,9 @@ class HueTab(UiQueuePumpMixin):
                     ok = False
                 else:
                     if turn_on and cfg.scene_all_on:
-                        ok = bool(client.activate_scene(cfg.scene_all_on))
+                        ok = self._apply_scene(cfg.scene_all_on)
                     elif (not turn_on) and cfg.scene_all_off:
-                        ok = bool(client.activate_scene(cfg.scene_all_off))
+                        ok = self._apply_scene(cfg.scene_all_off)
                     elif cfg.master_entity_id:
                         service = "turn_on" if turn_on else "turn_off"
                         ok = bool(client.call_service("homeassistant", service, {"entity_id": cfg.master_entity_id}))
@@ -1095,68 +1192,6 @@ class HueTab(UiQueuePumpMixin):
                 return ent or None
         return None
 
-    def _on_vorraum_toggle(self) -> None:
-        if self._vorraum_ignore_callback:
-            return
-        try:
-            desired_on = bool(self._vorraum_var.get())
-        except Exception:
-            desired_on = False
-
-        self._vorraum_status_var.set("⏳ schalte …")
-        self._set_vorraum_scene_async(desired_on)
-
-    def _set_vorraum_scene_async(self, turn_on: bool) -> None:
-        def worker() -> None:
-            ok = False
-            scene_ent: Optional[str] = None
-            try:
-                client = self._ha_client
-                cfg = self._ha_cfg
-                if not client or not cfg:
-                    ok = False
-                else:
-                    scene_key = "vorraum_scene_on" if turn_on else "vorraum_scene_off"
-                    configured = getattr(cfg, scene_key, None)
-                    scene_ent = self._resolve_scene_entity_id(configured)
-                    if not scene_ent:
-                        # Fallback: look up by friendly name in loaded scenes.
-                        scene_ent = self._resolve_scene_entity_id("vorraum ein" if turn_on else "vorraum aus")
-
-                    if not scene_ent:
-                        try:
-                            scenes = client.list_scenes()
-                            wanted = self._normalize_scene_name("vorraum ein" if turn_on else "vorraum aus")
-                            for sc in scenes:
-                                if self._normalize_scene_name(sc.get("name") or "") == wanted:
-                                    scene_ent = str(sc.get("entity_id") or "").strip() or None
-                                    break
-                        except Exception:
-                            pass
-
-                    ok = bool(scene_ent and client.activate_scene(scene_ent))
-            except Exception:
-                ok = False
-
-            def apply() -> None:
-                if not self.alive:
-                    return
-                if ok:
-                    self.status_var.set(f"✅ Vorraum Szene aktiviert: {scene_ent}")
-                else:
-                    self.status_var.set("⚠️ Vorraum Szene fehlgeschlagen")
-
-            self._post_ui(apply)
-
-            # Best-effort: refresh status after HA applied changes.
-            try:
-                time.sleep(0.4)
-            except Exception:
-                pass
-            self._refresh_vorraum_status_async()
-
-        threading.Thread(target=worker, daemon=True).start()
-
     def _schedule_vorraum_poll(self) -> None:
         if not self.alive:
             return
@@ -1166,7 +1201,7 @@ class HueTab(UiQueuePumpMixin):
                 return
             self._refresh_vorraum_status_async()
             try:
-                self.root.after(5000, tick)
+                self.root.after(10_000, tick)
             except Exception:
                 pass
 
@@ -1225,7 +1260,7 @@ class HueTab(UiQueuePumpMixin):
             status_text: str
             if not client or state_data is None:
                 enabled = None
-                status_text = "Status: unbekannt"
+                status_text = "🚪 Vorraum: ?"
             else:
                 try:
                     state_raw = str(state_data.get("state") or "").strip().lower()
@@ -1239,11 +1274,11 @@ class HueTab(UiQueuePumpMixin):
                     enabled = None
 
                 if enabled is True:
-                    status_text = "Status: Ein"
+                    status_text = "🚪 Vorraum: an"
                 elif enabled is False:
-                    status_text = "Status: Aus"
+                    status_text = "🚪 Vorraum: aus"
                 else:
-                    status_text = "Status: unbekannt"
+                    status_text = "🚪 Vorraum: ?"
 
             def apply() -> None:
                 if not self.alive:
@@ -1251,14 +1286,12 @@ class HueTab(UiQueuePumpMixin):
                 if resolved_entity:
                     self._vorraum_status_entity_resolved = resolved_entity
                 self._vorraum_status_var.set(status_text)
-
-                if enabled is None:
-                    return
                 try:
-                    self._vorraum_ignore_callback = True
-                    self._vorraum_var.set(bool(enabled))
-                finally:
-                    self._vorraum_ignore_callback = False
+                    on = enabled is True
+                    self._vorraum_pill.configure(fg_color=COLOR_WARNING if on else COLOR_ROOT,
+                                                 text_color="#111317" if on else COLOR_SUBTEXT)
+                except Exception:
+                    pass
 
             self._post_ui(apply)
 

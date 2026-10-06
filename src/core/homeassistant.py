@@ -16,7 +16,7 @@ class HomeAssistantConfig:
     timeout_s: float = 5.0
     master_entity_id: Optional[str] = None
     ceiling_entity_id: Optional[str] = None
-    ceiling_threshold_pct: int = 80
+    ceiling_threshold_pct: int = 75
     scene_all_on: Optional[str] = None
     scene_all_off: Optional[str] = None
     scene_come_home: Optional[str] = None
@@ -162,7 +162,7 @@ def load_homeassistant_config(config_path: Optional[str] = None) -> Optional[Hom
         timeout_s=timeout_s,
         master_entity_id=_opt_str("master_entity_id"),
         ceiling_entity_id=_opt_str("ceiling_entity_id"),
-        ceiling_threshold_pct=max(0, min(100, _opt_int("ceiling_threshold_pct", 80))),
+        ceiling_threshold_pct=max(0, min(100, _opt_int("ceiling_threshold_pct", 75))),
         scene_all_on=_opt_str("scene_all_on"),
         scene_all_off=_opt_str("scene_all_off"),
         scene_come_home=_opt_str("scene_come_home"),
