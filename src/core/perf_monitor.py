@@ -83,6 +83,16 @@ def _cpu_temp() -> Optional[float]:
         return None
 
 
+def _fan_rpm() -> Optional[int]:
+    try:
+        import glob
+        for p in glob.glob("/sys/devices/platform/cooling_fan/hwmon/hwmon*/fan1_input"):
+            return int(Path(p).read_text().strip())
+    except Exception:
+        pass
+    return None
+
+
 def _throttled() -> Optional[str]:
     try:
         out = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=3).stdout
@@ -102,7 +112,7 @@ def _summary(proc) -> dict:
         return round(lags[min(len(lags) - 1, int(len(lags) * p))], 1) if lags else None
     e = {"kind": "minute", "ui_lag_ms_p50": pct(0.5), "ui_lag_ms_p95": pct(0.95),
          "ui_lag_ms_max": round(lags[-1], 1) if lags else None, "ui_ticks": len(lags), "freezes": freezes,
-         "cpu_temp_c": _cpu_temp()}
+         "cpu_temp_c": _cpu_temp(), "fan_rpm": _fan_rpm()}
     try:
         e["load1"] = round(os.getloadavg()[0], 2)
     except Exception:

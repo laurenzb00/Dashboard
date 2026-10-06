@@ -153,6 +153,12 @@ def system_info() -> None:
         say(f"CPU-Temp:    {t:.1f} °C")
     except Exception:
         pass
+    import glob as _glob
+    rpm = [_read(p) for p in _glob.glob("/sys/devices/platform/cooling_fan/hwmon/hwmon*/fan1_input")]
+    states = [f"{_read(p)}/{_read(p.replace('cur_state', 'max_state'))}"
+              for p in _glob.glob("/sys/class/thermal/cooling_device*/cur_state")]
+    say(f"Lüfter:      {', '.join(rpm) + ' U/min' if rpm else 'kein Pi-5-Lüfteranschluss erkannt (Lüfter an GPIO oder fehlt)'}"
+        f"   Stufe {', '.join(states) or '-'}")
     thr = _run(["vcgencmd", "get_throttled"])
     say(f"Drosselung:  {thr}")
     try:

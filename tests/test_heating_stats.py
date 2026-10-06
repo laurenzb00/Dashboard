@@ -64,6 +64,23 @@ class TestKessel(unittest.TestCase):
         fire = Bucket(ts=t, kessel=45, top=55, mid=50, bot=45, warm=55, outdoor=5, modus="ANHEIZEN")
         self.assertTrue(kessel_active(fire))
 
+    def test_load_buckets_with_text_mode(self):
+        import sqlite3
+        from core.heating_stats import load_buckets
+
+        class Store:
+            conn = sqlite3.connect(":memory:")
+        Store.conn.execute("CREATE TABLE heating (timestamp TEXT, kesseltemp REAL, puffer_top REAL, puffer_mid REAL, "
+                           "puffer_bot REAL, warmwasser REAL, aussentemp REAL, rauchgastemp REAL, betriebsmodus REAL)")
+        Store.conn.executemany("INSERT INTO heating VALUES (?,?,?,?,?,?,?,?,?)", [
+            ("2026-10-06 10:00:00", 70, 50, 48, 45, 55, 10, None, "STANDBY"),
+            ("2026-10-06 10:05:00", 72, 50, 48, 45, 55, 10, None, "STANDBY"),
+            ("2026-10-06 10:20:00", 75, 50, 48, 45, 55, 10, None, "VOLLLAST")])
+        b = load_buckets(Store, datetime(2026, 10, 6, 0), datetime(2026, 10, 7, 0))
+        self.assertEqual(len(b), 2)
+        self.assertFalse(kessel_active(b[0]))      # heiss, aber STANDBY -> kein Feuer
+        self.assertTrue(kessel_active(b[1]))
+
     def test_rauchgas_decides_when_recorded(self):
         t = datetime(2026, 8, 5, 11)
         solar = Bucket(ts=t, kessel=72, top=55, mid=50, bot=45, warm=55, outdoor=25, rauchgas=40.0)

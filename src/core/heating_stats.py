@@ -218,7 +218,8 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
     out = []
     for k in sorted(acc):
         slot = acc[k]
-        m = {n: (sum(v) / len(v)) for n, v in slot.items() if v}
+        # Mittelwerte nur fuer Zahlen - "modus" ist Text (z.B. "STANDBY")
+        m = {n: (sum(v) / len(v)) for n, v in slot.items() if v and n != "modus"}
         if "top" not in m and "kessel" not in m:
             continue
         out.append(Bucket(ts=k, kessel=m.get("kessel"), top=m.get("top"), mid=m.get("mid"),
