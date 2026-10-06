@@ -409,7 +409,9 @@ class WaermeTab(UiQueuePumpMixin):
                 if not self.alive or token != self._update_token:
                     return
                 self._last_result = (timeline, today_stats, season, rec)
-                self._apply_result(timeline, today_stats, season, rec)
+                from core.perf_monitor import timed
+                with timed("waerme.anzeigen", min_ms=100):
+                    self._apply_result(timeline, today_stats, season, rec)
 
             self._post_ui(apply)
 

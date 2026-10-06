@@ -129,7 +129,8 @@ class TestCache(unittest.TestCase):
                       "latitude": LAT, "longitude": LON, "fitted_at": time.time()}
         self.model_path.write_text(json.dumps(self.model))
         self.patches = [mock.patch.object(pf, "CACHE_PATH", self.cache), mock.patch.object(pf, "MODEL_PATH", self.model_path),
-                        mock.patch.object(pf, "_attempted_day", date.today()), mock.patch.object(pf, "_model_mem", None)]
+                        mock.patch.object(pf, "_attempted_day", date.today()), mock.patch.object(pf, "_model_mem", None),
+                        mock.patch.object(fl, "DB_PATH", Path(self.tmp.name) / "learn.db")]   # Prognose-Protokoll
         for p in self.patches:
             p.start()
 

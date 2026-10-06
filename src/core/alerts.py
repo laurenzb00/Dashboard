@@ -206,6 +206,12 @@ def check_heat(store, model, wx: Optional[dict], cfg: Optional[hs.StorageConfig]
 # ---------------------------------------------------------------------------
 
 def run_checks(store) -> list[str]:
+    from .perf_monitor import timed
+    with timed("meldungen.pruefen", min_ms=200):
+        return _run_checks(store)
+
+
+def _run_checks(store) -> list[str]:
     sent = []
     try:
         from . import pv_forecast

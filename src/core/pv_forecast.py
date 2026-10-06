@@ -301,7 +301,9 @@ def get_model(store, cfg: Optional[WeatherConfig] = None, allow_network: bool = 
         if force or _attempted_day != date.today():
             _attempted_day = date.today()
             try:
-                new_model = calibrate(store, cfg, allow_network=allow_network)
+                from .perf_monitor import timed
+                with timed("pv.lernen", min_ms=0):
+                    new_model = calibrate(store, cfg, allow_network=allow_network)
             except Exception as exc:
                 logger.warning("[PV-Prognose] Lernen fehlgeschlagen: %s", exc)
                 new_model = None

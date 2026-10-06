@@ -325,7 +325,9 @@ class ErtragTab(UiQueuePumpMixin):
                 if not self.alive or token != self._update_token:
                     return
                 self._skill_text = skill_text
-                self._apply_day_result(day, key, binned, summary, fc_day)
+                from core.perf_monitor import timed
+                with timed("ertrag.anzeigen", min_ms=100):
+                    self._apply_day_result(day, key, binned, summary, fc_day)
 
             self._post_ui(apply)
 

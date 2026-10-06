@@ -659,7 +659,9 @@ def get_models(store, cfg: Optional[hs.StorageConfig] = None, force: bool = Fals
             _attempted_day = date.today()
             t0 = time.monotonic()
             try:
-                demand, solar = learn(store, cfg, allow_network=allow_network)
+                from .perf_monitor import timed
+                with timed("waerme.lernen", min_ms=0):
+                    demand, solar = learn(store, cfg, allow_network=allow_network)
             except Exception as exc:
                 logger.warning("[Waermebedarf] Lernen fehlgeschlagen: %s", exc, exc_info=True)
                 demand, solar = None, None

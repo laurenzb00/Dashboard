@@ -1294,6 +1294,12 @@ class MainApp(UiQueuePumpMixin):
             alerts.start_background(self.datastore)
         except Exception as e:
             logger.error("Warnmeldungen konnten nicht gestartet werden: %s", e)
+        # Leistungs-Protokoll (data/perf_log.jsonl) fuer die Fehlersuche am Pi
+        try:
+            from core import perf_monitor
+            perf_monitor.start(self.root)
+        except Exception as e:
+            logger.error("Leistungs-Protokoll konnte nicht gestartet werden: %s", e)
         # _style_tabview_buttons() lief bisher nur einmal ganz am Anfang,
         # bevor die meisten Tabs ueberhaupt existierten (nur "Energie" war
         # zu dem Zeitpunkt schon da) - hier nochmal aufrufen, jetzt wo alle

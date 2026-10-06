@@ -298,12 +298,16 @@ def update(store, cfg: Optional[WeatherConfig] = None, storage: Optional[hs.Stor
         storage = storage or hs.load_storage_config()
         now = time.time()
         t0 = time.monotonic()
+        from .perf_monitor import timed
         conn = connect()
         try:
             if allow_network and cfg.enabled:
-                _update_weather(conn, store, cfg, now)
-            _update_pv(conn, store, now)
-            _update_heat(conn, store, storage, now)
+                with timed("lernen.wetter"):
+                    _update_weather(conn, store, cfg, now)
+            with timed("lernen.pv_stunden"):
+                _update_pv(conn, store, now)
+            with timed("lernen.waerme_stunden"):
+                _update_heat(conn, store, storage, now)
             _meta_set(conn, "updated_at", int(now))
             conn.commit()
         finally:
