@@ -14,6 +14,7 @@ import numpy as np
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.colors import LinearSegmentedColormap, Normalize
+from ui import temp_colors as _tc
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse, FancyBboxPatch, Rectangle
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -73,22 +74,11 @@ SPARK_TEMP_COLOR = "#ff4fd8"
 
 class BufferStorageView(tk.Frame):
 
-    # Heatmap scale targets (°C)
-    # Nutzer-Feedback zur Farbwahrnehmung: "50 bis 55 Grad ist mittel, alles
-    # unter 45 ist eigentlich schon kalt und 65 ist schon ziemlich warm".
-    # TEMP_MIN/TEMP_MAX (die Normalize-Endpunkte, auf die sich die gesamte
-    # Farbskala bezieht) sind dafür von 35-75°C auf 30-75°C verschoben, damit
-    # 45°C sicher im kuehlen/blauen Bereich landet (Anteil ~0.33, noch vor
-    # dem neutralen Tuerkis-Stop) und 50-55°C genau um den neutralen,
-    # weder kalt noch warm wirkenden Farbton der Palette (Anteil ~0.44-0.56)
-    # liegt, waehrend 65°C bereits deutlich im Orange (Anteil ~0.78) sitzt -
-    # "schon ziemlich warm", aber mit Reserve nach oben fuer noch heissere
-    # Werte bis 75°C. TEMP_BLUE_MAX/TEMP_ORANGE_FROM (nur fuer die mittlere
-    # Farbbalken-Beschriftung) folgen denselben 45/65-Grenzen.
-    TEMP_MIN = 30.0
-    TEMP_BLUE_MAX = 45.0
-    TEMP_ORANGE_FROM = 65.0
-    TEMP_MAX = 75.0
+    # Heatmap-Skala (°C) - gemeinsam mit dem Waerme-Tab in ui/temp_colors.py.
+    # Nutzer-Feedback: 57 °C ist schon "relativ warm" und darf nicht mehr
+    # hellblau aussehen -> Farbstopps haengen jetzt direkt an °C.
+    TEMP_MIN = _tc.TEMP_MIN
+    TEMP_MAX = _tc.TEMP_MAX
 
     @staticmethod
     def _blend_hex(c1: str, c2: str, t: float) -> str:
@@ -639,8 +629,7 @@ class BufferStorageView(tk.Frame):
         # reads as "cold -> lauwarm -> heiß" at a glance. The blue/orange knee
         # (53-55°C) is only 2°C wide, too narrow to label both ends without
         # overlapping text, so a single midpoint tick stands in for it.
-        knee_mid = (self.TEMP_BLUE_MAX + self.TEMP_ORANGE_FROM) / 2.0
-        threshold_ticks = sorted({self.TEMP_MIN, knee_mid, self.TEMP_MAX})
+        threshold_ticks = list(_tc.TICKS_C)
         cbar.set_ticks(threshold_ticks)
         cbar.set_ticklabels([f"{t:.0f}" for t in threshold_ticks])
         cbar.ax.tick_params(labelsize=10, colors=COLOR_TEXT)
@@ -649,33 +638,14 @@ class BufferStorageView(tk.Frame):
 
     @staticmethod
     def _build_cmap() -> LinearSegmentedColormap:
-        # "Ocean-to-Ember" Palette (Nutzer-Feedback: kraeftiger/kontrastreicher
-        # als die vorherige Blau/Orange/Rot-Abstufung, mit eigener statt von
-        # den Theme-Farben abgeleiteter Farbwahl). Kalt = dunkles Navy ueber
-        # Ozean-Tuerkis zu hellem Cyan, warm = Bernstein ueber Orange-Rot zu
-        # tiefem Karminrot. Positionen sind direkt als Anteil der TEMP_MIN..
-        # TEMP_MAX-Spanne (35-75°C) gesetzt, exakt wie im abgestimmten
-        # Vorschau-Rendering.
-        stops: list[tuple[float, str]] = [
-            (0.00, "#0a2540"),
-            (0.12, "#0e3f6b"),
-            (0.28, "#0f7ea8"),
-            (0.42, "#22c3d6"),
-            (0.55, "#8fe3e0"),
-            (0.62, "#f2e07a"),
-            (0.72, "#f4a53d"),
-            (0.85, "#e8542f"),
-            (1.00, "#c81e3a"),
-        ]
-        return LinearSegmentedColormap.from_list("dashboard_temp_ocean_ember", stops, N=512)
+        return _tc.build_cmap(_tc.TEMP_MIN, _tc.TEMP_MAX)
 
     def _temp_color(self, temp: float) -> str:
-        rgba = self._build_cmap()(self.norm(temp))
-        r, g, b = [int(255 * c) for c in rgba[:3]]
-        return f"#{r:02x}{g:02x}{b:02x}"
+        return _tc.temp_color(temp)
 
     def _get_boiler_color(self, temp: float) -> str:
-        return self._temp_color(temp)
+        # Eigene Warmwasser-Skala (45 °C = mittel, 60 °C = voll)
+        return _tc.boiler_color(temp)
 
     def update_data(self, data: dict):
         """Update für BufferStorageView: erwartet dict mit final keys."""
@@ -906,7 +876,7 @@ class BufferStorageView(tk.Frame):
         if hasattr(self, 'boiler_text'):
             self.boiler_text.set_text(f"{boiler:.1f}°C")
         if hasattr(self, 'boiler_rect'):
-            self.boiler_rect.set_facecolor(self._temp_color(boiler))
+            self.boiler_rect.set_facecolor(self._get_boiler_color(boiler))
         # Redraw canvas only if widget exists
         if hasattr(self, 'canvas') and hasattr(self, 'canvas_widget') and self.canvas_widget.winfo_exists():
             try:

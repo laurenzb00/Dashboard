@@ -63,30 +63,11 @@ logger = logging.getLogger(__name__)
 COLOR_WOOD = "#e8542f"
 COLOR_SOLAR = "#f4b63d"
 
-# Gleiche "Ocean-to-Ember"-Palette wie die Puffer-Heatmap im Energie-Tab
-# (ui/views/buffer_storage.py), Spanne 35-75 °C.
-_TEMP_MIN, _TEMP_MAX = 35.0, 75.0
-_STOPS = [
-    (0.00, "#0a2540"), (0.12, "#0e3f6b"), (0.28, "#0f7ea8"), (0.42, "#22c3d6"),
-    (0.55, "#8fe3e0"), (0.62, "#f2e07a"), (0.72, "#f4a53d"), (0.85, "#e8542f"), (1.00, "#c81e3a"),
-]
+# Gleiche Farbskala wie die Puffer-Heatmap im Energie-Tab (ui/temp_colors.py)
+from ui.temp_colors import boiler_color, temp_color  # noqa: E402
 
 LIVE_REFRESH_MS = 15_000
 CHART_REFRESH_MS = 5 * 60_000
-
-
-def temp_color(temp: float | None) -> str:
-    if temp is None:
-        return "#2a2f3a"
-    f = (temp - _TEMP_MIN) / (_TEMP_MAX - _TEMP_MIN)
-    f = max(0.0, min(1.0, f))
-    for (p0, c0), (p1, c1) in zip(_STOPS, _STOPS[1:]):
-        if f <= p1:
-            t = 0.0 if p1 == p0 else (f - p0) / (p1 - p0)
-            a = [int(c0[i:i + 2], 16) for i in (1, 3, 5)]
-            b = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
-            return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
-    return _STOPS[-1][1]
 
 
 def layer_temp(frac: float, top, mid, bot) -> float | None:
@@ -114,7 +95,7 @@ class TankCanvas(tk.Canvas):
         self.state.update(state)
         self.redraw()
 
-    def _tank(self, x, y, w, h, top, mid, bot, title, subtitle, labels=True):
+    def _tank(self, x, y, w, h, top, mid, bot, title, subtitle, labels=True, color_fn=temp_color):
         r = min(w * 0.22, 26)
         yy = float(y)
         while yy < y + h:
@@ -127,7 +108,7 @@ class TankCanvas(tk.Canvas):
                 inset = r - math.sqrt(max(0.0, r * r - (r - dy_top) ** 2))
             elif dy_bot < r:
                 inset = r - math.sqrt(max(0.0, r * r - (r - dy_bot) ** 2))
-            col = temp_color(layer_temp((yy - y) / h, top, mid, bot))
+            col = color_fn(layer_temp((yy - y) / h, top, mid, bot))
             self.create_rectangle(x + inset, yy, x + w - inset, yy + step, fill=col, outline="")
             yy += step
         # Umriss: exakt dieselben Radien wie die Fuellung
@@ -180,7 +161,8 @@ class TankCanvas(tk.Canvas):
                    f"Puffer {cfg.puffer_liter:.0f} l",
                    f"{pct:.0f} % geladen" if pct is not None else "")
         self._tank(bx, y0 + avail_h - boiler_h, boiler_w, boiler_h, warm, warm, warm,
-                   f"Boiler {cfg.boiler_liter:.0f} l", "Warmwasser", labels=False)
+                   f"Boiler {cfg.boiler_liter:.0f} l", "Warmwasser", labels=False,
+                   color_fn=boiler_color)
         if warm is not None:
             self.create_text(bx + boiler_w / 2, y0 + avail_h - boiler_h / 2, text=f"{warm:.0f}°",
                              fill="#ffffff", font=get_safe_font("Bahnschrift", 16, "bold"))
