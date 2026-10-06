@@ -1294,6 +1294,13 @@ class MainApp(UiQueuePumpMixin):
             alerts.start_background(self.datastore)
         except Exception as e:
             logger.error("Warnmeldungen konnten nicht gestartet werden: %s", e)
+        # Taegliches Backup nach OneDrive (rclone) - laeuft auch, wenn das
+        # Dashboard wochenlang ohne Neustart laeuft (lokales Backup inklusive)
+        try:
+            from core import offsite_backup
+            offsite_backup.start_background(self.datastore)
+        except Exception as e:
+            logger.error("OneDrive-Backup konnte nicht gestartet werden: %s", e)
         # Leistungs-Protokoll (data/perf_log.jsonl) fuer die Fehlersuche am Pi
         try:
             from core import perf_monitor

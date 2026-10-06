@@ -64,7 +64,7 @@ COLOR_WOOD = "#e8542f"
 COLOR_SOLAR = "#f4b63d"
 
 # Gleiche Farbskala wie die Puffer-Heatmap im Energie-Tab (ui/temp_colors.py)
-from ui.temp_colors import boiler_color, temp_color  # noqa: E402
+from ui.temp_colors import temp_color  # noqa: E402
 
 LIVE_REFRESH_MS = 15_000
 CHART_REFRESH_MS = 5 * 60_000
@@ -95,7 +95,7 @@ class TankCanvas(tk.Canvas):
         self.state.update(state)
         self.redraw()
 
-    def _tank(self, x, y, w, h, top, mid, bot, title, subtitle, labels=True, color_fn=temp_color):
+    def _tank(self, x, y, w, h, top, mid, bot, title, subtitle, labels=True):
         r = min(w * 0.22, 26)
         yy = float(y)
         while yy < y + h:
@@ -108,7 +108,7 @@ class TankCanvas(tk.Canvas):
                 inset = r - math.sqrt(max(0.0, r * r - (r - dy_top) ** 2))
             elif dy_bot < r:
                 inset = r - math.sqrt(max(0.0, r * r - (r - dy_bot) ** 2))
-            col = color_fn(layer_temp((yy - y) / h, top, mid, bot))
+            col = temp_color(layer_temp((yy - y) / h, top, mid, bot))
             self.create_rectangle(x + inset, yy, x + w - inset, yy + step, fill=col, outline="")
             yy += step
         # Umriss: exakt dieselben Radien wie die Fuellung
@@ -161,8 +161,7 @@ class TankCanvas(tk.Canvas):
                    f"Puffer {cfg.puffer_liter:.0f} l",
                    f"{pct:.0f} % geladen" if pct is not None else "")
         self._tank(bx, y0 + avail_h - boiler_h, boiler_w, boiler_h, warm, warm, warm,
-                   f"Boiler {cfg.boiler_liter:.0f} l", "Warmwasser", labels=False,
-                   color_fn=boiler_color)
+                   f"Boiler {cfg.boiler_liter:.0f} l", "Warmwasser", labels=False)
         if warm is not None:
             self.create_text(bx + boiler_w / 2, y0 + avail_h - boiler_h / 2, text=f"{warm:.0f}°",
                              fill="#ffffff", font=get_safe_font("Bahnschrift", 16, "bold"))

@@ -268,6 +268,7 @@ class HealthTab:
         self.var_selfheal = tk.StringVar(value="Self-Heal: –")
         self.var_update = tk.StringVar(value="Update: –")
         self.var_last_update = tk.StringVar(value="Letztes Update: –")
+        self.var_backup = tk.StringVar(value="OneDrive-Backup: –")
 
         body = ctk.CTkFrame(self.card_data.content(), fg_color="transparent")
         body.pack(fill=tk.BOTH, expand=True)
@@ -287,6 +288,7 @@ class HealthTab:
             self.var_selfheal,
             self.var_update,
             self.var_last_update,
+            self.var_backup,
         ):
             ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 14), text_color=COLOR_TEXT).pack(anchor="w", pady=4)
 
@@ -1014,6 +1016,13 @@ class HealthTab:
                 self.var_cache.set("Sparkline cache: fehlt")
         except Exception:
             self.var_cache.set("Sparkline cache: –")
+
+        # OneDrive-Backup (core.offsite_backup schreibt data/offsite_backup_status.json)
+        try:
+            from core import offsite_backup
+            self.var_backup.set(offsite_backup.status_text())
+        except Exception:
+            self.var_backup.set("OneDrive-Backup: –")
 
         # Integrations
         self._refresh_homeassistant_async()

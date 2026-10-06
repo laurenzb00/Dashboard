@@ -72,6 +72,7 @@ data/perf_log.jsonl.1
 *.db-journal
 config/spotify_login_url.txt
 data/dashboard.lock
+data/offsite_backup_status.json
 *.bak
 Python-*/
 Python-*.tgz

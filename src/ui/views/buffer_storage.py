@@ -644,8 +644,8 @@ class BufferStorageView(tk.Frame):
         return _tc.temp_color(temp)
 
     def _get_boiler_color(self, temp: float) -> str:
-        # Eigene Warmwasser-Skala (45 °C = mittel, 60 °C = voll)
-        return _tc.boiler_color(temp)
+        # Bewusst dieselbe Skala wie der Puffer (Nutzer-Wunsch: sonst verwirrend)
+        return _tc.temp_color(temp)
 
     def update_data(self, data: dict):
         """Update für BufferStorageView: erwartet dict mit final keys."""
