@@ -67,3 +67,6 @@ data/temperature_cache.json
 data/heat_demand_model.json
 data/light_prefs.json
 data/solar_thermal_model.json
+data/perf_log.jsonl
+data/perf_log.jsonl.1
+*.db-journal

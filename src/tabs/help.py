@@ -44,7 +44,7 @@ class HelpTab:
             self.tab_frame = ctk.CTkFrame(self.notebook, fg_color=COLOR_ROOT)
             self.notebook.add(self.tab_frame, text=emoji("❓\nHelp", "Help"))
 
-        self._shell = TabShell(self.tab_frame, "Help", "Automationen, Skripte und weitere Hilfsfunktionen")
+        self._shell = TabShell(self.tab_frame, "Help", "Automationen, Skripte, Diagnose")
         self._shell.pack(fill=BOTH, expand=True)
 
         wrapper = tk.Frame(self._shell.body, bg=COLOR_ROOT)
@@ -98,6 +98,15 @@ class HelpTab:
                 )
             except Exception:
                 self.homeassistant_actions_tab = None
+
+        # Diagnose-Paket per Knopfdruck (src/diagnose.py) - fuer die Fehlersuche/Optimierung
+        self.diagnose_panel = None
+        try:
+            from tabs.diagnose_panel import DiagnosePanel
+            self.content_notebook.add("Diagnose")
+            self.diagnose_panel = DiagnosePanel(self.root, self.content_notebook.tab("Diagnose"))
+        except Exception:
+            self.diagnose_panel = None
 
     def set_portrait_layout(self, portrait: bool) -> None:
         """Reicht die Ausrichtung an die Inhalte der Sub-Tabs weiter."""

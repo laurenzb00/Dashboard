@@ -6,7 +6,12 @@ Aufruf am Pi (Dashboard darf laufen):
     python src/diagnose.py              # dauert ca. 1-3 Minuten
     python src/diagnose.py --quick      # ohne Rechen-Benchmarks
 
-Ergebnis: ~/dashboard_diagnose_<Datum>.zip  (report.txt + Logs + Leistungsprotokoll)
+    python src/diagnose.py --with-data  # zusaetzlich Kopien der Datenbanken (fuer Auswertungen)
+    python src/diagnose.py --out DIR    # Zielordner (Standard: ~/Desktop/analyse/diagnose_<Datum>)
+
+Ergebnis: Ordner mit diagnose.zip (report.txt + Logs + Leistungsprotokoll) und mit
+--with-data den Datenbank-Kopien. Am bequemsten ueber den Button im Help-Tab
+("Diagnose") - der macht genau das.
 
 Inhalt
   1. System: Pi-Modell, OS, Python, Paketversionen, Temperatur, Drosselung,
@@ -312,6 +317,8 @@ def learning() -> None:
         say(f"{name}: {json.dumps(small, ensure_ascii=False)[:900]}")
     try:
         from core import forecast_log
+        if not fl.DB_PATH.exists():
+            raise RuntimeError("Lern-Archiv fehlt")
         sk = forecast_log.pv_skill(days=30)
         if sk:
             say(f"PV-Prognose vom Vortag (30 Tage): {sk['days']} Tage, Ø {sk['mape_pct']:.0f} % daneben, "
@@ -520,11 +527,53 @@ def logs_and_perf(zf: zipfile.ZipFile) -> None:
             say(f"  {name:28s} {len(v):4d}×  Median {v[len(v) // 2] / 1000:6.2f} s  Max {v[-1] / 1000:6.2f} s")
 
 
+def copy_data(target: Path) -> None:
+    """Konsistente Kopien der Datenbanken (SQLite-Backup, auch waehrend das Dashboard schreibt) + Modelle."""
+    section("7. DATEN-KOPIEN")
+    from core import forecast_learning as fl
+    pairs = [(db_path(), target / "data.db"), (fl.DB_PATH, target / "forecast_learning.db"),
+             (ROOT / "data" / "climate_history.db", target / "climate_history.db")]
+    for src, dst in pairs:
+        if not Path(src).exists():
+            say(f"  {src.name}: nicht vorhanden")
+            continue
+        t0 = time.monotonic()
+        try:
+            s_conn = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=60)
+            d_conn = sqlite3.connect(str(dst))
+            s_conn.backup(d_conn, pages=4096, sleep=0.005)     # in Happen, damit das Dashboard weiterlaeuft
+            d_conn.close()
+            s_conn.close()
+            say(f"  {dst.name}: {dst.stat().st_size / 1e6:.0f} MB in {time.monotonic() - t0:.0f} s")
+        except Exception as exc:
+            say(f"  {src.name}: Kopie fehlgeschlagen ({exc})")
+    for name in ("pv_forecast_model.json", "heat_demand_model.json", "solar_thermal_model.json"):
+        p = ROOT / "data" / name
+        if p.exists():
+            shutil.copy2(p, target / name)
+    say("  Modelle kopiert")
+
+
+def _cleanup_old(parent: Path, keep: int = 2) -> None:
+    """Nur die neuesten Diagnose-Ordner behalten (mit Datenbank je ~250 MB)."""
+    old = sorted(p for p in parent.glob("diagnose_*") if p.is_dir())
+    for p in old[:-keep] if keep else old:
+        shutil.rmtree(p, ignore_errors=True)
+
+
 def main() -> None:
-    quick = "--quick" in sys.argv
-    collect_secrets()
+    args = sys.argv[1:]
+    quick = "--quick" in args
+    with_data = "--with-data" in args
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    out = Path.home() / f"dashboard_diagnose_{stamp}.zip"
+    if "--out" in args:
+        target = Path(args[args.index("--out") + 1]).expanduser()
+    else:
+        target = Path.home() / "Desktop" / "analyse" / f"diagnose_{stamp}"
+    target.mkdir(parents=True, exist_ok=True)
+    _cleanup_old(target.parent, keep=3)
+    collect_secrets()
+    out = target / "diagnose.zip"
     say(f"Dashboard-Diagnose {datetime.now():%d.%m.%Y %H:%M}")
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         system_info()
@@ -534,11 +583,14 @@ def main() -> None:
             benchmarks()
         network()
         logs_and_perf(zf)
+        if with_data:
+            copy_data(target)
         zf.writestr("report.txt", redact("\n".join(REPORT)))
+    total = sum(f.stat().st_size for f in target.iterdir() if f.is_file())
     print("")
-    print(f"Fertig: {out}  ({out.stat().st_size / 1e6:.1f} MB)")
-    print("Auf den Laptop holen, z.B.:")
-    print(f'  scp laurenz@192.168.1.200:{out} "C:\\Users\\laure\\OneDrive\\Studium-SBG\\SoS 25\\Datenerfassung\\eigenes projekt\\analyse"')
+    print(f"FERTIG: {target}  ({total / 1e6:.0f} MB)")
+    print("Auf den Laptop holen (Eingabeaufforderung/PowerShell am Laptop):")
+    print(f'  scp -r laurenz@192.168.1.200:{target} "C:\\Users\\laure\\OneDrive\\Studium-SBG\\SoS 25\\Datenerfassung\\eigenes projekt\\analyse"')
 
 
 if __name__ == "__main__":
