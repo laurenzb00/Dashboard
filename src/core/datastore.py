@@ -565,8 +565,9 @@ class DataStore:
         warm = safe_float(record.get('Warmwasser') or record.get('Warmwassertemperatur'))
         rauchgas = safe_float(record.get('Rauchgastemperatur') or record.get('rauchgastemp'))
         ruecklauf = safe_float(record.get('Kesselrücklauf') or record.get('kessel_ruecklauf'))
-        modus = safe_float(record.get('Betriebsmodus') if record.get('Betriebsmodus') is not None
-                           else record.get('betriebsmodus'))
+        # BMK liefert den Modus als Text (z.B. "STANDBY") - als Text speichern
+        _m = record.get('Betriebsmodus') if record.get('Betriebsmodus') is not None else record.get('betriebsmodus')
+        modus = str(_m).strip() if _m not in (None, "") else None
         logging.debug("[DB-INSERT] Values: kessel=%s outdoor=%s top=%s mid=%s bot=%s warm=%s", 
                       kessel, outdoor, top, mid, bot, warm)
         with self._lock:
@@ -581,6 +582,22 @@ class DataStore:
             self._commit_with_retry()
             self._update_last_ingest_locked(ts)
             self._cache_heating = None  # invalidate cache
+
+    def insert_bmk_raw(self, timestamp, values: list, keep_days: int = 21) -> None:
+        """Alle BMK-Rohwerte als JSON (Tabelle heating_bmk_raw, rollierend keep_days Tage)."""
+        import json as _json
+        ts = to_db_ts(timestamp)
+        if not ts:
+            return
+        with self._lock:
+            self._execute_with_retry(
+                "CREATE TABLE IF NOT EXISTS heating_bmk_raw (timestamp TEXT PRIMARY KEY, data TEXT)", ())
+            self._execute_with_retry("INSERT OR REPLACE INTO heating_bmk_raw (timestamp, data) VALUES (?, ?)",
+                                     (ts, _json.dumps(values, ensure_ascii=False)))
+            if ts.endswith(":00:00") or ts[14:16] == "00":
+                self._execute_with_retry("DELETE FROM heating_bmk_raw WHERE timestamp < ?",
+                                         (_hours_ago_iso(keep_days * 24),))
+            self._commit_with_retry()
 
     def get_recent_fronius(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
         cutoff = _hours_ago_iso(hours)

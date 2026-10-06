@@ -62,7 +62,7 @@ class DiagnosePanel:
         self.status = ctk.CTkLabel(box, text="", anchor="w", text_color=COLOR_SUBTEXT,
                                    font=get_safe_font("Bahnschrift", 12, "bold"))
         self.status.pack(fill=tk.X, padx=16)
-        self.out = ctk.CTkTextbox(box, fg_color=COLOR_ROOT, text_color=COLOR_TEXT, wrap="none",
+        self.out = ctk.CTkTextbox(box, fg_color=COLOR_ROOT, text_color=COLOR_TEXT, wrap="char",
                                   font=("DejaVu Sans Mono", 11), height=260)
         self.out.pack(fill=tk.BOTH, expand=True, padx=12, pady=(6, 12))
         self.out.configure(state="disabled")

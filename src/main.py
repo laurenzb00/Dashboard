@@ -148,7 +148,12 @@ logger = logging.getLogger(__name__)
 try:
     _debug_log_path = Path(__file__).resolve().parent.parent / "data" / "app_debug.log"
     _debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-    _debug_file_handler = logging.FileHandler(str(_debug_log_path), mode="w", encoding="utf-8")
+    # Anhaengen + Rotation (5 MB x 3) statt mode="w": "w" kuerzte die Datei bei jedem Start,
+    # waehrend ein zweiter, noch laufender Prozess an seiner alten Position weiterschrieb ->
+    # die Datei wurde zu 75 MB fast nur aus Null-Bytes (Diagnose 06.10.2026).
+    from logging.handlers import RotatingFileHandler
+    _debug_file_handler = RotatingFileHandler(str(_debug_log_path), mode="a", maxBytes=5 * 1024 * 1024,
+                                              backupCount=3, encoding="utf-8")
     _debug_file_handler.setLevel(logging.INFO)
     _debug_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     _root_logger = logging.getLogger()
@@ -299,10 +304,56 @@ def run_bmkdaten():
         update_source_health("heating", ok=False, error=str(e))
 
 
+_INSTANCE_LOCK = None
+
+
+def _acquire_single_instance() -> bool:
+    """Nur EIN Dashboard gleichzeitig (Datei-Sperre data/dashboard.lock).
+
+    Wird erst NACH erfolgreichem Fensteraufbau geprueft: ein Prozess ohne
+    Bildschirm darf die Sperre nie dem echten Dashboard wegnehmen.
+    """
+    global _INSTANCE_LOCK
+    if _INSTANCE_LOCK is not None:
+        return True
+    try:
+        import fcntl
+    except ImportError:
+        return True                     # Windows: keine Sperre
+    lock_path = Path(__file__).resolve().parent.parent / "data" / "dashboard.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(lock_path, "a+")
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return False
+    f.seek(0)
+    f.truncate()
+    f.write(str(os.getpid()))
+    f.flush()
+    _INSTANCE_LOCK = f
+    return True
+
+
+def _no_display() -> bool:
+    """Linux-Prozess ohne Grafik-Umgebung kann nie ein Fenster oeffnen."""
+    if not sys.platform.startswith("linux"):
+        return False
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def main():
     start_time = time.time()
 
     root = tk.Tk()
+    if not _acquire_single_instance():
+        logging.error("Dashboard läuft bereits (data/dashboard.lock gesperrt) - dieser zweite Start wird beendet.")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        raise SystemExit(0)
     # Fullscreen state tracking
     windowed_flag = os.getenv("DASHBOARD_WINDOWED", "0").strip().lower() in {"1", "true", "yes", "on"}
     root._fullscreen = not windowed_flag
@@ -478,6 +529,13 @@ def run_with_restart():
     stable_after_s = 300.0
     consecutive_crashes = 0
     last_crash_ts = None
+
+    if _no_display():
+        # Ohne DISPLAY/WAYLAND_DISPLAY (z.B. Start per Cron/systemd beim Booten) bekommt dieser
+        # Prozess NIE ein Fenster - frueher drehte er sich wochenlang alle paar Sekunden im Kreis.
+        logger.error("Kein Bildschirm (DISPLAY fehlt) - Dashboard wird in diesem Prozess nicht gestartet. "
+                     "Bitte nur über den Desktop-Autostart starten.")
+        return
 
     while not exit_requested:
         try:

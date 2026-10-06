@@ -70,3 +70,9 @@ data/solar_thermal_model.json
 data/perf_log.jsonl
 data/perf_log.jsonl.1
 *.db-journal
+config/spotify_login_url.txt
+data/dashboard.lock
+*.bak
+Python-*/
+Python-*.tgz
+analyse/

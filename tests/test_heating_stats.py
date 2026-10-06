@@ -52,6 +52,18 @@ class TestKessel(unittest.TestCase):
         classify_episodes(small, {}, CFG)                                       # kaum Zuwachs: kein Feuer
         self.assertFalse(any(kessel_active(b) for b in small))
 
+    def test_betriebsmodus_decides(self):
+        from core.heating_stats import mode_is_firing
+        t = datetime(2026, 10, 6, 19)
+        self.assertFalse(mode_is_firing("STANDBY"))
+        self.assertFalse(mode_is_firing("Störung 12"))
+        self.assertTrue(mode_is_firing("VOLLLAST"))
+        self.assertTrue(mode_is_firing("Teillast"))
+        hot_solar = Bucket(ts=t, kessel=72, top=55, mid=50, bot=45, warm=55, outdoor=25, modus="STANDBY")
+        self.assertFalse(kessel_active(hot_solar))
+        fire = Bucket(ts=t, kessel=45, top=55, mid=50, bot=45, warm=55, outdoor=5, modus="ANHEIZEN")
+        self.assertTrue(kessel_active(fire))
+
     def test_rauchgas_decides_when_recorded(self):
         t = datetime(2026, 8, 5, 11)
         solar = Bucket(ts=t, kessel=72, top=55, mid=50, bot=45, warm=55, outdoor=25, rauchgas=40.0)

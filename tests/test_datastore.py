@@ -83,10 +83,10 @@ class TestDataStoreBasic(unittest.TestCase):
         ts = "2025-06-15 12:00:00"
         self.store.insert_heating_record({"Zeitstempel": ts, "Kesseltemperatur": 75.0, "Pufferspeicher Oben": 65.0,
                                           "Pufferspeicher Mitte": 55.0, "Pufferspeicher Unten": 45.0,
-                                          "Rauchgastemperatur": 180.0, "Kesselrücklauf": 62.0, "Betriebsmodus": 3})
+                                          "Rauchgastemperatur": 180.0, "Kesselrücklauf": 62.0, "Betriebsmodus": "VOLLLAST"})
         row = self.store.conn.execute("SELECT rauchgastemp, kessel_ruecklauf, betriebsmodus FROM heating "
                                       "WHERE timestamp = ?", (ts,)).fetchone()
-        self.assertEqual(tuple(row), (180.0, 62.0, 3.0))
+        self.assertEqual(tuple(row), (180.0, 62.0, "VOLLLAST"))
 
     # --- Recent queries ---
 

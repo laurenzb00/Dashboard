@@ -52,8 +52,10 @@ from .weather import WeatherConfig, load_weather_config
 logger = logging.getLogger(__name__)
 
 MODEL_VERSION = 2
-AZIMUTHS: tuple[int, ...] = (-90, -60, -30, 0, 30, 60, 90)   # 0 = Sued, -90 = Ost, 90 = West
-TILTS: tuple[int, ...] = tuple(range(10, 65, 5))
+# 0 = Sued, -90 = Ost, 90 = West. Bis -120 (Nordost) und bis 90° Neigung (Fassade): die echten
+# Daten (Diagnose 06.10.2026) zeigen eine stark nach Osten ausgerichtete, steile Anlage.
+AZIMUTHS: tuple[int, ...] = (-120, -90, -75, -60, -45, -30, 0, 30, 60, 90)
+TILTS: tuple[int, ...] = tuple(range(10, 95, 5))
 GAMMA_PER_K = -0.0037            # Leistungs-Temperaturkoeffizient kristalliner Module
 NOCT_K_PER_WM2 = 25.0 / 800.0    # Zellerwaermung ueber Luft
 MIN_ELEV_DEG = 2.0

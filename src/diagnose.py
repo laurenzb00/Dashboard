@@ -203,6 +203,55 @@ def system_info() -> None:
         say(f"  lokale Änderungen: {dirty.replace(chr(10), ' | ')[:300]}")
 
 
+@guarded
+def autostart() -> None:
+    """Wie wird das Dashboard gestartet? (Doppelte Starts finden)"""
+    section("1b. START / AUTOSTART")
+    try:
+        import psutil
+        for p in psutil.process_iter(["pid", "ppid", "cmdline", "create_time"]):
+            cmd = " ".join(p.info.get("cmdline") or [])
+            if "main.py" not in cmd or "python" not in cmd:
+                continue
+            try:
+                env = p.environ()
+            except Exception:
+                env = {}
+            try:
+                parent = psutil.Process(p.info["ppid"])
+                pcmd = " ".join(parent.cmdline())[:120]
+            except Exception:
+                pcmd = "?"
+            say(f"  PID {p.pid} seit {datetime.fromtimestamp(p.info['create_time']):%d.%m. %H:%M}  "
+                f"DISPLAY={env.get('DISPLAY', '-')} WAYLAND={env.get('WAYLAND_DISPLAY', '-')}")
+            say(f"      Befehl: {cmd[:140]}")
+            say(f"      gestartet von PID {p.info['ppid']}: {pcmd}")
+    except ImportError:
+        pass
+    home = Path.home()
+    sources = [home / ".config/autostart", home / ".config/labwc/autostart", home / ".config/wayfire.ini",
+               home / ".config/lxsession/LXDE-pi/autostart", Path("/etc/xdg/lxsession/LXDE-pi/autostart"),
+               Path("/etc/rc.local"), home / ".bashrc", home / ".profile"]
+    for src in sources:
+        files = sorted(src.glob("*")) if src.is_dir() else [src]
+        for f in files:
+            try:
+                hits = [l.strip() for l in f.read_text(errors="replace").splitlines()
+                        if ("Dashboard" in l or "main.py" in l or "dbstart" in l) and not l.strip().startswith("#")]
+            except Exception:
+                continue
+            for h in hits:
+                say(f"  {f}: {h[:150]}")
+    cron = _run(["crontab", "-l"])
+    for l in cron.splitlines():
+        if ("Dashboard" in l or "main.py" in l or "dbstart" in l) and not l.strip().startswith("#"):
+            say(f"  crontab: {l.strip()[:150]}")
+    for args in (["systemctl", "list-units", "--all", "--no-pager"], ["systemctl", "--user", "list-units", "--all", "--no-pager"]):
+        for l in _run(args).splitlines():
+            if any(k in l.lower() for k in ("dashboard", "datenerfassung", "smart")):
+                say(f"  {' '.join(args[1:2])}: {l.strip()[:150]}")
+
+
 # ---------------------------------------------------------------------------
 # 2. Datenbank
 # ---------------------------------------------------------------------------
@@ -259,7 +308,7 @@ def database() -> None:
         n, nn, mn, mx = conn.execute("SELECT COUNT(*), COUNT(rauchgastemp), MIN(rauchgastemp), MAX(rauchgastemp) "
                                      "FROM heating WHERE timestamp >= ?", (cut,)).fetchone()
         say(f"  Rauchgas: {nn}/{n} Werte, min {mn}, max {mx}")
-        say("  Betriebsmodus -> Anzahl, Ø Kessel, Ø Rauchgas (zum Zuordnen der Codes):")
+        say("  Betriebsmodus -> Anzahl, Ø Kessel, Ø Rauchgas:")
         for row in conn.execute("SELECT betriebsmodus, COUNT(*), ROUND(AVG(kesseltemp),1), ROUND(AVG(rauchgastemp),1) "
                                 "FROM heating WHERE timestamp >= ? GROUP BY betriebsmodus ORDER BY 2 DESC LIMIT 15", (cut,)):
             say(f"    {row}")
@@ -267,6 +316,34 @@ def database() -> None:
         for row in conn.execute("SELECT substr(timestamp,1,10), COUNT(*), ROUND(MAX(rauchgastemp)), ROUND(MAX(kesseltemp)) "
                                 "FROM heating WHERE timestamp >= ? AND rauchgastemp > 90 GROUP BY 1", (cut,)):
             say(f"    {row}")
+    try:
+        raw = conn.execute("SELECT timestamp, data FROM heating_bmk_raw WHERE timestamp >= ? ORDER BY timestamp",
+                           ((now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"),)).fetchall()
+    except Exception:
+        raw = []
+    if raw:
+        say("")
+        say(f"BMK-Rohwerte (7 Tage, {len(raw)} Minuten) - Index: min / max / Texte (zum Finden von Rauchgas & Modus):")
+        cols: dict = {}
+        for _ts, js in raw:
+            try:
+                vals = json.loads(js)
+            except Exception:
+                continue
+            for i, v in enumerate(vals):
+                cols.setdefault(i, []).append(v)
+        for i, vs in sorted(cols.items()):
+            nums = []
+            texts = Counter()
+            for v in vs:
+                try:
+                    nums.append(float(str(v).replace(",", ".")))
+                except ValueError:
+                    texts[str(v)] += 1
+            if texts:
+                say(f"    {i:2d}: {dict(texts.most_common(6))}")
+            elif nums and max(nums) - min(nums) >= 5:
+                say(f"    {i:2d}: {min(nums):7.1f} / {max(nums):7.1f}")
     bdir = p.parent / "backups"
     if bdir.exists():
         bs = sorted(bdir.glob("*.db"))
@@ -577,6 +654,7 @@ def main() -> None:
     say(f"Dashboard-Diagnose {datetime.now():%d.%m.%Y %H:%M}")
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         system_info()
+        autostart()
         database()
         learning()
         if not quick:

@@ -318,24 +318,53 @@ def _cv_rmse(t_eff, g_eff, y, tb, folds: np.ndarray, w: np.ndarray) -> float:
     return _wrmse(err, wts) if err else float("inf")
 
 
-def _physical_demand(table: np.ndarray) -> np.ndarray:
-    """Physik erzwingen: kaelter -> nie weniger Bedarf, mehr Sonne -> nie mehr Bedarf.
+def _isotonic(y: np.ndarray, w: np.ndarray, increasing: bool) -> np.ndarray:
+    """Gewichtete isotone Regression (Pool-Adjacent-Violators).
 
-    Raster [Temperatur aufsteigend, Sonne aufsteigend]. Wo die Daten duenn sind
-    (z.B. selten erlebte Kaelte), verhindert das unplausible Knicke.
+    Erzwingt eine Richtung, ohne dass ein einzelner, schlecht belegter
+    Rasterpunkt (Hochrechnung am Rand) alle anderen mitzieht: Verstoesse werden
+    zum gewichteten Mittel zusammengefasst, Gewicht = Datendichte (neff).
     """
-    t = np.maximum(table, 0.0)
-    t = np.maximum.accumulate(t[::-1, :], axis=0)[::-1, :]      # von warm nach kalt nicht fallend
-    t = np.minimum.accumulate(t, axis=1)                         # mit mehr Sonne nicht steigend
+    y = np.asarray(y, float)
+    w = np.maximum(np.asarray(w, float), 1e-6)
+    if not increasing:
+        return _isotonic(y[::-1], w[::-1], True)[::-1]
+    vals, wts, cnt = [], [], []
+    for v, ww in zip(y, w):
+        vals.append(v); wts.append(ww); cnt.append(1)
+        while len(vals) > 1 and vals[-2] > vals[-1]:
+            tw = wts[-2] + wts[-1]
+            vals[-2] = (vals[-2] * wts[-2] + vals[-1] * wts[-1]) / tw
+            wts[-2] = tw
+            cnt[-2] += cnt[-1]
+            vals.pop(); wts.pop(); cnt.pop()
+    return np.repeat(vals, cnt)
+
+
+def _monotone_2d(table: np.ndarray, neff: Optional[np.ndarray], inc0: bool, inc1: bool, rounds: int = 3) -> np.ndarray:
+    t = np.maximum(np.asarray(table, float), 0.0)
+    w = np.ones_like(t) if neff is None else np.asarray(neff, float) + 0.05
+    for _ in range(rounds):
+        for j in range(t.shape[1]):
+            t[:, j] = _isotonic(t[:, j], w[:, j], inc0)
+        for i in range(t.shape[0]):
+            t[i, :] = _isotonic(t[i, :], w[i, :], inc1)
     return t
 
 
-def _physical_solar(table: np.ndarray) -> np.ndarray:
+def _physical_demand(table: np.ndarray, neff: Optional[np.ndarray] = None) -> np.ndarray:
+    """Physik: kaelter -> nie weniger Bedarf, mehr Sonne -> nie mehr Bedarf (Raster [T, Sonne]).
+
+    Gewichtet nach Datendichte - frueher hat ein duenn belegter Randwert
+    (z.B. 15 °C ohne Sonne) per "kumulativem Minimum" das ganze Raster nach
+    unten gezogen (Bedarf bei milden Temperaturen ~0,8 kW zu niedrig).
+    """
+    return _monotone_2d(table, neff, inc0=False, inc1=False)
+
+
+def _physical_solar(table: np.ndarray, neff: Optional[np.ndarray] = None) -> np.ndarray:
     """Kollektor: waermere Luft hilft, heisserer Speicher schadet (Raster [T_aussen, T_speicher])."""
-    t = np.maximum(table, 0.0)
-    t = np.maximum.accumulate(t, axis=0)                         # mit T_aussen nicht fallend
-    t = np.minimum.accumulate(t, axis=1)                         # mit T_speicher nicht steigend
-    return t
+    return _monotone_2d(table, neff, inc0=True, inc1=False)
 
 
 def aggregate_blocks(hour_start: np.ndarray, quiet_kwh: np.ndarray, quiet_min: np.ndarray,
@@ -476,7 +505,7 @@ def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor:
     model = DemandModel(
         base_kw=float(coef[0]), per_k_kw=float(coef[1]), hours=int(round(w.sum())), r2=None,
         t_min=float(t_eff.min()), t_max=float(t_eff.max()), fitted_at=stamp,
-        temperature_dependent=spread >= MIN_TEMP_SPREAD_K and coef[1] > 0,
+        temperature_dependent=bool(spread >= MIN_TEMP_SPREAD_K and coef[1] > 0),
         mean_deficit_k=float(np.mean(np.maximum(0.0, tb - t_eff))), version=MODEL_VERSION,
         tb_c=tb, tau_h=tau, sun_kw_per_wm2=float(coef[2]), cv_rmse_global=cv_global,
         first_day=datetime.fromtimestamp(float(hs_.min())).date().isoformat(), typical_g=float(np.median(g_eff)),
@@ -487,7 +516,7 @@ def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor:
     table, _neff = fl.local_linear_grid((GRID_T, GRID_G), (t_eff, g_eff), (SIGMA_T, SIGMA_G), y, w,
                                         prior, STRENGTH_H)
     model.grid_t, model.grid_g = GRID_T.tolist(), GRID_G.tolist()
-    model.table = np.round(_physical_demand(table), 4).tolist()
+    model.table = np.round(_physical_demand(table, _neff), 4).tolist()
 
     # Guete: Kreuzvalidierung des Rasters (gleiche Bloecke)
     err, wts = [], []
@@ -499,9 +528,9 @@ def fit_from_archive(hour_start: np.ndarray, demand_kw: np.ndarray, bmk_outdoor:
         c = _fit_global(t_eff[tr], g_eff[tr], y[tr], tb, w[tr])
         sub.base_kw, sub.per_k_kw, sub.sun_kw_per_wm2 = float(c[0]), float(c[1]), float(c[2])
         pr = lambda c0, c1, s=sub: float(s._global_kw(np.array([c0]), np.array([c1]))[0])
-        tab_k, _ = fl.local_linear_grid((GRID_T, GRID_G), (t_eff[tr], g_eff[tr]), (SIGMA_T, SIGMA_G),
+        tab_k, neff_k = fl.local_linear_grid((GRID_T, GRID_G), (t_eff[tr], g_eff[tr]), (SIGMA_T, SIGMA_G),
                                         y[tr], w[tr], pr, STRENGTH_H)
-        sub.table, sub.grid_t, sub.grid_g = _physical_demand(tab_k).tolist(), model.grid_t, model.grid_g
+        sub.table, sub.grid_t, sub.grid_g = _physical_demand(tab_k, neff_k).tolist(), model.grid_t, model.grid_g
         err.append((sub.kw_eff(t_eff[te], g_eff[te]) - y[te]) ** 2)
         wts.append(w[te])
         if len(err) >= 3:            # 3 Folds reichen als Schaetzung (spart Rechenzeit am Pi)
@@ -566,11 +595,11 @@ def fit_solar_thermal(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_ou
     a = np.column_stack([np.ones_like(dt), dt]) * np.sqrt(w)[:, None]
     coef = np.linalg.lstsq(a, ratio * np.sqrt(w), rcond=None)[0]
     prior = lambda c0, c1: float(max(0.0, coef[0] + coef[1] * (c1 - c0)))
-    table, _ = fl.local_linear_grid((ST_GRID_TOUT, ST_GRID_TANK), (t_out, tank), ST_SIGMA, ratio, w,
+    table, st_neff = fl.local_linear_grid((ST_GRID_TOUT, ST_GRID_TANK), (t_out, tank), ST_SIGMA, ratio, w,
                                     prior, 3.0 * float(np.mean(w)))
     mx = float(np.percentile(ratio, 95)) * 1.2
     model = SolarThermalModel(mean_ratio=mean_ratio, hours=int(ok.sum()), grid_tout=ST_GRID_TOUT.tolist(),
-                              grid_tank=ST_GRID_TANK.tolist(), table=np.round(np.clip(_physical_solar(table), 0, mx), 4).tolist(),
+                              grid_tank=ST_GRID_TANK.tolist(), table=np.round(np.clip(_physical_solar(table, st_neff), 0, mx), 4).tolist(),
                               max_ratio=mx, fitted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     logger.info("[Solarthermie] Gelernt aus %d Sonnentagen: Ø %.2f kWh Waerme je kWh PV", len(ratio), mean_ratio)
     return model
@@ -632,10 +661,11 @@ def _save_json(path: str, data: dict) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f)
+            # numpy-Werte (z.B. numpy.bool_) sind nicht JSON-faehig -> sonst wurde still nicht gespeichert
+            json.dump(data, f, default=lambda o: o.item() if hasattr(o, "item") else str(o))
         os.replace(tmp, path)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[Waermebedarf] Konnte %s nicht speichern: %s", os.path.basename(path), exc)
 
 
 def _load_cached() -> Optional[DemandModel]:

@@ -97,7 +97,7 @@ class Bucket:
     warm: Optional[float]
     outdoor: Optional[float]
     rauchgas: Optional[float] = None     # ab 2026-10 aufgezeichnet - eindeutigster Hinweis auf Feuer
-    modus: Optional[float] = None        # BMK-Betriebsmodus (Code)
+    modus: Optional[str] = None          # BMK-Betriebsmodus als Text (z.B. "STANDBY")
     firing: Optional[bool] = None        # Ergebnis der Episoden-Pruefung (load_buckets), sonst None
 
 
@@ -211,9 +211,9 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
         rg = _f(row[7])
         if rg is not None and 0 < rg < 600:
             slot.setdefault("rauchgas", []).append(rg)
-        md = _f(row[8])
-        if md is not None:
-            slot.setdefault("modus", []).append(md)
+        md = row[8]
+        if md is not None and str(md).strip():
+            slot.setdefault("modus", []).append(str(md).strip())
 
     out = []
     for k in sorted(acc):
@@ -225,7 +225,9 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
                           bot=m.get("bot"), warm=m.get("warm"), outdoor=m.get("outdoor"),
                           # Rauchgas: Spitzenwert im Bucket (brennt es irgendwann darin?)
                           rauchgas=max(slot["rauchgas"]) if slot.get("rauchgas") else None,
-                          modus=max(slot["modus"]) if slot.get("modus") else None))
+                          # Modus: brennt es irgendwann im Bucket, zaehlt das
+                          modus=next((m for m in slot.get("modus", []) if mode_is_firing(m)),
+                                     (slot.get("modus") or [None])[-1])))
     # Rauchgas-Spalte nur verwenden, wenn darin je ein Feuer zu sehen war (sonst ist
     # der BMK-Index evtl. etwas anderes) - dann gilt die Episoden-Pruefung.
     rg = [b.rauchgas for b in out if b.rauchgas is not None]
@@ -263,11 +265,12 @@ def classify_episodes(buckets: list[Bucket], pv_hourly: dict, cfg: Optional[Stor
     i = 0
     while i < n:
         b = buckets[i]
-        if b.rauchgas is not None or not _kessel_hot(b):
+        if b.rauchgas is not None or b.modus or not _kessel_hot(b):
             i += 1
             continue
         j = i
-        while j + 1 < n and buckets[j + 1].rauchgas is None and _kessel_hot(buckets[j + 1]) and \
+        while j + 1 < n and buckets[j + 1].rauchgas is None and not buckets[j + 1].modus and \
+                _kessel_hot(buckets[j + 1]) and \
                 (buckets[j + 1].ts - buckets[j].ts) <= timedelta(minutes=MAX_GAP_MIN):
             j += 1
         start, end = buckets[i].ts, buckets[j].ts + timedelta(minutes=BUCKET_MIN)
@@ -311,14 +314,31 @@ def _kessel_hot(b: Bucket) -> bool:
     return b.kessel >= KESSEL_MIN_C and b.kessel >= ref + KESSEL_OVER_PUFFER_K
 
 
+# Betriebsmodi, in denen KEIN Holz brennt (BMK-Text, Grossschreibung egal). Alles andere
+# (Anheizen/Start, Teillast, Volllast, Ausbrand ...) zaehlt als Feuer.
+_MODE_NOT_FIRING = {"STANDBY", "AUS", "OFF", "BEREIT", "STÖRUNG", "STOERUNG", "FEHLER", "SOMMER", "FROSTSCHUTZ"}
+
+
+def mode_is_firing(mode) -> bool:
+    if mode is None:
+        return False
+    m = str(mode).strip().upper()
+    if not m or m.replace(".", "", 1).isdigit():
+        return False
+    return m not in _MODE_NOT_FIRING and not m.startswith("STÖR") and not m.startswith("STOER")
+
+
 def kessel_active(b: Bucket) -> bool:
     """Brennt Holz im Kessel?
 
-    1. Rauchgastemperatur (ab 2026-10 aufgezeichnet): eindeutig.
+    0. BMK-Betriebsmodus als Text (ab 10/2026): STANDBY = aus, Anheizen/Teillast/Volllast = Feuer.
+    1. Rauchgastemperatur (falls je richtig zugeordnet): eindeutig.
     2. Sonst Ergebnis der Episoden-Pruefung aus load_buckets (Speicher-Zuwachs,
        der nicht von der Sonne kommen kann).
     3. Sonst (einzelne Buckets, Tests): Kessel heiss und waermer als der Puffer.
     """
+    if isinstance(b.modus, str) and b.modus.strip():
+        return mode_is_firing(b.modus)       # BMK-Betriebsmodus (Text) - am zuverlaessigsten
     if b.rauchgas is not None:
         return b.rauchgas >= RAUCHGAS_FEUER_C
     if b.firing is not None:

@@ -53,8 +53,12 @@ PP_INDEX_MAPPING = {
     5: "Pufferspeicher_Mitte",
     6: "Puffer_Unten",
     7: "Wert_7",
-    8: "Kesselrücklauf",
-    9: "Rauchgastemperatur",
+    # 8/9 waren als Kesselruecklauf/Rauchgas eingetragen - die Diagnose vom 06.10.2026 zeigt
+    # etwas anderes (8 = 100 und 9 = Rampe 0..96 taeglich ~19 Uhr bei kaltem Kessel).
+    # Rohwerte werden jetzt minuetlich in heating_bmk_raw gespeichert, um die echte
+    # Rauchgas-Position beim naechsten Einheizen zu finden.
+    8: "Wert_8",
+    9: "Wert_9",
     10: "Wert_10",
     11: "Rauchgasauslastung",
     12: "Warmwassertemperatur",
@@ -177,6 +181,7 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
             result = daten_kurz
 
         _persist_to_datastore(result)
+        _persist_raw(values, zeitstempel)
 
         return result
     except Exception as exc:
@@ -241,6 +246,23 @@ def _bestimme_puffer_status(oben, mitte, unten):
     if temp_durchschnitt > 30:
         return "ENTLADEN"
     return "KALT"
+
+
+_last_raw = 0.0
+RAW_INTERVAL_S = 60
+
+
+def _persist_raw(values, zeitstempel) -> None:
+    """Alle BMK-Rohwerte einmal pro Minute sichern (zum Zuordnen unbekannter Werte)."""
+    global _last_raw
+    now = time.time()
+    if now - _last_raw < RAW_INTERVAL_S:
+        return
+    _last_raw = now
+    try:
+        get_shared_datastore().insert_bmk_raw(zeitstempel, list(values))
+    except Exception as exc:
+        logger.debug("[DB] BMK-Rohwerte nicht gespeichert: %s", exc)
 
 
 def _persist_to_datastore(payload: Dict[str, float]) -> None:
