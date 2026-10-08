@@ -279,10 +279,11 @@ def heat_hour_rows(buckets: Sequence[hs.Bucket], cfg: hs.StorageConfig) -> list[
 def _update_heat(conn, store, cfg: hs.StorageConfig, now: float) -> None:
     if getattr(store, "conn", None) is None:
         return
-    if _meta_get(conn, "heat_version") != str(HEAT_VERSION):
+    heat_key = f"{HEAT_VERSION}/{cfg.storage_factor}"     # neuer Speicher-Faktor -> neu aufbauen
+    if _meta_get(conn, "heat_version") != heat_key:
         # Erkennung "Kessel brennt" hat sich geaendert -> Stundenbilanz neu aufbauen
         conn.execute("DELETE FROM heat_hours")
-        _meta_set(conn, "heat_version", HEAT_VERSION)
+        _meta_set(conn, "heat_version", heat_key)
         conn.commit()
     last = conn.execute("SELECT MAX(hour_start) FROM heat_hours").fetchone()[0]
     first = _first_measurement(store) if last is None else last - OVERLAP_S

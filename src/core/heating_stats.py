@@ -16,13 +16,30 @@ Erkennung
     - sonst, wenn es Tag ist (Sonne ueber dem Horizont am Standort aus
       config/weather.json)                     -> Solar (Solarthermie)
     - sonst (nachts ohne Kessel)               -> nicht zugeordnet
-  Es zaehlen nur echte Anstiege (Netto im Speicher). Kleine Schwankungen
+  Solar zaehlt nur echte Anstiege (Netto im Speicher). Holz zaehlt dazu den
+  Verbrauch des Hauses waehrend des Abbrands (der Kessel deckt ihn mit), mit
+  der Abkuehlrate der ruhigen Stunden desselben Tages. Kleine Schwankungen
   (Sensorrauschen) werden ignoriert: zusammenhaengende Anstiege zaehlen
   erst ab MIN_RUN_KWH.
 
+Speicher-Faktor (Kalibrierung)
+------------------------------
+Drei Fuehler fuer 2 x 2000 l erfassen nur einen Teil der gespeicherten Waerme.
+Abgleich 08.10.2026: Jahresverbrauch ~40 rm Holz (~50 MWh) gegen das Modell
+(~31 MWh) und ein Abbrand mit bekannter Fuellung (~145 kWh erwartet, ~80
+gemessen) -> mit 78 % Kesselwirkungsgrad waere der Faktor ~1,6-1,9. Das passt
+aber nicht zur Solarthermie: Mit 1,8 muessten 15 m^2 Kollektoren doppelt so viel
+liefern wie physikalisch moeglich. Der Rest liegt im Kessel selbst (Anheizen,
+Gluterhalt, nicht ganz abgebrannte Fuellungen, Abgas) -> Kompromiss, der alle
+drei Pruefungen grob erfuellt: Speicher-Faktor 1,4 und wirksamer Kessel-
+Wirkungsgrad 0,60 (Holzenergie -> Haus/Speicher, inkl. dieser Verluste).
+Alle Waermemengen (Inhalt, Verbrauch, Holz, Solar) werden mit dem Faktor
+multipliziert; Temperaturen bleiben unveraendert. Am Saisonende mit dem echten
+Holzverbrauch (Raummeter-Kachel) nachjustieren.
+
 Einstellungen in config/heizung.json (alle optional):
-    {"puffer_liter": 4000, "boiler_liter": 500,
-     "nutzbar_ab_c": 35, "holz_kwh_pro_rm": 1600, "kessel_wirkungsgrad": 0.78}
+    {"puffer_liter": 4000, "boiler_liter": 500, "speicher_faktor": 1.4,
+     "nutzbar_ab_c": 35, "holz_kwh_pro_rm": 1600, "kessel_wirkungsgrad": 0.60}
 """
 from __future__ import annotations
 
@@ -62,15 +79,16 @@ class StorageConfig:
     # gemischtes Brennholz, Heizwert je Raummeter geschichtet bei 15-20 % Wassergehalt
     # (LWF Bayern Merkblatt 20: Buche ~1900, Kiefer ~1500, Fichte ~1350 kWh/rm)
     wood_kwh_per_rm: float = 1600.0
-    boiler_efficiency: float = 0.78      # Scheitholzkessel Jahresmittel (Holzenergie -> Speicher), real ~0,75-0,8
+    boiler_efficiency: float = 0.60      # wirksam im Jahresmittel inkl. Anheizen/Gluterhalt/Restholz (Abgleich 08.10.2026)
+    storage_factor: float = 1.4          # Kalibrierung der Fuehler-Messung (siehe Modul-Doku)
 
     @property
     def puffer_kwh_per_k(self) -> float:
-        return self.puffer_liter * WH_PER_LITER_K / 1000.0
+        return self.puffer_liter * WH_PER_LITER_K / 1000.0 * self.storage_factor
 
     @property
     def boiler_kwh_per_k(self) -> float:
-        return self.boiler_liter * WH_PER_LITER_K / 1000.0
+        return self.boiler_liter * WH_PER_LITER_K / 1000.0 * self.storage_factor
 
 
 def load_storage_config() -> StorageConfig:
@@ -83,7 +101,8 @@ def load_storage_config() -> StorageConfig:
             usable_from_c=float(data.get("nutzbar_ab_c", 35.0)),
             full_at_c=float(data.get("voll_bei_c", 80.0)),
             wood_kwh_per_rm=float(data.get("holz_kwh_pro_rm", 1600.0)),
-            boiler_efficiency=float(data.get("kessel_wirkungsgrad", 0.78)),
+            boiler_efficiency=float(data.get("kessel_wirkungsgrad", 0.60)),
+            storage_factor=float(data.get("speicher_faktor", 1.4)),
         )
     except Exception:
         return StorageConfig()
@@ -441,6 +460,32 @@ def analyze(buckets: list[Bucket], cfg: Optional[StorageConfig] = None,
     def _day(d: date) -> DayStats:
         return days.setdefault(d, DayStats(d))
 
+    # Verbrauch in ruhigen Phasen (Kessel aus, kein Anstieg) je Tag -> waehrend
+    # des Abbrands deckt der Kessel diesen Verbrauch mit, das zaehlt zum Holz
+    quiet: dict[date, list[float]] = {}
+    prev_q = prev_b = None
+    for b, active in zip(buckets, active_flags):
+        q = heat_content_kwh(b, cfg)
+        if q is None:
+            continue
+        if prev_q is not None and (b.ts - prev_b.ts) <= timedelta(minutes=MAX_GAP_MIN) and not active:
+            d = q - prev_q
+            if d <= 0:
+                a = quiet.setdefault(b.ts.date(), [0.0, 0.0])
+                a[0] += -d
+                a[1] += (b.ts - prev_b.ts).total_seconds() / 3600.0
+        prev_q, prev_b = q, b
+    all_kwh = sum(a[0] for a in quiet.values())
+    all_h = sum(a[1] for a in quiet.values())
+    default_rate = all_kwh / all_h if all_h >= 2.0 else 0.0
+
+    def quiet_rate(d: date) -> float:
+        for dd in (d, d - timedelta(days=1)):
+            a = quiet.get(dd)
+            if a and a[1] >= 3.0:
+                return a[0] / a[1]
+        return default_rate
+
     for b in buckets:
         if b.outdoor is not None:
             ds = _day(b.ts.date())
@@ -477,6 +522,15 @@ def analyze(buckets: list[Bucket], cfg: Optional[StorageConfig] = None,
             continue
         if prev_q is not None and (b.ts - prev_b.ts) <= timedelta(minutes=MAX_GAP_MIN):
             d = q - prev_q
+            if active:
+                # Abbrand: Netto-Anstieg + was das Haus in der Zeit verbraucht hat
+                use = quiet_rate(b.ts.date()) * (b.ts - prev_b.ts).total_seconds() / 3600.0
+                _day(b.ts.date()).used_kwh += use
+                d += use
+                if d <= 0:
+                    _day(b.ts.date()).used_kwh += -d
+                    prev_q, prev_b = q, b
+                    continue
             if d > 0:
                 src = "wood" if active else ("solar" if _is_daytime(b, lat, lon) else "other")
                 if src != run_src:
@@ -597,7 +651,7 @@ def day_timeline(store, day: date, cfg: Optional[StorageConfig] = None) -> tuple
 
 
 SEASON_START_MONTH = 9          # Heizsaison ab 1. September
-_CACHE_VERSION = 2
+_CACHE_VERSION = 3        # 3: Holz inkl. Verbrauch waehrend des Abbrands
 _DAY_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "heating_stats_cache.json")
 
 
@@ -638,7 +692,7 @@ def season_stats(store, cfg: Optional[StorageConfig] = None, today: Optional[dat
     today = today or date.today()
     first = season_start(today)
     cache = _load_day_cache() if use_cache else {"version": _CACHE_VERSION, "days": {}, "events": {}}
-    cfg_key = f"{cfg.puffer_liter}/{cfg.boiler_liter}"
+    cfg_key = f"{cfg.puffer_liter}/{cfg.boiler_liter}/{cfg.storage_factor}"
     if cache.get("cfg") != cfg_key:
         cache = {"version": _CACHE_VERSION, "days": {}, "events": {}, "cfg": cfg_key}
 

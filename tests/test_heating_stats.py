@@ -8,8 +8,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from core.heating_stats import Bucket, StorageConfig, analyze, detect_events, kessel_active, sun_elevation_deg  # noqa: E402
+from core import heating_stats as hs  # noqa: E402
 
-CFG = StorageConfig(puffer_liter=4000, boiler_liter=500)
+CFG = StorageConfig(puffer_liter=4000, boiler_liter=500, storage_factor=1.0)
 
 
 def _b(ts, kessel, puffer, warm=55.0, outdoor=5.0, **_ignored):
@@ -113,12 +114,34 @@ class TestAnalyze(unittest.TestCase):
     def test_split_wood_and_solar(self):
         stats = analyze(self._day(), CFG, first_day=date(2026, 2, 9), last_day=date(2026, 2, 9))
         kwh_per_k = 4000 * 1.163 / 1000
-        self.assertAlmostEqual(stats.wood_kwh, 20 * kwh_per_k, delta=1.0)
+        # Holz = Anstieg + Verbrauch des Hauses waehrend des Abbrands (Rate der ruhigen Stunden)
+        self.assertGreater(stats.wood_kwh, 20 * kwh_per_k)
+        self.assertLess(stats.wood_kwh, 20 * kwh_per_k + 15)
         self.assertAlmostEqual(stats.solar_kwh, 2 * kwh_per_k, delta=1.0)
         self.assertEqual(len(stats.events), 1)
         self.assertEqual(stats.days[0].events, 1)
         self.assertGreater(stats.days[0].used_kwh, 5)
         self.assertAlmostEqual(stats.solar_share_pct, 100 * 2 / 22, delta=2)
+
+    def test_wood_includes_consumption_during_fire(self):
+        """Haus verbraucht konstant 1 K/h im Puffer; Feuer 4 h hebt netto um 4 K -> Holz = 8 K."""
+        start = datetime(2026, 2, 9, 0, 0)
+        buckets, puffer = [], 50.0
+        for i in range(48):                                  # 12 h, 15-min-Raster
+            ts = start + timedelta(minutes=15 * i)
+            firing = 16 <= i < 32                            # 04:00-08:00
+            puffer += (2.0 if firing else 0.0) / 4 - 1.0 / 4
+            buckets.append(_b(ts, 80.0 if firing else 40.0, puffer))
+        stats = analyze(buckets, CFG)
+        kwh_per_k = 4000 * 1.163 / 1000
+        # Nachlauf 30 min zaehlt mit -> 4,5 h Verbrauch, netto +4 K, minus 0,5 K Abkuehlung im Nachlauf
+        self.assertAlmostEqual(stats.wood_kwh, 8.0 * kwh_per_k, delta=0.6 * kwh_per_k)
+
+    def test_storage_factor_scales_heat(self):
+        a = StorageConfig(storage_factor=1.0)
+        b = StorageConfig(storage_factor=1.6)
+        self.assertAlmostEqual(b.puffer_kwh_per_k / a.puffer_kwh_per_k, 1.6)
+        self.assertAlmostEqual(hs.usable_kwh(45.0, b) / hs.usable_kwh(45.0, a), 1.6)
 
     def test_event_bounds(self):
         self.assertEqual(len(detect_events(self._day())), 1)
@@ -168,11 +191,11 @@ class TestEmpty(unittest.TestCase):
 class TestWaermeHelpers(unittest.TestCase):
     def test_usable_and_charge(self):
         from core.heating_stats import charge_pct, usable_kwh, wood_rm
-        cfg = StorageConfig()
+        cfg = StorageConfig(storage_factor=1.0)
         self.assertAlmostEqual(usable_kwh(45.0, cfg), 10 * 4.652, places=2)
         self.assertEqual(usable_kwh(30.0, cfg), 0.0)
         self.assertAlmostEqual(charge_pct(57.5, cfg), 50.0)
-        self.assertAlmostEqual(wood_rm(1248.0, cfg), 1.0)   # 1248 / 0.78 / 1600
+        self.assertAlmostEqual(wood_rm(960.0, cfg), 1.0)    # 960 / 0.60 / 1600
 
     def test_season_start(self):
         from core.heating_stats import season_start
@@ -199,9 +222,9 @@ class TestWaermeHelpers(unittest.TestCase):
         old = hs._DAY_CACHE_PATH
         hs._DAY_CACHE_PATH = os.path.join(tempfile.mkdtemp(), "cache.json")
         try:
-            a = hs.season_stats(store, StorageConfig(), today=date(2026, 9, 20))
+            a = hs.season_stats(store, StorageConfig(storage_factor=1.0), today=date(2026, 9, 20))
             conn.execute("DELETE FROM heating")   # abgeschlossene Tage kommen jetzt aus dem Cache
-            b = hs.season_stats(store, StorageConfig(), today=date(2026, 9, 20))
+            b = hs.season_stats(store, StorageConfig(storage_factor=1.0), today=date(2026, 9, 20))
         finally:
             hs._DAY_CACHE_PATH = old
         self.assertEqual(len(a.days), 20)
