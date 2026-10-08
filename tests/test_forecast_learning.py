@@ -1,5 +1,6 @@
 """Tests fuer das Lern-Archiv (core.forecast_learning) und den lernenden Waermebedarf."""
 
+import json
 import os
 import sqlite3
 import sys
@@ -197,6 +198,51 @@ class TestCollector(unittest.TestCase):
         self.assertAlmostEqual(pred / real, 1.0, delta=0.05)
         self.assertAlmostEqual(m.mid_below_mean_k, 6.0, delta=0.5)
 
+    def test_off_and_pool_days_are_ignored(self):
+        """Sommer mit Stoerung/Pool: viele Tage fast ohne Ertrag duerfen die Flaeche nicht druecken."""
+        wx, demand, hour_start, free, tank, t_out, truth, low = self._data()
+        n = len(hour_start)
+        days = np.array([datetime.fromtimestamp(float(h)).date().toordinal() for h in hour_start])
+        rng = np.random.default_rng(3)
+        off_days = set(rng.choice(np.unique(days), size=len(np.unique(days)) * 2 // 5, replace=False).tolist())
+        off = np.array([d in off_days for d in days])
+        gain = truth.kw(wx["t"], wx["ghi"], wx["dni"], wx["dhi"], wx["temp"], low)
+        free_off = free - np.where(off, gain * 0.95, 0.0)          # Anlage aus / Waerme in den Pool
+        with mock.patch.object(hd, "_collector_config", return_value=(-30.0, None)), \
+                mock.patch.object(hd, "_solar_off_periods", return_value=[]):
+            m = hd.fit_collector(hour_start, free_off, np.full(n, 60.0), np.zeros(n), tank, t_out, wx, demand,
+                                 LAT, LON, tank_mid_c=low)
+        self.assertIsNotNone(m)
+        pred = m.kw(wx["t"], wx["ghi"], wx["dni"], wx["dhi"], wx["temp"], low).sum()
+        self.assertAlmostEqual(pred / gain.sum(), 1.0, delta=0.08)
+        self.assertGreater(m.off_days, 10)
+
+    def test_configured_off_period_is_skipped(self):
+        wx, demand, hour_start, free, tank, t_out, truth, low = self._data()
+        n = len(hour_start)
+        first = datetime.fromtimestamp(float(hour_start[0])).date()
+        with mock.patch.object(hd, "_collector_config", return_value=(-30.0, 40.0)), \
+                mock.patch.object(hd, "_solar_off_periods", return_value=[(first, first + timedelta(days=29))]):
+            m = hd.fit_collector(hour_start, free, np.full(n, 60.0), np.zeros(n), tank, t_out, wx, demand,
+                                 LAT, LON, tank_mid_c=low)
+        self.assertGreaterEqual(m.off_days, 29)
+
+    def test_live_factor(self):
+        wx, demand, hour_start, free, tank, t_out, truth, low = self._data(days=10)
+        n = len(hour_start)
+        s0 = max(0, int(np.argmax(wx["ghi"])) - 14)              # sonnigster Tag
+        rows = [(hour_start[i], 0, 0, free[i], 60.0, 0.0, tank[i], t_out[i], low[i]) for i in range(s0, s0 + 30)]
+        # Verbrauch wie in _data (Aussentemperatur der Stunde)
+        by_h = {datetime.fromtimestamp(float(hour_start[i])): float(demand.kw_eff(t_out[i:i + 1], np.zeros(1))[0])
+                for i in range(n)}
+        f_ok = hd.live_solar_factor(truth, rows, wx, lambda t: by_h[t])
+        gain = truth.kw(wx["t"], wx["ghi"], wx["dni"], wx["dhi"], wx["temp"], low)
+        rows_off = [(r[0], 0, 0, r[3] - gain[s0 + j], 60.0, 0.0, r[6], r[7], r[8]) for j, r in enumerate(rows)]
+        f_off = hd.live_solar_factor(truth, rows_off, wx, lambda t: by_h[t])
+        self.assertIsNotNone(f_ok)
+        self.assertEqual(f_ok, 1.0)
+        self.assertLess(f_off, 0.7)          # geschrumpft Richtung 1 - ein Tag ist kein sicheres Urteil
+
     def test_pump_needs_collector_above_sensor(self):
         """Schwache Sonne: kommt der Kollektor nicht ueber Puffer Mitte, laeuft nichts."""
         g = np.array([150.0])
@@ -243,6 +289,63 @@ class TestCollector(unittest.TestCase):
         m = hd.SolarThermalModel.from_dict({"mean_ratio": 0.6, "hours": 10, "table": []})
         self.assertEqual(m.version, 1)
         self.assertAlmostEqual(m.ratio(5.0, 50.0), 0.6)
+
+
+def _raw(eg, og, dg):
+    v = ["STANDBY"] + ["0"] * 40
+    v[18], v[22], v[25] = eg, og, dg
+    return json.dumps(v)
+
+
+class TestCircuits(unittest.TestCase):
+    """Heizkreispumpen EG/OG/DG: Archiv und Mehrverbrauch."""
+
+    def test_circuits_on(self):
+        self.assertEqual(fl.circuits_on(json.loads(_raw("EIN", "AUS", "EIN"))), 2)
+        self.assertIsNone(fl.circuits_on(["x"] * 5))
+        self.assertIsNone(fl.circuits_on(json.loads(_raw("EIN", "48.00", "EIN"))))
+
+    def test_hour_rows_and_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = FakeStore(os.path.join(tmp, "data.db"))
+            store.conn.execute("CREATE TABLE heating_bmk_raw (timestamp TEXT PRIMARY KEY, data TEXT)")
+            now = time.time()
+            h0 = int(now) - int(now) % 3600 - 3 * 3600
+            rows = []
+            for m in range(0, 120):                      # 2 volle Stunden, minuetlich
+                ts = datetime.fromtimestamp(h0 + m * 60, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                rows.append((ts, _raw("EIN", "EIN" if m < 60 else "AUS", "AUS")))
+            store.conn.executemany("INSERT INTO heating_bmk_raw VALUES (?,?)", rows)
+            store.conn.commit()
+            conn = fl.connect(os.path.join(tmp, "fl.db"))
+            fl._update_circuits(conn, store, now)
+            got = fl.load_circuits(conn)
+            self.assertEqual(got[h0], 2.0)
+            self.assertEqual(got[h0 + 3600], 1.0)
+            self.assertAlmostEqual(fl.recent_circuits(store, hours=4), 1.5, places=6)
+            conn.close()
+
+    def test_fit_circuit_effect(self):
+        start = int(datetime(2026, 6, 1, tzinfo=timezone.utc).timestamp())
+        wx = synth_wx(60, start, seed=9)
+        m = hd.DemandModel(base_kw=1.0, per_k_kw=0.2, hours=500, r2=None, t_min=5, t_max=25, version=2,
+                           tb_c=15.0, tau_h=0.0)
+        rng = np.random.default_rng(2)
+        b_start = np.arange(start, start + 59 * 86400, 6 * 3600, dtype=float) - 1800.0
+        te, ge = hd._hour_features(b_start, wx, np.full(len(b_start), np.nan), 0.0)
+        circ = rng.choice([0.0, 1.0, 2.0, 3.0], size=len(b_start))
+        b_kw = m.kw_eff(te, ge) + 0.4 * (circ - circ.mean()) + rng.normal(0, 0.2, len(b_start))
+        hd.fit_circuit_effect(m, b_start, b_kw, np.full(len(b_start), 6.0), np.full(len(b_start), np.nan), circ, wx)
+        self.assertAlmostEqual(m.circuit_kw, 0.4, delta=0.08)
+        self.assertGreater(m.circuit_adjust(3.0), 0.0)
+        self.assertLess(m.circuit_adjust(0.0), 0.0)
+        self.assertAlmostEqual(m.circuit_adjust(3.0, hours_ahead=24.0), m.circuit_adjust(3.0) / np.e, places=6)
+
+    def test_no_effect_without_data(self):
+        m = hd.DemandModel(base_kw=1.0, per_k_kw=0.2, hours=500, r2=None, t_min=5, t_max=25, version=2)
+        hd.fit_circuit_effect(m, np.zeros(5), np.ones(5), np.ones(5), np.full(5, np.nan), np.full(5, np.nan), {})
+        self.assertEqual(m.circuit_kw, 0.0)
+        self.assertEqual(m.circuit_adjust(3.0), 0.0)
 
 
 class FakeStore:

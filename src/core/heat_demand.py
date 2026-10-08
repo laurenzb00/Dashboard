@@ -40,6 +40,12 @@ Kaelte besser, Kollektoren verlieren mehr Waerme an die kalte Luft).
     fehlt im Ertrag. Kollektor-Mitteltemperatur im Betrieb ~ Puffer Mitte +
     Versatz: warmer Puffer -> weniger Ertrag (in der Prognose laufend aus dem
     simulierten Inhalt).
+    Anlage aus / auf Pool umgeschaltet (Sommer 2026: Stoerung, zeitweise Pool):
+    solche Tage liefern deutlich weniger als die Sonne hergibt und werden beim
+    Lernen verworfen (einseitig: < 50 % des Moeglichen). Bekannte Zeitraeume
+    zusaetzlich in config/heizung.json "solar_aus": [["2026-06-01", "2026-08-31"]].
+    In der Prognose: Ist-Abgleich der letzten 24 h (live_factor) - kommt gerade
+    kaum etwas an, wird die Solarprognose entsprechend gesenkt (klingt in ~2 Tagen ab).
     Gelernt aus Tagessummen: wirksame Flaeche (Groesse x Alterung), Faktor m
     fuer die Waermeverluste (alte Kollektoren, Leitungen) und - falls nicht
     vorgegeben - die Neigung. Ausrichtung aus dem Luftbild (config/heizung.json:
@@ -76,7 +82,7 @@ MIN_QUIET_MIN_PER_HOUR = 30
 GAIN_EPS_KWH = 0.05
 MODEL_VERSION = 2
 
-TAU_CANDIDATES_H = (0.0, 3.0, 6.0, 12.0, 24.0)
+TAU_CANDIDATES_H = (0.0, 3.0, 6.0, 12.0, 24.0, 36.0, 48.0)   # Ziegelhaus: 24 h lag am Rand (Daten 08.10.)
 TB_CANDIDATES_C = tuple(np.arange(12.0, 21.0, 1.0))
 GRID_T = np.arange(-20.0, 26.0, 1.0)
 GRID_G = np.arange(0.0, 601.0, 50.0)
@@ -98,8 +104,16 @@ COLLECTOR_ETA0, COLLECTOR_A1, COLLECTOR_A2 = 0.78, 3.6, 0.012   # typischer Flac
 COLLECTOR_IAM_B0 = 0.1           # Glas: Reflexion bei flachem Einfall
 COLLECTOR_TM_OFFSET_K = 5.0      # Kollektor-Mitteltemperatur ueber Puffer Mitte (Anlage laeuft)
 COLLECTOR_HEAT_CAP_KJ_M2K = 8.0  # Kollektor + Fuellung, muss beim Start aufgeheizt werden
+SOLAR_OFF_RATIO = 0.5            # Tag liefert < 50 % des Moeglichen -> Anlage aus / Pool -> nicht lernen
+SOLAR_OFF_MIN_KWH = 8.0          # ... nur beurteilen, wenn mindestens so viel moeglich gewesen waere
+LIVE_MIN_EXPECTED_KWH = 10.0     # Ist-Abgleich erst ab so viel erwartetem Solar-Ertrag (48 h)
+LIVE_OFF_BELOW = 0.6             # darunter gilt die Anlage als aus / auf Pool
+LIVE_SHRINK_KWH = 15.0
 COLLECTOR_LOSS_MULTS = (0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0)
 COLLECTOR_MIN_DAYS = 8
+CIRCUIT_DECAY_H = 24.0           # Heizkreis-Korrektur klingt in der Prognose so ab
+CIRCUIT_MIN_BLOCKS = 20          # so viele 6-h-Bloecke mit Pumpendaten braucht es zum Lernen
+CIRCUIT_MIN_SPREAD = 0.3         # ... und so viel Schwankung (sonst nichts zu lernen)
 SUN_PV_KW = 0.1                  # ab dieser PV-Leistung gilt eine Stunde als "Sonne im Spiel"
 
 # Ausreisser (robuste Statistik: Median und MAD statt Mittelwert und Standardabweichung)
@@ -147,6 +161,11 @@ class DemandModel:
     typical_g: float = 0.0
     anomaly_days: Optional[list] = None      # ignorierte Tage (Urlaub, Messfehler), ISO-Datum
     outlier_hours: int = 0                   # einzelne ignorierte Stunden (Sensorfehler)
+    # Heizkreise (Pumpen EG/OG/DG): Mehrverbrauch je zusaetzlich laufendem Kreis gegenueber dem
+    # Mittel im Lernzeitraum. 0 = (noch) nicht gelernt -> keine Korrektur.
+    circuit_kw: float = 0.0
+    circuit_mean: float = 0.0
+    circuit_blocks: int = 0
 
     def _global_kw(self, t, g=0.0):
         t = np.asarray(t, float)
@@ -171,8 +190,34 @@ class DemandModel:
         out = out + self.per_k_kw * np.maximum(0.0, gt[0] - t_eff)
         return np.maximum(0.0, out)
 
-    def predictor(self, wx: Optional[dict]) -> Callable[[datetime], float]:
-        """Funktion lokale Zeit (Stundenbeginn) -> kW, aus Wetter-Reihen {t, temp, ghi}."""
+    def circuit_adjust(self, circuits_now: Optional[float], hours_ahead: float = 0.0) -> float:
+        """Korrektur (kW), wenn gerade mehr/weniger Heizkreise laufen als im Lernmittel.
+
+        Pumpen bleiben meist Stunden bis Tage im selben Zustand -> volle Korrektur jetzt,
+        abklingend ueber CIRCUIT_DECAY_H in Richtung Mittel.
+        """
+        if circuits_now is None or self.circuit_kw <= 0.0:
+            return 0.0
+        return float(self.circuit_kw * (circuits_now - self.circuit_mean)
+                     * np.exp(-max(0.0, hours_ahead) / CIRCUIT_DECAY_H))
+
+    def predictor(self, wx: Optional[dict], circuits_now: Optional[float] = None,
+                  now: Optional[datetime] = None) -> Callable[[datetime], float]:
+        """Funktion lokale Zeit (Stundenbeginn) -> kW, aus Wetter-Reihen {t, temp, ghi}.
+
+        circuits_now: laufende Heizkreise (Mittel der letzten Stunden, 0..3) fuer die Korrektur.
+        """
+        now = now or datetime.now()
+        base_f = self._predictor(wx)
+        if circuits_now is None or self.circuit_kw <= 0.0:
+            return base_f
+
+        def f(local: datetime) -> float:
+            ahead = (local - now).total_seconds() / 3600.0
+            return max(0.0, base_f(local) + self.circuit_adjust(circuits_now, ahead))
+        return f
+
+    def _predictor(self, wx: Optional[dict]) -> Callable[[datetime], float]:
         if not wx or len(wx.get("t", [])) == 0:
             return lambda _t: self.kw_at(None)
         t = np.asarray(wx["t"], float)
@@ -223,6 +268,8 @@ class SolarThermalModel:
     days: int = 0
     rmse_day_kwh: Optional[float] = None
     mean_day_kwh: Optional[float] = None
+    off_days: int = 0                 # verworfene Tage (Anlage aus / Pool)
+    off_recent: Optional[list] = None # die letzten davon (ISO-Datum), fuer die Diagnose
 
     # --- Version 2 -------------------------------------------------------
     def kw(self, t_end, ghi, dni, dhi, temp, tank_ref_c) -> np.ndarray:
@@ -749,6 +796,16 @@ def _collector_config() -> tuple[float, Optional[float]]:
     return float(az), (float(tilt) if tilt is not None else None)
 
 
+def _solar_off_periods() -> list[tuple[date, date]]:
+    """Bekannte Ausfall-/Pool-Zeitraeume aus config/heizung.json ("solar_aus": [[von, bis], ...])."""
+    try:
+        with open(hs._CONFIG_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f).get("solar_aus") or []
+        return [(date.fromisoformat(str(a)[:10]), date.fromisoformat(str(b)[:10])) for a, b in raw]
+    except Exception:
+        return []
+
+
 def fit_collector(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_outdoor, wx: dict,
                   demand: DemandModel, lat: float, lon: float,
                   azimuth: Optional[float] = None, tilt: Optional[float] = None,
@@ -801,9 +858,12 @@ def fit_collector(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_outdoo
     uniq, inv = np.unique(days[sel], return_inverse=True)
     n_h = np.bincount(inv, minlength=len(uniq))
     meas = np.bincount(inv, weights=gain[sel], minlength=len(uniq))
-    use_day = n_h >= 3
+    periods = _solar_off_periods()
+    in_period = np.array([any(a <= date.fromordinal(int(d)) <= b for a, b in periods) for d in uniq], dtype=bool)
+    use_day = (n_h >= 3) & ~in_period
     if use_day.sum() < COLLECTOR_MIN_DAYS:
         return None
+    day_ord = uniq[use_day]
     tilts = (tilt,) if tilt is not None else COLLECTOR_TILTS
     best = None
     for tl in tilts:
@@ -817,10 +877,18 @@ def fit_collector(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_outdoo
             x = np.bincount(inv, weights=q, minlength=len(uniq))[use_day]       # kWh je m^2 und Tag
             y = meas[use_day]
             keep = np.ones(len(y), dtype=bool)
-            for _ in range(2):                                                  # Schnee/Sensor-Tage raus
+            off = np.zeros(len(y), dtype=bool)
+            for _ in range(6):
                 k = float(np.sum(x[keep] * y[keep]) / max(1e-9, np.sum(x[keep] ** 2)))
-                res = y - k * x
-                keep = np.abs(_robust_z(res, 0.5)) <= 4.0
+                pred = k * x
+                # Anlage aus / Pool: deutlich weniger als moeglich (nur nach unten verwerfen)
+                off = (pred >= SOLAR_OFF_MIN_KWH) & (y < SOLAR_OFF_RATIO * pred)
+                res = y - pred
+                if (~off).sum() < COLLECTOR_MIN_DAYS:
+                    break
+                med = float(np.median(res[~off]))
+                mad = float(np.median(np.abs(res[~off] - med))) * 1.4826
+                keep = ~off & (np.abs(res - med) <= 4.0 * max(mad, 0.5))      # Schnee/Sensor-Tage raus
             if keep.sum() < COLLECTOR_MIN_DAYS or k <= 0:
                 continue
             rmse = float(np.sqrt(np.mean((y[keep] - k * x[keep]) ** 2)))
@@ -828,20 +896,112 @@ def fit_collector(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_outdoo
             score = rmse * (1.0 + 0.004 * abs(np.log(mult)) / np.log(1.3)
                             + 0.002 * abs(tl - COLLECTOR_DEFAULT_TILT) / 5.0)
             if best is None or score < best[0]:
-                best = (score, rmse, tl, mult, k, int(keep.sum()), float(np.mean(y[keep])))
+                best = (score, rmse, tl, mult, k, int(keep.sum()), float(np.mean(y[keep])), off.copy())
     if best is None:
         return None
-    _score, rmse, tl, mult, k, n_days, mean_day = best
+    _score, rmse, tl, mult, k, n_days, mean_day, off = best
+    if k > COLLECTOR_AREA_M2:
+        # Besser als neu geht nicht - Ueberschaetzung kommt v.a. vom abgezogenen Tagesverbrauch
+        # (Sonne durchs Fenster senkt ihn, das Bedarfsmodell lernt nur aus sonnenfreien Stunden)
+        logger.info("[Solarthermie] wirksame Flaeche %.1f m² auf %g m² begrenzt", k, COLLECTOR_AREA_M2)
+        k = COLLECTOR_AREA_M2
+    off_iso = [date.fromordinal(int(d)).isoformat() for d in day_ord[off]]
     model = SolarThermalModel(mean_ratio=0.0, hours=int(sel.sum()), version=2, tilt=float(tl),
                               azimuth=float(azimuth), area_eff_m2=round(k, 3), loss_mult=float(mult),
                               mid_below_mean_k=round(ref_below, 2),
                               latitude=lat, longitude=lon, days=n_days, rmse_day_kwh=round(rmse, 3),
                               mean_day_kwh=round(mean_day, 3),
+                              off_days=len(off_iso) + int(in_period.sum()), off_recent=off_iso[-10:],
                               fitted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     logger.info("[Solarthermie] Kollektor-Modell aus %d Tagen: Neigung %g°, Azimut %g°, wirksam %.1f m² "
                 "(von ~%g m²), Verluste x%g, Tagesfehler %.1f kWh (Ø %.1f kWh/Tag), Puffer Mitte %.1f K unter Mittel",
                 n_days, tl, azimuth, k, COLLECTOR_AREA_M2, mult, rmse, mean_day, ref_below)
+    if model.off_days:
+        logger.info("[Solarthermie] %d Tage verworfen (Anlage aus / Pool, %d davon aus config), zuletzt: %s",
+                    model.off_days, int(in_period.sum()), ", ".join(off_iso[-5:]))
     return model
+
+
+def live_solar_factor(model: Optional[SolarThermalModel], rows: list, wx: dict,
+                      demand_fn: Callable[[datetime], float]) -> Optional[float]:
+    """Ist-Abgleich: gemessener / erwarteter Solar-Ertrag der letzten Stunden.
+
+    rows = forecast_learning.heat_hour_rows(...) (Stundenbeginn Unix, ..., tank_mid_c).
+    Nur Tagstunden ohne Kessel. None, wenn zu wenig Sonne fuer ein Urteil war
+    (dann gilt die normale Prognose). Ist auf Pool umgeschaltet oder steht die
+    Anlage, liegt der Faktor nahe 0.
+    """
+    if model is None or getattr(model, "version", 1) < 2 or not rows or len(wx.get("t", [])) == 0:
+        return None
+    arr = np.array([[np.nan if v is None else v for v in r] for r in rows], dtype=float)
+    if arr.shape[1] < 9:
+        return None
+    h0, free_kwh, free_min, kessel_min, tank_mid = arr[:, 0], arr[:, 3], arr[:, 4], arr[:, 5], arr[:, 8]
+    t_end = np.arange(h0.min() - 3600.0, h0.max() + 3601.0, 3600.0)       # lueckenlos, mit Vorstunde
+    ghi = np.nan_to_num(fl.hourly_series(wx["t"], wx["ghi"], t_end))
+    dni = np.nan_to_num(fl.hourly_series(wx["t"], np.nan_to_num(wx["dni"]), t_end))
+    dhi = fl.hourly_series(wx["t"], wx["dhi"], t_end)
+    temp = fl.hourly_series(wx["t"], wx["temp"], t_end - 1800.0)
+    idx = np.searchsorted(t_end, h0 + 3600.0)
+    ref = np.full(len(t_end), np.nan)
+    ref[idx] = tank_mid
+    ref = np.where(np.isnan(ref), np.nanmedian(tank_mid) if np.any(~np.isnan(tank_mid)) else 50.0, ref)
+    exp_all = model.kw(t_end, ghi, dni, dhi, temp, ref)
+    exp = exp_all[idx] * free_min / 60.0
+    use = (free_min >= 45.0) & (kessel_min <= 0.0) & ~np.isnan(free_kwh) & (exp > 0.2)
+    exp_sum = float(np.sum(exp[use]))
+    if exp_sum < LIVE_MIN_EXPECTED_KWH:
+        return None
+    dem = np.array([demand_fn(datetime.fromtimestamp(float(h))) for h in h0[use]]) * free_min[use] / 60.0
+    meas = float(np.sum(free_kwh[use] + dem))
+    raw = float(np.clip(meas / exp_sum, 0.0, 1.3))
+    if raw >= LIVE_OFF_BELOW:
+        return 1.0                      # normale Schwankung (Messung ueber einen Tag ist ungenau)
+    # deutlich zu wenig: Richtung "aus" - je mehr Sonne erwartet war, desto sicherer das Urteil
+    w = exp_sum / (exp_sum + LIVE_SHRINK_KWH)
+    return float(1.0 + (raw - 1.0) * w)
+
+
+def fit_circuit_effect(model: DemandModel, b_start: np.ndarray, b_kw: np.ndarray, b_w: np.ndarray,
+                       b_out: np.ndarray, b_circ: np.ndarray, wx: dict) -> None:
+    """Mehrverbrauch je laufendem Heizkreis aus den Rest-Abweichungen der 6-h-Bloecke lernen.
+
+    Erst das Wettermodell, dann: Rest = a + c * Kreise. So wird nur erklaert, was
+    Temperatur und Sonne nicht schon erklaeren. Zu wenig Daten/Schwankung -> c = 0.
+    """
+    ok = ~np.isnan(b_circ) & ~np.isnan(b_kw)
+    if ok.sum() < CIRCUIT_MIN_BLOCKS:
+        return
+    w = b_w[ok]
+    x = b_circ[ok]
+    mean = float(np.average(x, weights=w))
+    if float(np.sqrt(np.average((x - mean) ** 2, weights=w))) < CIRCUIT_MIN_SPREAD:
+        return
+    te, ge = _hour_features(b_start[ok], wx, b_out[ok], model.tau_h)
+    res = b_kw[ok] - model.kw_eff(te, ge)
+    a = np.column_stack([np.ones_like(x), x - mean]) * np.sqrt(w)[:, None]
+    coef = np.linalg.lstsq(a, res * np.sqrt(w), rcond=None)[0]
+    model.circuit_kw = float(np.clip(coef[1], 0.0, 3.0))
+    model.circuit_mean = mean
+    model.circuit_blocks = int(ok.sum())
+    logger.info("[Waermebedarf] Heizkreise: +%.2f kW je laufendem Kreis (Mittel %.1f Kreise, %d Bloecke)",
+                model.circuit_kw, mean, model.circuit_blocks)
+
+
+def _block_circuits(b_start: np.ndarray, circ: dict) -> np.ndarray:
+    """Mittel der laufenden Heizkreise je 6-h-Block (NaN ohne Daten)."""
+    out = np.full(len(b_start), np.nan)
+    if not circ:
+        return out
+    for i, s in enumerate(b_start):
+        mid = s + 1800.0
+        blk0 = datetime.fromtimestamp(float(mid)).replace(minute=0, second=0, microsecond=0)
+        blk0 = blk0.replace(hour=blk0.hour // BLOCK_H * BLOCK_H)
+        t0 = int(blk0.timestamp())
+        vals = [circ[h] for h in range(t0, t0 + BLOCK_H * 3600, 3600) if h in circ]
+        if len(vals) >= 2:
+            out[i] = float(np.mean(vals))
+    return out
 
 
 def _load_archive():
@@ -852,9 +1012,10 @@ def _load_archive():
             "FROM heat_hours ORDER BY hour_start").fetchall()], dtype=float).reshape(-1, 9)
         pv = dict(conn.execute("SELECT hour_end, pv_kw FROM pv_hours").fetchall())
         wx = fl.load_weather(conn)
+        circ = fl.load_circuits(conn)
     finally:
         conn.close()
-    return heat, pv, wx
+    return heat, pv, wx, circ
 
 
 def learn(store, cfg: Optional[hs.StorageConfig] = None, allow_network: bool = True):
@@ -862,7 +1023,7 @@ def learn(store, cfg: Optional[hs.StorageConfig] = None, allow_network: bool = T
     from .weather import load_weather_config
     wcfg = load_weather_config()
     fl.update(store, wcfg, cfg, allow_network=allow_network)
-    heat, pv, wx = _load_archive()
+    heat, pv, wx, circ = _load_archive()
     if len(heat) == 0:
         return None, None
     hour_start = heat[:, 0]
@@ -876,6 +1037,11 @@ def learn(store, cfg: Optional[hs.StorageConfig] = None, allow_network: bool = T
     b_start, b_kw, b_w, b_out = aggregate_blocks(hour_start, np.where(usable, heat[:, 1], np.nan),
                                                  np.where(usable, quiet_min, 0.0), heat[:, 7])
     demand = fit_from_archive(b_start, b_kw, b_out, wx, weights=b_w) if len(b_kw) else None
+    if demand is not None:
+        try:
+            fit_circuit_effect(demand, b_start, b_kw, b_w, b_out, _block_circuits(b_start, circ), wx)
+        except Exception as exc:
+            logger.info("[Waermebedarf] Heizkreis-Effekt nicht gelernt: %s", exc)
     solar = None
     if demand is not None:
         try:

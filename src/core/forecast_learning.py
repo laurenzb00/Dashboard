@@ -14,6 +14,10 @@ aus der GESAMTEN Historie lernen - nicht nur aus den letzten Wochen:
              - tank_c, outdoor_c (BMK-Sensor)
              - tank_mid_c: Puffer Mitte - ist der Kollektor kaelter, laeuft die
                Solaranlage nicht
+* circuit_hours  laufende Heizkreise je Stunde (Mittel 0..3, Pumpen EG/OG/DG
+             aus heating_bmk_raw). Die Rohdaten werden nur 21 Tage behalten -
+             hier bleiben sie dauerhaft. Im Sommer laufen manche Kreise zeitweise
+             (Baeder heizen) -> erklaert Schwankungen der Grundlast.
 
 update(store) arbeitet inkrementell (nur neue Stunden + 1 Tag Ueberlappung)
 und ist gedrosselt: hoechstens einmal pro Kalendertag und einmal nach jedem
@@ -75,6 +79,7 @@ def connect(path: Optional[Path] = None) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS heat_hours (hour_start INTEGER PRIMARY KEY,
             quiet_kwh REAL, quiet_min REAL, free_kwh REAL, free_min REAL, kessel_min REAL,
             tank_c REAL, outdoor_c REAL);
+        CREATE TABLE IF NOT EXISTS circuit_hours (hour_start INTEGER PRIMARY KEY, circuits_on REAL, n INTEGER);
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
         """
     )
@@ -296,6 +301,81 @@ def _update_heat(conn, store, cfg: hs.StorageConfig, now: float) -> None:
         start = chunk_end
 
 
+# Heizkreispumpen in den BMK-Rohwerten (core/BMKDATEN.PP_INDEX_MAPPING): EG, OG, DG
+CIRCUIT_INDICES = (18, 22, 25)
+
+
+def circuits_on(values) -> Optional[int]:
+    """Anzahl laufender Heizkreispumpen aus einer BMK-Rohwertliste (None = keine Angabe)."""
+    try:
+        states = [str(values[i]).strip().upper() for i in CIRCUIT_INDICES]
+    except (IndexError, TypeError):
+        return None
+    if not all(s in ("EIN", "AUS", "1", "0", "ON", "OFF") for s in states):
+        return None
+    return sum(s in ("EIN", "1", "ON") for s in states)
+
+
+def circuit_hour_rows(raw_rows: Iterable[tuple]) -> list[tuple]:
+    """[(Zeitstempel UTC 'YYYY-MM-DD HH:MM:SS', JSON-Liste)] -> [(Stundenbeginn Unix, Mittel 0..3, n)]."""
+    import json
+    acc: dict[int, list] = {}
+    for ts, data in raw_rows:
+        try:
+            t = int(datetime.strptime(str(ts)[:19], DB_TS_FORMAT).replace(tzinfo=timezone.utc).timestamp())
+            n_on = circuits_on(json.loads(data))
+        except Exception:
+            continue
+        if n_on is None:
+            continue
+        a = acc.setdefault(t - t % 3600, [0.0, 0])
+        a[0] += n_on
+        a[1] += 1
+    return [(h, a[0] / a[1], a[1]) for h, a in sorted(acc.items())]
+
+
+def _update_circuits(conn, store, now: float) -> None:
+    sconn = getattr(store, "conn", None)
+    if sconn is None:
+        return
+    last = conn.execute("SELECT MAX(hour_start) FROM circuit_hours").fetchone()[0]
+    start = (last - OVERLAP_S) if last is not None else now - 30 * 86400
+    end_hour = int(now) - int(now) % 3600                       # laufende Stunde nicht
+    try:
+        raw = sconn.execute("SELECT timestamp, data FROM heating_bmk_raw WHERE timestamp >= ? AND timestamp < ?",
+                            (datetime.fromtimestamp(start, timezone.utc).strftime(DB_TS_FORMAT),
+                             datetime.fromtimestamp(end_hour, timezone.utc).strftime(DB_TS_FORMAT))).fetchall()
+    except sqlite3.Error:
+        return                                                   # Tabelle (noch) nicht vorhanden
+    rows = [r for r in circuit_hour_rows(raw) if r[2] >= 10]     # mind. 10 Werte je Stunde
+    conn.executemany("INSERT OR REPLACE INTO circuit_hours (hour_start, circuits_on, n) VALUES (?,?,?)", rows)
+
+
+def load_circuits(conn, start: Optional[int] = None) -> dict[int, float]:
+    """{Stundenbeginn Unix: laufende Heizkreise 0..3}."""
+    q, args = "SELECT hour_start, circuits_on FROM circuit_hours", []
+    if start is not None:
+        q += " WHERE hour_start >= ?"
+        args = [int(start)]
+    return {int(h): float(v) for h, v in conn.execute(q, args).fetchall()}
+
+
+def recent_circuits(store, hours: float = 6.0) -> Optional[float]:
+    """Mittel der laufenden Heizkreise der letzten Stunden direkt aus den Rohwerten (None = unbekannt)."""
+    sconn = getattr(store, "conn", None)
+    if sconn is None:
+        return None
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    try:
+        raw = sconn.execute("SELECT timestamp, data FROM heating_bmk_raw WHERE timestamp >= ?",
+                            (since.strftime(DB_TS_FORMAT),)).fetchall()
+    except sqlite3.Error:
+        return None
+    rows = circuit_hour_rows(raw)
+    n = sum(r[2] for r in rows)
+    return (sum(r[1] * r[2] for r in rows) / n) if n >= 10 else None
+
+
 def update(store, cfg: Optional[WeatherConfig] = None, storage: Optional[hs.StorageConfig] = None,
            force: bool = False, allow_network: bool = True) -> bool:
     """Archiv nachfuehren. Gedrosselt: einmal je Programmstart und Kalendertag."""
@@ -318,6 +398,10 @@ def update(store, cfg: Optional[WeatherConfig] = None, storage: Optional[hs.Stor
                 _update_pv(conn, store, now)
             with timed("lernen.waerme_stunden"):
                 _update_heat(conn, store, storage, now)
+            try:
+                _update_circuits(conn, store, now)
+            except Exception as exc:
+                logger.info("[Lernen] Heizkreise nicht archiviert: %s", exc)
             _meta_set(conn, "updated_at", int(now))
             conn.commit()
         finally:

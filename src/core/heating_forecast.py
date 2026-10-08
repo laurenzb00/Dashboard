@@ -20,6 +20,7 @@ Vorgehen
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
@@ -28,6 +29,7 @@ from . import heat_demand
 from . import heating_stats as hs
 
 HORIZON_H = 36
+LIVE_DECAY_H = 48.0
 MIN_RATE_KW = 0.2
 MIN_FACTOR_DAYS = 5
 GAIN_EPS_KWH = 0.05
@@ -47,6 +49,7 @@ class Recommendation:
     steps: list[tuple[datetime, float, float]] = field(default_factory=list)   # (Beginn lokal, Verbrauch kW, Solar kWh)
     temps: list[tuple[datetime, float]] = field(default_factory=list)          # (Stunde lokal, °C) fuer 36 h
     outdoor_now: Optional[float] = None
+    solar_live_factor: Optional[float] = None     # Ist/erwartet der letzten 24 h (Pool, Stoerung)
     model: Optional["heat_demand.DemandModel"] = None
     outlook: Optional["heat_demand.WeekOutlook"] = None
 
@@ -268,7 +271,12 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
     rate_now = rate_24h
     if model is not None and (model.temperature_dependent or rate_24h is None):
         if getattr(model, "version", 1) >= 2 and wx:
-            rate_fn = model.predictor(wx)
+            try:
+                from . import forecast_learning as fl
+                circuits_now = fl.recent_circuits(store)
+            except Exception:
+                circuits_now = None
+            rate_fn = model.predictor(wx, circuits_now=circuits_now, now=now)
         else:
             rate_fn = lambda t: model.kw_at(heat_demand._temp_for(t.replace(minute=0, second=0, microsecond=0),
                                                                    temps_utc or {}, outdoor_now))
@@ -276,12 +284,31 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
 
     factor_fn = None
     solar_fn = None
+    live_factor = None
     kpk = cfg.puffer_kwh_per_k + cfg.boiler_kwh_per_k
     e_max = max(0.0, (cfg.full_at_c - cfg.usable_from_c) * kpk)
     if solar_model is not None and getattr(solar_model, "version", 1) >= 2 and wx and len(wx.get("t", [])):
         col = solar_model.forecast_fn(wx)
+        # Ist-Abgleich: laeuft die Anlage gerade (oder Pool/Stoerung)?
+        live = None
+        if rate_fn is not None:
+            try:
+                from . import forecast_learning as fl
+                b48 = hs.load_buckets(store, now - timedelta(hours=48), now + timedelta(minutes=1))
+                live = heat_demand.live_solar_factor(solar_model, fl.heat_hour_rows(b48, cfg), wx, rate_fn)
+            except Exception:
+                live = None
+        live_factor = live
+
+        def scale(t: datetime) -> float:
+            if live is None:
+                return 1.0
+            # klingt mit ~48 h ab: Pool/Stoerung dauert meist Tage, aber nicht ewig
+            ahead_h = max(0.0, (t - now).total_seconds() / 3600.0)
+            return 1.0 + (min(live, 1.0) - 1.0) * math.exp(-ahead_h / LIVE_DECAY_H)
+
         # nutzbarer Inhalt -> Speichermittel (darunter gilt "nutzbar ab")
-        solar_fn = lambda t, e: col(t, cfg.usable_from_c + max(0.0, e) / kpk)
+        solar_fn = lambda t, e: scale(t) * col(t, cfg.usable_from_c + max(0.0, e) / kpk)
     elif solar_model is not None:
         tank_now = None
         for b in reversed(buckets):
@@ -297,6 +324,7 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
     rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now,
                rate_fn=rate_fn, factor_fn=factor_fn, solar_fn=solar_fn, e_max=e_max)
     rec.outdoor_now = outdoor_now
+    rec.solar_live_factor = live_factor
     if temps_utc:
         hour0 = now.replace(minute=0, second=0, microsecond=0)
         for i in range(HORIZON_H + 1):
