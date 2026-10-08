@@ -12,6 +12,8 @@ aus der GESAMTEN Historie lernen - nicht nur aus den letzten Wochen:
                           kein Anstieg) = Waermeverbrauch
              - free_*:    Netto-Aenderung ohne Kessel (inkl. Solar-Anstieg)
              - tank_c, outdoor_c (BMK-Sensor)
+             - tank_mid_c: Puffer Mitte - ist der Kollektor kaelter, laeuft die
+               Solaranlage nicht
 
 update(store) arbeitet inkrementell (nur neue Stunden + 1 Tag Ueberlappung)
 und ist gedrosselt: hoechstens einmal pro Kalendertag und einmal nach jedem
@@ -47,7 +49,7 @@ MAX_PAST_DAYS = 92
 ARCHIVE_MAX_YEARS = 3
 OVERLAP_S = 24 * 3600
 HEAT_CHUNK_DAYS = 31
-HEAT_VERSION = 2       # 2: Feuer vs. Sonne per Speicher-Zuwachs / Rauchgas (heating_stats.classify_episodes)
+HEAT_VERSION = 3       # 2: Feuer vs. Sonne per Speicher-Zuwachs / Rauchgas, 3: + tank_mid_c (Puffer Mitte)
 
 _DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DB_PATH = _DATA_DIR / "forecast_learning.db"
@@ -76,6 +78,10 @@ def connect(path: Optional[Path] = None) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
         """
     )
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(heat_hours)").fetchall()}
+    if "tank_mid_c" not in cols:
+        conn.execute("ALTER TABLE heat_hours ADD COLUMN tank_mid_c REAL")
+        conn.commit()
     return conn
 
 
@@ -227,7 +233,7 @@ def heat_hour_rows(buckets: Sequence[hs.Bucket], cfg: hs.StorageConfig) -> list[
     active_until = None
     for b in buckets:
         hour = b.ts.replace(minute=0, second=0, microsecond=0)
-        a = acc.setdefault(hour, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0])
+        a = acc.setdefault(hour, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0, 0.0, 0])
         if hs.kessel_active(b):
             active_until = b.ts + timedelta(minutes=hs.BUCKET_MIN + hs.AFTERGLOW_MIN)
         layers = [v for v in (b.top, b.mid, b.bot) if v is not None]
@@ -237,6 +243,9 @@ def heat_hour_rows(buckets: Sequence[hs.Bucket], cfg: hs.StorageConfig) -> list[
         if b.outdoor is not None:
             a[7] += b.outdoor
             a[8] += 1
+        if b.mid is not None:
+            a[9] += b.mid
+            a[10] += 1
         q = hs.heat_content_kwh(b, cfg)
         if q is None:
             continue
@@ -257,7 +266,8 @@ def heat_hour_rows(buckets: Sequence[hs.Bucket], cfg: hs.StorageConfig) -> list[
     rows = []
     for hour, a in sorted(acc.items()):
         rows.append((_unix(hour), a[0], a[1], a[2], a[3], a[4],
-                     (a[5] / a[6]) if a[6] else None, (a[7] / a[8]) if a[8] else None))
+                     (a[5] / a[6]) if a[6] else None, (a[7] / a[8]) if a[8] else None,
+                     (a[9] / a[10]) if a[10] else None))
     return rows
 
 
@@ -281,7 +291,7 @@ def _update_heat(conn, store, cfg: hs.StorageConfig, now: float) -> None:
         buckets = hs.load_buckets(store, start - timedelta(hours=1), chunk_end)
         rows = [r for r in heat_hour_rows(buckets, cfg) if _unix(start) <= r[0] < _unix(chunk_end)]
         conn.executemany("INSERT OR REPLACE INTO heat_hours (hour_start, quiet_kwh, quiet_min, free_kwh, free_min, "
-                         "kessel_min, tank_c, outdoor_c) VALUES (?,?,?,?,?,?,?,?)", rows)
+                         "kessel_min, tank_c, outdoor_c, tank_mid_c) VALUES (?,?,?,?,?,?,?,?,?)", rows)
         conn.commit()
         start = chunk_end
 

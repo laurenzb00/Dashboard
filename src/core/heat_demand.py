@@ -23,12 +23,28 @@ Einflussgroessen:
 
 Solarthermie (Ertrag der Kollektoren, kW)
 -----------------------------------------
-Aus den Temperatur-Anstiegen der Speicher ohne Kessel tagsueber:
+Gemessen wird der Ertrag aus den Temperatur-Anstiegen der Speicher ohne Kessel:
     Solar-Ertrag = Netto-Anstieg + (gelernter) Verbrauch in derselben Stunde
-im Verhaeltnis zur gleichzeitigen PV-Leistung (gleiche Sonne, gleicher Ort).
-Das Verhaeltnis haengt von Aussen- und Speichertemperatur ab (heisser Speicher,
-kalte Luft -> schlechterer Kollektorwirkungsgrad) und wird ebenfalls nach
-aehnlichen Bedingungen gelernt (Raster Aussen- x Speichertemperatur).
+
+Modell (ab Version 2) - eigene Physik, NICHT ueber die PV: Kollektoren und PV
+stehen verschieden (Kollektoren Dach Richtung SSO, PV senkrecht an der Mauer
+Richtung SO/O) und reagieren gegensaetzlich auf Kaelte (PV-Module werden bei
+Kaelte besser, Kollektoren verlieren mehr Waerme an die kalte Luft).
+    Einstrahlung auf die Kollektorebene (Open-Meteo GHI/DNI/DHI, Sonnenstand,
+    Einfallswinkel-Korrektur fuer das Glas) ->
+    Kollektor-Kennlinie (Flachkollektor, EN 12975):
+        q = eta0 * G - m * (a1 * dT + a2 * dT^2),  dT = Kollektor - Luft
+    Solaranlage laeuft nur, wenn der Kollektor waermer werden kann als der
+    Puffer in der Mitte; sonst kommt nichts. Beim Start muss der Kollektor samt
+    Fuellung erst auf Puffertemperatur aufgeheizt werden (~8 kJ/m^2K) - das
+    fehlt im Ertrag. Kollektor-Mitteltemperatur im Betrieb ~ Puffer Mitte +
+    Versatz: warmer Puffer -> weniger Ertrag (in der Prognose laufend aus dem
+    simulierten Inhalt).
+    Gelernt aus Tagessummen: wirksame Flaeche (Groesse x Alterung), Faktor m
+    fuer die Waermeverluste (alte Kollektoren, Leitungen) und - falls nicht
+    vorgegeben - die Neigung. Ausrichtung aus dem Luftbild (config/heizung.json:
+    kollektor_azimut_grad, kollektor_neigung_grad).
+Rueckfall ohne Strahlungsdaten: altes Verhaeltnis Solar-kWh je PV-kWh.
 
 Neu gelernt: einmal nach jedem Programmstart und dann taeglich
 (data/heat_demand_model.json, data/solar_thermal_model.json).
@@ -73,6 +89,17 @@ ST_SIGMA = (4.0, 6.0)
 ST_MIN_PV_KW = 0.3
 ST_MIN_HOURS = 30
 ST_MIN_DAYS = 8
+# Kollektor (Solarthermie) - Ausrichtung aus dem Luftbild 08.10.2026: Dach, Reihe WSW-ONO -> Blick SSO
+COLLECTOR_AZIMUTH_DEG = -30.0    # 0 = Sued, -90 = Ost
+COLLECTOR_AREA_M2 = 15.0         # nur fuer die Anzeige "wirksame Flaeche" (Alterung)
+COLLECTOR_TILTS = tuple(range(20, 65, 5))
+COLLECTOR_DEFAULT_TILT = 35.0
+COLLECTOR_ETA0, COLLECTOR_A1, COLLECTOR_A2 = 0.78, 3.6, 0.012   # typischer Flachkollektor
+COLLECTOR_IAM_B0 = 0.1           # Glas: Reflexion bei flachem Einfall
+COLLECTOR_TM_OFFSET_K = 5.0      # Kollektor-Mitteltemperatur ueber Puffer Mitte (Anlage laeuft)
+COLLECTOR_HEAT_CAP_KJ_M2K = 8.0  # Kollektor + Fuellung, muss beim Start aufgeheizt werden
+COLLECTOR_LOSS_MULTS = (0.6, 0.8, 1.0, 1.3, 1.7, 2.2, 3.0)
+COLLECTOR_MIN_DAYS = 8
 SUN_PV_KW = 0.1                  # ab dieser PV-Leistung gilt eine Stunde als "Sonne im Spiel"
 
 # Ausreisser (robuste Statistik: Median und MAD statt Mittelwert und Standardabweichung)
@@ -179,6 +206,66 @@ class SolarThermalModel:
     table: list = field(default_factory=list)
     max_ratio: float = 1.0
     fitted_at: str = ""
+    # ab Version 2: eigene Kollektor-Physik (siehe Modul-Doku)
+    version: int = 1
+    tilt: Optional[float] = None
+    azimuth: Optional[float] = None
+    area_eff_m2: float = 0.0          # wirksame Flaeche (inkl. eta0-Abweichung/Alterung)
+    loss_mult: float = 1.0
+    eta0: float = COLLECTOR_ETA0
+    a1: float = COLLECTOR_A1
+    a2: float = COLLECTOR_A2
+    tm_offset_k: float = COLLECTOR_TM_OFFSET_K
+    heat_cap_kj_m2k: float = COLLECTOR_HEAT_CAP_KJ_M2K
+    mid_below_mean_k: float = 0.0     # gelernt: Speichermittel - Puffer Mitte (fuer die Prognose)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    days: int = 0
+    rmse_day_kwh: Optional[float] = None
+    mean_day_kwh: Optional[float] = None
+
+    # --- Version 2 -------------------------------------------------------
+    def kw(self, t_end, ghi, dni, dhi, temp, tank_ref_c) -> np.ndarray:
+        """Ertrag (kW = kWh je Stunde) fuer eine lueckenlose Stundenreihe (Stundenende Unix).
+
+        tank_ref_c = Puffer Mitte. Die Vorstunde
+        (fuer Pumpe schon an / Aufheizen) ist der vorherige Eintrag der Reihe.
+        """
+        g = collector_irradiance(t_end, ghi, dni, dhi, self.latitude, self.longitude, self.tilt, self.azimuth)
+        ta = np.where(np.isnan(np.asarray(temp, float)), 10.0, temp)
+        g_prev = np.concatenate([[0.0], g[:-1]])
+        ta_prev = np.concatenate([ta[:1], ta[:-1]])
+        return self._hourly(g, g_prev, ta, ta_prev, np.asarray(tank_ref_c, float))
+
+    def _hourly(self, g, g_prev, ta, ta_prev, ref) -> np.ndarray:
+        return collector_hourly_kwh(g, g_prev, ta, ta_prev, ref, self.area_eff_m2, self.eta0, self.a1, self.a2,
+                                    self.loss_mult, self.tm_offset_k, self.heat_cap_kj_m2k)
+
+    def forecast_fn(self, wx: dict) -> Callable[[datetime, float], float]:
+        """f(lokaler Stundenbeginn, Speichermittel °C) -> kW aus der Wetterprognose.
+
+        Puffer Mitte = Speichermittel - mid_below_mean_k (gelernt).
+        """
+        t = np.asarray(wx.get("t", []), float)
+        if len(t) == 0 or self.version < 2:
+            return lambda _t, _c: 0.0
+        g = collector_irradiance(t, wx["ghi"], wx["dni"], wx["dhi"], self.latitude, self.longitude,
+                                 self.tilt, self.azimuth)
+        temp = np.asarray(wx["temp"], float)
+        by_end = {int(te): (float(gg), float(tt)) for te, gg, tt in zip(t, g, temp)}
+
+        def f(local: datetime, tank_c: float) -> float:
+            end = int(local.replace(minute=0, second=0, microsecond=0).astimezone().timestamp()) + 3600
+            gg, tt = by_end.get(end, (0.0, 10.0))
+            if gg <= 0.0:
+                return 0.0
+            gp, tp = by_end.get(end - 3600, (0.0, tt))
+            tt = 10.0 if np.isnan(tt) else tt
+            tp = tt if np.isnan(tp) else tp
+            ref = tank_c - self.mid_below_mean_k
+            return float(self._hourly(np.array([gg]), np.array([gp]), np.array([tt]), np.array([tp]),
+                                      np.array([ref]))[0])
+        return f
 
     def ratio(self, t_out: Optional[float], tank_c: Optional[float]) -> float:
         if not self.table or t_out is None or tank_c is None:
@@ -605,12 +692,164 @@ def fit_solar_thermal(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_ou
     return model
 
 
+def collector_irradiance(t_end, ghi, dni, dhi, lat, lon, tilt, azimuth) -> np.ndarray:
+    """Wirksame Einstrahlung auf die Kollektorebene (W/m^2), Direktanteil mit Glas-Korrektur."""
+    from .solar_geometry import incidence_cos, poa
+    t_end = np.asarray(t_end, float)
+    ghi = np.nan_to_num(np.asarray(ghi, float))
+    dni = np.nan_to_num(np.asarray(dni, float))
+    dhi = np.asarray(dhi, float)
+    dhi = np.where(np.isnan(dhi), ghi, dhi)
+    el, az = sun_position(t_end - 1800.0, lat, lon)
+    total, beam = poa(ghi, dni, dhi, el, az, tilt, azimuth)
+    cos_i = np.clip(incidence_cos(el, az, tilt, azimuth), 0.05, 1.0)
+    iam = np.clip(1.0 - COLLECTOR_IAM_B0 * (1.0 / cos_i - 1.0), 0.0, 1.0)
+    return np.maximum(0.0, beam * iam + (total - beam) * 0.9)
+
+
+def collector_q_wm2(g, dt_k, eta0, a1, a2, mult) -> np.ndarray:
+    """Kollektor-Kennlinie: Nutzwaerme je m^2 (W/m^2); Pumpe laeuft nur bei Gewinn."""
+    g, dt_k = np.asarray(g, float), np.asarray(dt_k, float)
+    q = eta0 * g - mult * (a1 * dt_k + a2 * dt_k * np.abs(dt_k))
+    return np.where(g > 0.0, np.maximum(0.0, q), 0.0)
+
+
+def collector_hourly_kwh(g, g_prev, ta, ta_prev, ref, area, eta0, a1, a2, mult, tm_offset,
+                         heat_cap_kj) -> np.ndarray:
+    """Stundenertrag (kWh): nur wenn der Kollektor waermer als der Puffer Mitte (ref) werden kann.
+
+    Der stehende Kollektor erreicht die Temperatur, bei der Einstrahlung und
+    Verluste gleich sind: eta0*G = Verluste(T - Luft). Liegt die unter Puffer
+    Mitte, laeuft die Anlage nicht. Lief sie in der Vorstunde nicht, kostet das
+    Aufheizen von Kollektor und Fuellung auf Puffertemperatur Ertrag.
+    """
+    g, g_prev, ta, ta_prev, ref = (np.asarray(x, float) for x in (g, g_prev, ta, ta_prev, ref))
+
+    def can_reach(gg, t_air):
+        d = ref - t_air
+        return (gg > 0.0) & (eta0 * gg > mult * (a1 * d + a2 * d * np.abs(d)))
+
+    prev_on = can_reach(g_prev, ta_prev)
+    on = can_reach(g, ta)
+    kwh = area * collector_q_wm2(g, ref + tm_offset - ta, eta0, a1, a2, mult) / 1000.0
+    warm_up = area * heat_cap_kj * np.maximum(0.0, ref - ta) / 3600.0
+    kwh = np.where(prev_on, kwh, np.maximum(0.0, kwh - warm_up))
+    return np.where(on, kwh, 0.0)
+
+
+def _collector_config() -> tuple[float, Optional[float]]:
+    """(Azimut, Neigung oder None = lernen) aus config/heizung.json."""
+    try:
+        with open(hs._CONFIG_PATH, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        d = {}
+    az = d.get("kollektor_azimut_grad", COLLECTOR_AZIMUTH_DEG)
+    tilt = d.get("kollektor_neigung_grad")
+    return float(az), (float(tilt) if tilt is not None else None)
+
+
+def fit_collector(hour_start, free_kwh, free_min, kessel_min, tank_c, bmk_outdoor, wx: dict,
+                  demand: DemandModel, lat: float, lon: float,
+                  azimuth: Optional[float] = None, tilt: Optional[float] = None,
+                  tank_mid_c=None) -> Optional[SolarThermalModel]:
+    """Kollektor-Physik an die gemessenen Tages-Ertraege anpassen (siehe Modul-Doku).
+
+    Je Tag werden nur Tagstunden ohne Kessel summiert - Messung und Modell ueber
+    dieselben Stunden, so stoert ein Einheizen am Nachmittag nicht.
+    """
+    if len(wx.get("t", [])) == 0 or np.all(np.isnan(wx.get("dni", np.array([np.nan])))):
+        return None
+    if azimuth is None or tilt is None:
+        az_cfg, tilt_cfg = _collector_config()
+        azimuth = az_cfg if azimuth is None else azimuth
+        tilt = tilt_cfg if tilt is None else tilt
+    mid = hour_start + 1800.0
+    el, _ = sun_position(mid, lat, lon)
+    ok = (el > 3.0) & (free_min >= 45.0) & (kessel_min <= 0.0) & ~np.isnan(tank_c) & ~np.isnan(free_kwh)
+    if ok.sum() < ST_MIN_HOURS:
+        return None
+    hs_ok = hour_start[ok]
+    t_end = hs_ok + 3600.0
+    ghi = fl.hourly_series(wx["t"], wx["ghi"], t_end)
+    have = ~np.isnan(ghi)
+    if have.sum() < ST_MIN_HOURS:
+        return None
+    dni = np.nan_to_num(fl.hourly_series(wx["t"], np.nan_to_num(wx["dni"]), t_end))
+    dhi = fl.hourly_series(wx["t"], wx["dhi"], t_end)
+    t_air = fl.hourly_series(wx["t"], wx["temp"], mid[ok])
+    t_air = np.where(np.isnan(t_air), bmk_outdoor[ok], t_air)
+    # Puffer Mitte; fehlt der Wert, Speichermittel minus typischem Abstand
+    mid_t = np.full(len(hour_start), np.nan) if tank_mid_c is None else np.asarray(tank_mid_c, float)
+    diff = (tank_c - mid_t)[ok]
+    diff = diff[~np.isnan(diff)]
+    ref_below = float(np.median(diff)) if len(diff) >= 24 else 0.0
+    ref_all = np.where(np.isnan(mid_t), tank_c - ref_below, mid_t)
+    ref = ref_all[ok]
+    # Vorstunde (Pumpe schon an?) - Wetter der Stunde davor, gleicher Speicher
+    t_air_prev = fl.hourly_series(wx["t"], wx["temp"], mid[ok] - 3600.0)
+    t_air_prev = np.where(np.isnan(t_air_prev), t_air, t_air_prev)
+    t_prev_end = t_end - 3600.0
+    ghi_p = np.nan_to_num(fl.hourly_series(wx["t"], wx["ghi"], t_prev_end))
+    dni_p = np.nan_to_num(fl.hourly_series(wx["t"], np.nan_to_num(wx["dni"]), t_prev_end))
+    dhi_p = fl.hourly_series(wx["t"], wx["dhi"], t_prev_end)
+    t_eff, g_eff = _hour_features(hs_ok, wx, bmk_outdoor[ok], demand.tau_h)
+    hours = free_min[ok] / 60.0
+    gain = free_kwh[ok] + demand.kw_eff(t_eff, g_eff) * hours
+    sel = have & ~np.isnan(gain) & ~np.isnan(t_air)
+    days = np.array([datetime.fromtimestamp(float(h)).date().toordinal() for h in hs_ok])
+    uniq, inv = np.unique(days[sel], return_inverse=True)
+    n_h = np.bincount(inv, minlength=len(uniq))
+    meas = np.bincount(inv, weights=gain[sel], minlength=len(uniq))
+    use_day = n_h >= 3
+    if use_day.sum() < COLLECTOR_MIN_DAYS:
+        return None
+    tilts = (tilt,) if tilt is not None else COLLECTOR_TILTS
+    best = None
+    for tl in tilts:
+        g = collector_irradiance(t_end[sel], ghi[sel], dni[sel], dhi[sel], lat, lon, tl, azimuth)
+        g_prev = collector_irradiance(t_prev_end[sel], ghi_p[sel], dni_p[sel], dhi_p[sel], lat, lon, tl, azimuth)
+        for mult in COLLECTOR_LOSS_MULTS:
+            # Flaeche 1 m^2: Aufheizen skaliert wie der Ertrag mit der Flaeche -> linear in k
+            q = collector_hourly_kwh(g, g_prev, t_air[sel], t_air_prev[sel], ref[sel], 1.0, COLLECTOR_ETA0,
+                                     COLLECTOR_A1, COLLECTOR_A2, mult, COLLECTOR_TM_OFFSET_K,
+                                     COLLECTOR_HEAT_CAP_KJ_M2K) * hours[sel]
+            x = np.bincount(inv, weights=q, minlength=len(uniq))[use_day]       # kWh je m^2 und Tag
+            y = meas[use_day]
+            keep = np.ones(len(y), dtype=bool)
+            for _ in range(2):                                                  # Schnee/Sensor-Tage raus
+                k = float(np.sum(x[keep] * y[keep]) / max(1e-9, np.sum(x[keep] ** 2)))
+                res = y - k * x
+                keep = np.abs(_robust_z(res, 0.5)) <= 4.0
+            if keep.sum() < COLLECTOR_MIN_DAYS or k <= 0:
+                continue
+            rmse = float(np.sqrt(np.mean((y[keep] - k * x[keep]) ** 2)))
+            # bei (fast) gleichem Fehler die uebliche Annahme bevorzugen (Neigung 35°, Verluste x1)
+            score = rmse * (1.0 + 0.004 * abs(np.log(mult)) / np.log(1.3)
+                            + 0.002 * abs(tl - COLLECTOR_DEFAULT_TILT) / 5.0)
+            if best is None or score < best[0]:
+                best = (score, rmse, tl, mult, k, int(keep.sum()), float(np.mean(y[keep])))
+    if best is None:
+        return None
+    _score, rmse, tl, mult, k, n_days, mean_day = best
+    model = SolarThermalModel(mean_ratio=0.0, hours=int(sel.sum()), version=2, tilt=float(tl),
+                              azimuth=float(azimuth), area_eff_m2=round(k, 3), loss_mult=float(mult),
+                              mid_below_mean_k=round(ref_below, 2),
+                              latitude=lat, longitude=lon, days=n_days, rmse_day_kwh=round(rmse, 3),
+                              mean_day_kwh=round(mean_day, 3),
+                              fitted_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    logger.info("[Solarthermie] Kollektor-Modell aus %d Tagen: Neigung %g°, Azimut %g°, wirksam %.1f m² "
+                "(von ~%g m²), Verluste x%g, Tagesfehler %.1f kWh (Ø %.1f kWh/Tag), Puffer Mitte %.1f K unter Mittel",
+                n_days, tl, azimuth, k, COLLECTOR_AREA_M2, mult, rmse, mean_day, ref_below)
+    return model
+
+
 def _load_archive():
     conn = fl.connect()
     try:
         heat = np.array([[np.nan if v is None else v for v in r] for r in conn.execute(
-            "SELECT hour_start, quiet_kwh, quiet_min, free_kwh, free_min, kessel_min, tank_c, outdoor_c "
-            "FROM heat_hours ORDER BY hour_start").fetchall()], dtype=float).reshape(-1, 8)
+            "SELECT hour_start, quiet_kwh, quiet_min, free_kwh, free_min, kessel_min, tank_c, outdoor_c, tank_mid_c "
+            "FROM heat_hours ORDER BY hour_start").fetchall()], dtype=float).reshape(-1, 9)
         pv = dict(conn.execute("SELECT hour_end, pv_kw FROM pv_hours").fetchall())
         wx = fl.load_weather(conn)
     finally:
@@ -639,8 +878,15 @@ def learn(store, cfg: Optional[hs.StorageConfig] = None, allow_network: bool = T
     demand = fit_from_archive(b_start, b_kw, b_out, wx, weights=b_w) if len(b_kw) else None
     solar = None
     if demand is not None:
-        solar = fit_solar_thermal(hour_start, heat[:, 3], heat[:, 4], heat[:, 5], heat[:, 6], heat[:, 7],
-                                  pv_kw, wx, demand, wcfg.latitude, wcfg.longitude)
+        try:
+            solar = fit_collector(hour_start, heat[:, 3], heat[:, 4], heat[:, 5], heat[:, 6], heat[:, 7],
+                                  wx, demand, wcfg.latitude, wcfg.longitude, tank_mid_c=heat[:, 8])
+        except Exception as exc:
+            logger.warning("[Solarthermie] Kollektor-Modell fehlgeschlagen: %s", exc, exc_info=True)
+            solar = None
+        if solar is None:
+            solar = fit_solar_thermal(hour_start, heat[:, 3], heat[:, 4], heat[:, 5], heat[:, 6], heat[:, 7],
+                                      pv_kw, wx, demand, wcfg.latitude, wcfg.longitude)
     return demand, solar
 
 

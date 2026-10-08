@@ -147,6 +147,104 @@ class TestSolarThermal(unittest.TestCase):
         self.assertAlmostEqual(hot, 1.2 - 0.012 * 80, delta=0.15)
 
 
+def synth_wx_sun(days, start, seed=0):
+    """Wetter mit Direkt-/Diffusstrahlung nach echtem Sonnenstand (fuer Kollektor-Tests)."""
+    from core.solar_geometry import sun_position
+    rng = np.random.default_rng(seed)
+    t = np.arange(start + 3600, start + days * 86400 + 1, 3600, dtype=float)
+    el, _ = sun_position(t - 1800, LAT, LON)
+    s = np.clip(np.sin(np.radians(el)), 0, None)
+    clear = np.repeat(rng.uniform(0.0, 1.0, days + 1), 24)[: len(t)]
+    dni = 850 * clear * (s > 0.05) * s ** 0.3
+    dhi = (60 + 120 * (1 - clear)) * s
+    ghi = dni * s + dhi
+    temp = np.repeat(rng.uniform(-12, 25, days + 1), 24)[: len(t)] + 4 * np.sin(((t / 3600) % 24 - 9) / 24 * 2 * np.pi)
+    return {"t": t, "temp": temp, "ghi": ghi, "dni": dni, "dhi": dhi}
+
+
+class TestCollector(unittest.TestCase):
+    """Solarthermie mit eigener Physik statt ueber die PV."""
+
+    def _data(self, tilt=40.0, mult=1.7, area=12.0, days=120):
+        start = int(datetime(2026, 2, 1, tzinfo=timezone.utc).timestamp())
+        wx = synth_wx_sun(days, start, seed=7)
+        demand = hd.DemandModel(base_kw=0.5, per_k_kw=0.1, hours=100, r2=None, t_min=-10, t_max=20, version=2,
+                                tb_c=16.0, tau_h=0.0)
+        n = len(wx["t"])
+        hour_start = wx["t"] - 3600
+        rng = np.random.default_rng(8)
+        tank = np.repeat(rng.uniform(30, 80, days + 1), 24)[:n]       # Speichermittel
+        low = tank - rng.uniform(3, 9, n)                              # Puffer Mitte
+        truth = hd.SolarThermalModel(mean_ratio=0, hours=0, version=2, tilt=tilt, azimuth=-30.0,
+                                     area_eff_m2=area, loss_mult=mult, latitude=LAT, longitude=LON)
+        gain = truth.kw(wx["t"], wx["ghi"], wx["dni"], wx["dhi"], wx["temp"], low)
+        t_out = wx["temp"]
+        free = gain - demand.kw_eff(t_out, np.zeros(n)) + rng.normal(0, 0.3, n)
+        return wx, demand, hour_start, free, tank, t_out, truth, low
+
+    def test_fit_recovers_collector(self):
+        wx, demand, hour_start, free, tank, t_out, truth, low = self._data()
+        n = len(hour_start)
+        with mock.patch.object(hd, "_collector_config", return_value=(-30.0, None)):
+            m = hd.fit_collector(hour_start, free, np.full(n, 60.0), np.zeros(n), tank, t_out, wx, demand, LAT, LON,
+                                 tank_mid_c=low)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.version, 2)
+        self.assertAlmostEqual(m.tilt, 40.0, delta=5.1)
+        # Tagesertrag muss passen (Flaeche und Verluste koennen sich gegenseitig etwas ausgleichen)
+        pred = m.kw(wx["t"], wx["ghi"], wx["dni"], wx["dhi"], wx["temp"], low).sum()
+        real = truth.kw(wx["t"], wx["ghi"], wx["dni"], wx["dhi"], wx["temp"], low).sum()
+        self.assertAlmostEqual(pred / real, 1.0, delta=0.05)
+        self.assertAlmostEqual(m.mid_below_mean_k, 6.0, delta=0.5)
+
+    def test_pump_needs_collector_above_sensor(self):
+        """Schwache Sonne: kommt der Kollektor nicht ueber Puffer Mitte, laeuft nichts."""
+        g = np.array([150.0])
+        args = dict(area=12.0, eta0=0.78, a1=3.6, a2=0.012, mult=1.0, tm_offset=5.0, heat_cap_kj=8.0)
+        cold = hd.collector_hourly_kwh(g, g, np.array([5.0]), np.array([5.0]), np.array([20.0]), **args)[0]
+        warm = hd.collector_hourly_kwh(g, g, np.array([5.0]), np.array([5.0]), np.array([45.0]), **args)[0]
+        self.assertGreater(cold, 0.0)
+        self.assertEqual(warm, 0.0)
+        # Start nach einer Stunde ohne Sonne: Aufheizen kostet Ertrag
+        start = hd.collector_hourly_kwh(np.array([600.0]), np.array([0.0]), np.array([5.0]), np.array([5.0]),
+                                        np.array([40.0]), **args)[0]
+        running = hd.collector_hourly_kwh(np.array([600.0]), np.array([600.0]), np.array([5.0]), np.array([5.0]),
+                                          np.array([40.0]), **args)[0]
+        self.assertLess(start, running)
+        self.assertAlmostEqual(running - start, 12.0 * 8.0 * (40 - 5) / 3600.0, places=6)
+
+    def test_cold_air_and_hot_tank_reduce_yield(self):
+        m = hd.SolarThermalModel(mean_ratio=0, hours=0, version=2, tilt=40.0, azimuth=-30.0, area_eff_m2=12.0,
+                                 loss_mult=1.5, latitude=LAT, longitude=LON)
+        t0 = float(datetime(2026, 3, 20, 12, tzinfo=timezone.utc).timestamp())
+        t = np.array([t0 - 3600, t0])                  # zweite Stunde: Pumpe laeuft schon
+        sun = dict(ghi=np.full(2, 600.0), dni=np.full(2, 700.0), dhi=np.full(2, 120.0))
+        warm = m.kw(t, sun["ghi"], sun["dni"], sun["dhi"], np.full(2, 20.0), np.full(2, 50.0))[1]
+        cold = m.kw(t, sun["ghi"], sun["dni"], sun["dhi"], np.full(2, -10.0), np.full(2, 50.0))[1]
+        hot_tank = m.kw(t, sun["ghi"], sun["dni"], sun["dhi"], np.full(2, 20.0), np.full(2, 80.0))[1]
+        self.assertGreater(warm, cold)          # anders als PV: Kaelte schadet dem Kollektor
+        self.assertGreater(warm, hot_tank)
+        self.assertGreater(cold, 0.0)
+
+    def test_forecast_fn_matches_kw(self):
+        wx, *_ = self._data(days=10)
+        m = hd.SolarThermalModel(mean_ratio=0, hours=0, version=2, tilt=40.0, azimuth=-30.0, area_eff_m2=12.0,
+                                 loss_mult=1.5, latitude=LAT, longitude=LON)
+        f = m.forecast_fn(wx)
+        i = int(np.argmax(wx["ghi"]))
+        local_start = datetime.fromtimestamp(wx["t"][i] - 3600)
+        sl = slice(i - 1, i + 1)          # mit Vorstunde (Pumpe schon an?)
+        ref = m.kw(wx["t"][sl], wx["ghi"][sl], wx["dni"][sl], wx["dhi"][sl], wx["temp"][sl],
+                   np.full(2, 55.0 - m.mid_below_mean_k))[1]
+        self.assertAlmostEqual(f(local_start, 55.0), ref, places=6)
+        self.assertGreater(ref, 1.0)
+
+    def test_old_model_json_still_loads(self):
+        m = hd.SolarThermalModel.from_dict({"mean_ratio": 0.6, "hours": 10, "table": []})
+        self.assertEqual(m.version, 1)
+        self.assertAlmostEqual(m.ratio(5.0, 50.0), 0.6)
+
+
 class FakeStore:
     def __init__(self, path):
         self.conn = sqlite3.connect(path)

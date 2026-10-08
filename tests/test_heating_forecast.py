@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from core import heating_stats as hs  # noqa: E402
-from core.heating_forecast import consumption_rate_kw, plan, solar_factor  # noqa: E402
+from core.heating_forecast import consumption_rate_kw, plan, solar_factor, week_solar  # noqa: E402
 
 CFG = hs.StorageConfig()
 
@@ -48,6 +48,27 @@ class TestPlan(unittest.TestCase):
         self.assertEqual(sunny.level, "ok")
         self.assertAlmostEqual(sunny.solar_tomorrow_kwh, 0.8 * 5.0 * 7, delta=0.1)
         self.assertIn("Sonne morgen", sunny.detail)
+
+    def test_solar_fn_uses_tank_temperature(self):
+        # Kollektor-Modell: Ertrag sinkt, je voller (heisser) der Speicher
+        def solar_fn(t, e):
+            return 4.0 * max(0.0, 1.0 - e / 200.0) if 10 <= t.hour < 16 else 0.0
+        low = plan(20.0, 1.0, None, None, now=self.NOW.replace(hour=8), solar_fn=solar_fn)
+        high = plan(150.0, 1.0, None, None, now=self.NOW.replace(hour=8), solar_fn=solar_fn)
+        self.assertGreater(low.solar_rest_today_kwh, high.solar_rest_today_kwh)
+        self.assertIsNotNone(low.solar_tomorrow_kwh)
+
+    def test_full_tank_caps_energy(self):
+        rec = plan(95.0, 0.0, None, None, now=self.NOW.replace(hour=8), solar_fn=lambda t, e: 10.0, e_max=100.0)
+        self.assertLessEqual(max(e for _, e in rec.projection), 100.0 + 1e-9)
+
+    def test_week_solar_counts_only_storable(self):
+        now = datetime(2026, 4, 1, 0, 0)
+        out = week_solar(90.0, now, lambda t: 0.0, lambda t, e: 5.0 if 10 <= t.hour < 14 else 0.0, 100.0, days=3)
+        self.assertEqual(len(out), 3)
+        self.assertAlmostEqual(sum(out.values()), 10.0, delta=1e-6)     # nur bis voll
+        out2 = week_solar(0.0, now, lambda t: 1.0, lambda t, e: 5.0 if 10 <= t.hour < 14 else 0.0, 1000.0, days=2)
+        self.assertAlmostEqual(out2[now.date()], 20.0, delta=1e-6)
 
     def test_kessel_running(self):
         rec = plan(20.0, 2.0, None, None, now=self.NOW, kessel_active_now=True)

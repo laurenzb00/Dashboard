@@ -6,13 +6,14 @@ Vorgehen
    (traege Aussentemperatur + Sonne, aehnliches Wetter zaehlt mehr) mit der
    stuendlichen Wetterprognose. Ohne Modell/Prognose: mittlere Abkuehlrate
    der letzten 24 h in ruhigen Phasen (Kessel aus, kein Anstieg).
-2. **Solar-Faktor**: Wie viel Waerme die Solarthermie bringt, wird an der
-   PV-Anlage abgelesen (gleiche Sonne): k = Solarthermie-kWh / PV-kWh.
-   Gelernt aus den Speicher-Anstiegen der Historie, abhaengig von Aussen-
-   und Speichertemperatur (core/heat_demand.SolarThermalModel). Rueckfall:
-   ein fester Faktor aus den Tagen der laufenden Saison.
+2. **Solarthermie**: eigenes Kollektor-Modell (core/heat_demand.SolarThermalModel
+   Version 2) aus der Strahlungsprognose fuer die Kollektorebene und der
+   Kollektor-Kennlinie - unabhaengig von der PV (andere Ausrichtung, andere
+   Temperaturabhaengigkeit). Die Speichertemperatur fuer den Wirkungsgrad
+   kommt laufend aus der Simulation (voller, heisser Puffer -> weniger Ertrag).
+   Rueckfall: k = Solarthermie-kWh / PV-kWh (altes Modell bzw. Saison-Faktor).
 3. **Simulation**: Stuendlich fuer die naechsten 36 h:
-       E(t+1h) = E(t) - Verbrauch + k * PV-Prognose(t)
+       E(t+1h) = min(E_voll, E(t) - Verbrauch + Solar(t, E))
    Startwert ist der aktuell nutzbare Speicherinhalt. Faellt E auf 0, ist
    der Puffer "leer" (Mittel unter "nutzbar ab", Standard 35 °C).
 4. **Empfehlung** aus dem Zeitpunkt, an dem der Puffer leer wird.
@@ -102,11 +103,14 @@ def _fmt_when(ts: datetime, now: datetime) -> str:
 
 def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional[float],
          pv_forecast_utc: Optional[dict], now: Optional[datetime] = None,
-         kessel_active_now: bool = False, rate_fn=None, factor_fn=None) -> Recommendation:
+         kessel_active_now: bool = False, rate_fn=None, factor_fn=None, solar_fn=None,
+         e_max: Optional[float] = None) -> Recommendation:
     """Simuliert die naechsten 36 h und leitet die Empfehlung ab.
 
     rate_fn(lokale Zeit) -> kW ueberschreibt den konstanten rate_kw (temperaturabhaengig),
     factor_fn(lokale Zeit) -> Solar-kWh je PV-kWh ueberschreibt den festen factor.
+    solar_fn(lokale Zeit, nutzbarer Inhalt kWh) -> Solar-kW (Kollektor-Modell) hat Vorrang vor beidem.
+    e_max: nutzbarer Inhalt bei vollem Speicher (mehr kann die Sonne nicht laden).
     """
     now = (now or datetime.now()).replace(second=0, microsecond=0)
     if usable_now is None or rate_kw is None:
@@ -131,8 +135,11 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
     while t < now + timedelta(hours=HORIZON_H):
         t_next = min(next_hour, now + timedelta(hours=HORIZON_H))
         frac = (t_next - t).total_seconds() / 3600.0
-        k_here = factor_fn(t) if factor_fn is not None else k
-        solar = k_here * pv_kw_at(next_hour) * frac
+        if solar_fn is not None:
+            solar = max(0.0, solar_fn(t, energy)) * frac
+        else:
+            k_here = factor_fn(t) if factor_fn is not None else k
+            solar = k_here * pv_kw_at(next_hour) * frac
         if t.date() == now.date():
             solar_today += solar
         elif t.date() == now.date() + timedelta(days=1):
@@ -143,6 +150,8 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
         if empty_at is None and new_energy <= 0 < energy:
             empty_at = t + timedelta(hours=frac * energy / max(1e-6, energy - new_energy))
         energy = max(0.0, new_energy)
+        if e_max is not None:
+            energy = min(energy, e_max)
         projection.append((t_next, energy))
         t = t_next
         next_hour = t + timedelta(hours=1)
@@ -150,15 +159,16 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
         empty_at = now
 
     # Fuer die Anzeige: Sonne morgen auch dann schaetzen, wenn der Horizont endet
+    has_solar = bool(factor) or solar_fn is not None
     rec = Recommendation("ok", "", rate_kw=rate_kw, solar_factor=factor, empty_at=empty_at,
-                         solar_rest_today_kwh=solar_today if factor else None,
-                         solar_tomorrow_kwh=solar_tomorrow if factor else None,
+                         solar_rest_today_kwh=solar_today if has_solar else None,
+                         solar_tomorrow_kwh=solar_tomorrow if has_solar else None,
                          projection=projection, steps=steps)
 
     sun_note = ""
-    if factor is not None and solar_tomorrow >= 1.0:
+    if has_solar and solar_tomorrow >= 1.0:
         sun_note = f" · Sonne morgen ≈ {solar_tomorrow:.0f} kWh"
-    elif factor is None and pv_forecast_utc:
+    elif not has_solar and pv_forecast_utc:
         sun_note = " · Solar-Anteil wird noch gelernt"
 
     if kessel_active_now:
@@ -179,6 +189,30 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
         rec.level, rec.title = "soon", "Morgen einheizen"
         rec.detail = f"Puffer reicht bis ca. {_fmt_when(empty_at, now)}" + sun_note
     return rec
+
+
+def week_solar(usable: float, now: datetime, rate_fn, solar_fn, e_max: Optional[float],
+               days: int = 7) -> dict:
+    """Solar-Ertrag je Tag fuer den Wochenausblick (gleiche Simulation, ohne Einheizen).
+
+    Ohne Feuer kuehlt der Puffer ab -> Kollektoren arbeiten effizienter; das ist
+    fuer die Frage "wie oft muss ich einheizen" die passende Annahme.
+    """
+    out: dict[date, float] = {}
+    e = usable
+    t = now.replace(minute=0, second=0, microsecond=0)
+    end = now + timedelta(days=days)
+    while t < end:
+        frac = 1.0 if t >= now else (t + timedelta(hours=1) - now).total_seconds() / 3600.0
+        s = max(0.0, solar_fn(t, e)) * frac
+        e_new = e - rate_fn(t) * frac + s
+        if e_max is not None and e_new > e_max:
+            s = max(0.0, s - (e_new - e_max))          # voller Speicher nimmt nichts mehr auf
+            e_new = e_max
+        out[t.date()] = out.get(t.date(), 0.0) + s
+        e = max(0.0, e_new)
+        t += timedelta(hours=1)
+    return out
 
 
 def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs.HeatingStats] = None,
@@ -241,7 +275,14 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
         rate_now = rate_fn(now)
 
     factor_fn = None
-    if solar_model is not None:
+    solar_fn = None
+    kpk = cfg.puffer_kwh_per_k + cfg.boiler_kwh_per_k
+    e_max = max(0.0, (cfg.full_at_c - cfg.usable_from_c) * kpk)
+    if solar_model is not None and getattr(solar_model, "version", 1) >= 2 and wx and len(wx.get("t", [])):
+        col = solar_model.forecast_fn(wx)
+        # nutzbarer Inhalt -> Speichermittel (darunter gilt "nutzbar ab")
+        solar_fn = lambda t, e: col(t, cfg.usable_from_c + max(0.0, e) / kpk)
+    elif solar_model is not None:
         tank_now = None
         for b in reversed(buckets):
             layers = [v for v in (b.top, b.mid, b.bot) if v is not None]
@@ -254,7 +295,7 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
             tank_now)
 
     rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now,
-               rate_fn=rate_fn, factor_fn=factor_fn)
+               rate_fn=rate_fn, factor_fn=factor_fn, solar_fn=solar_fn, e_max=e_max)
     rec.outdoor_now = outdoor_now
     if temps_utc:
         hour0 = now.replace(minute=0, second=0, microsecond=0)
@@ -268,7 +309,9 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
         firing_kwh = [e.wood_kwh for e in (season.events if season else []) if e.wood_kwh > 20]
         avg = (sum(firing_kwh) / len(firing_kwh)) if firing_kwh else None
         solar_by_day = {}
-        if factor:
+        if solar_fn is not None and rate_fn is not None:
+            solar_by_day = week_solar(usable, now, rate_fn, solar_fn, e_max)
+        elif factor:
             solar_by_day = {now.date(): rec.solar_rest_today_kwh or 0.0,
                             now.date() + timedelta(days=1): rec.solar_tomorrow_kwh or 0.0}
         rec.outlook = heat_demand.week_outlook(model, temps_utc or {}, usable, avg, solar_by_day, now=now,

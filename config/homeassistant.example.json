@@ -5,7 +5,7 @@
   "timeout_s": 5,
   "master_entity_id": "light.your_main_light",
   "ceiling_entity_id": "switch.your_ceiling_light",
-  "ceiling_threshold_pct": 95,
+  "ceiling_threshold_pct": 75,
   "scene_all_on": "scene.all_on",
   "scene_all_off": "scene.all_off",
   "scene_come_home": "scene.welcome",
