@@ -22,7 +22,7 @@ Erkennung
 
 Einstellungen in config/heizung.json (alle optional):
     {"puffer_liter": 4000, "boiler_liter": 500,
-     "nutzbar_ab_c": 35, "holz_kwh_pro_rm": 1800, "kessel_wirkungsgrad": 0.85}
+     "nutzbar_ab_c": 35, "holz_kwh_pro_rm": 1600, "kessel_wirkungsgrad": 0.78}
 """
 from __future__ import annotations
 
@@ -59,8 +59,10 @@ class StorageConfig:
     boiler_liter: float = 500.0
     usable_from_c: float = 35.0          # darunter bringt der Puffer den Heizkreisen nichts mehr
     full_at_c: float = 80.0              # "voll" fuer die Ladezustands-Anzeige
-    wood_kwh_per_rm: float = 1800.0      # gemischtes Brennholz (Buche ~2100, Fichte ~1500)
-    boiler_efficiency: float = 0.85      # Kessel: Holzenergie -> Speicher
+    # gemischtes Brennholz, Heizwert je Raummeter geschichtet bei 15-20 % Wassergehalt
+    # (LWF Bayern Merkblatt 20: Buche ~1900, Kiefer ~1500, Fichte ~1350 kWh/rm)
+    wood_kwh_per_rm: float = 1600.0
+    boiler_efficiency: float = 0.78      # Scheitholzkessel Jahresmittel (Holzenergie -> Speicher), real ~0,75-0,8
 
     @property
     def puffer_kwh_per_k(self) -> float:
@@ -80,8 +82,8 @@ def load_storage_config() -> StorageConfig:
             boiler_liter=float(data.get("boiler_liter", 500.0)),
             usable_from_c=float(data.get("nutzbar_ab_c", 35.0)),
             full_at_c=float(data.get("voll_bei_c", 80.0)),
-            wood_kwh_per_rm=float(data.get("holz_kwh_pro_rm", 1800.0)),
-            boiler_efficiency=float(data.get("kessel_wirkungsgrad", 0.85)),
+            wood_kwh_per_rm=float(data.get("holz_kwh_pro_rm", 1600.0)),
+            boiler_efficiency=float(data.get("kessel_wirkungsgrad", 0.78)),
         )
     except Exception:
         return StorageConfig()

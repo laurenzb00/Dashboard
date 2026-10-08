@@ -172,7 +172,7 @@ class TestWaermeHelpers(unittest.TestCase):
         self.assertAlmostEqual(usable_kwh(45.0, cfg), 10 * 4.652, places=2)
         self.assertEqual(usable_kwh(30.0, cfg), 0.0)
         self.assertAlmostEqual(charge_pct(57.5, cfg), 50.0)
-        self.assertAlmostEqual(wood_rm(1530.0, cfg), 1.0)   # 1530 / 0.85 / 1800
+        self.assertAlmostEqual(wood_rm(1248.0, cfg), 1.0)   # 1248 / 0.78 / 1600
 
     def test_season_start(self):
         from core.heating_stats import season_start
