@@ -20,8 +20,10 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import customtkinter as ctk
 
 from core import climate as C
+from core import climate_plan as P
 from core.climate_history import ClimateHistory, points_from_ha_history, points_from_tado_day_report
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
+from ui.components.plan_chart import PlanChart
 from ui.components.tab_shell import TabShell
 from ui.components.temp_chart import TempChart
 from ui.components.thermostat_ring import ThermostatRing
@@ -30,6 +32,7 @@ from ui.styles import (
     COLOR_BORDER,
     COLOR_CARD,
     COLOR_DANGER,
+    COLOR_INFO,
     COLOR_PRIMARY,
     COLOR_ROOT,
     COLOR_SUBTEXT,
@@ -107,7 +110,16 @@ TADO_SOURCE = os.getenv("TADO_SOURCE", "auto").strip().lower()
 # Tado-API-Tageslimit: 20.000 mit Auto-Assist-Abo (vorhanden), sonst 100.
 # Ohne Abo am Pi TADO_DAILY_LIMIT=100 setzen - das Intervall passt sich an.
 DAILY_LIMIT = int(os.getenv("TADO_DAILY_LIMIT", "20000"))
-RING_SIZE = int(os.getenv("TADO_RING_SIZE", "230"))   # maximale Ringgroesse
+RING_SIZE = int(os.getenv("TADO_RING_SIZE", "230"))   # maximale Ringgroesse (Mehrraum-Karten)
+HERO_RING_SIZE = int(os.getenv("TADO_HERO_RING_SIZE", "400"))   # Ring im Einraum-Layout
+PLAN_REFRESH_S = 30 * 60      # gelernten Zeitplan hoechstens alle 30 min neu berechnen
+
+# Farbe des Status-Banners je Zustand. Zeitplan-Farben wie im Diagramm (Komfort/Absenkung),
+# "Manuell/Timer" in der Farbe der gestrichelten Ziel-Linie.
+LEVEL_COLORS = {
+    "comfort": COLOR_WARNING, "eco": "#818CF8", "plan": COLOR_PRIMARY,
+    "manual": COLOR_INFO, "away": "#34D399", "window": "#F87171", "off": "#6B7280",
+}
 
 
 def _round_half(v: float) -> float:
@@ -148,9 +160,12 @@ class TadoTab(UiQueuePumpMixin):
         self._req_day = date.today()
         self._req_count = 0
         self._portrait = False
-        self._hist_hours = 24
+        self._hist_hours = 0             # 0 = "Heute" (00-24 Uhr mit Zeitplan), sonst Stunden zurueck
         self._series: dict = {}
         self._backfill_started = False
+        self._plans: dict = {}           # Raum-ID -> DayPlan | None (gelernt aus dem Verlauf)
+        self._plan_ts: dict = {}
+        self._hero = False               # genau ein Raum -> grosses Einraum-Layout
         try:
             self._history = ClimateHistory()
         except Exception as exc:
@@ -205,7 +220,7 @@ class TadoTab(UiQueuePumpMixin):
         ctk.CTkLabel(rng, text="Verlauf", text_color=COLOR_SUBTEXT,
                      font=get_safe_font("Bahnschrift", 12)).pack(side=tk.LEFT, padx=(0, 8))
         self._range_btns = {}
-        for hrs, text in ((6, "6 h"), (24, "24 h"), (48, "2 Tage")):
+        for hrs, text in ((0, "Heute"), (24, "24 h"), (48, "2 Tage")):
             b = ctk.CTkButton(rng, text=text, width=64, height=32, corner_radius=16,
                               font=get_safe_font("Bahnschrift", 12, "bold"), text_color=COLOR_TEXT,
                               hover_color=COLOR_BORDER, command=lambda h=hrs: self._set_range(h))
@@ -215,12 +230,16 @@ class TadoTab(UiQueuePumpMixin):
         btns = ctk.CTkFrame(top, fg_color="transparent")
         self._top_btns = btns
         btns.grid(row=0, column=1, sticky="e", padx=10, pady=10)
-        self._pill(btns, "📅  Alle auf Plan", self._all_plan, COLOR_PRIMARY, 150).pack(side=tk.LEFT, padx=4)
-        self._pill(btns, f"🌿  Eco {TADO_ECO_TEMP:.0f}°", lambda: self._all_temp(TADO_ECO_TEMP),
-                   COLOR_SUCCESS, 120).pack(side=tk.LEFT, padx=4)
-        self._pill(btns, f"☀  Komfort {TADO_COMFORT_TEMP:.0f}°", lambda: self._all_temp(TADO_COMFORT_TEMP),
-                   COLOR_WARNING, 150).pack(side=tk.LEFT, padx=4)
-        self._pill(btns, "↻", self._refresh_now, COLOR_BORDER, 48).pack(side=tk.LEFT, padx=4)
+        # Sammel-Tasten nur bei mehreren Raeumen; bei einem Raum sind sie im Raum-Bereich selbst
+        self._bulk_pills = [
+            self._pill(btns, "📅  Alle auf Plan", self._all_plan, COLOR_PRIMARY, 150),
+            self._pill(btns, f"🌿  Eco {TADO_ECO_TEMP:.0f}°", lambda: self._all_temp(TADO_ECO_TEMP),
+                       COLOR_SUCCESS, 120),
+            self._pill(btns, f"☀  Komfort {TADO_COMFORT_TEMP:.0f}°", lambda: self._all_temp(TADO_COMFORT_TEMP),
+                       COLOR_WARNING, 150),
+        ]
+        self._refresh_pill = self._pill(btns, "↻", self._refresh_now, COLOR_BORDER, 48)
+        self._layout_top_buttons(False)
 
         # --- Login-/Hinweiszeile (nur sichtbar wenn Text vorhanden)
         self._hint_frame = ctk.CTkFrame(body, fg_color=COLOR_CARD, corner_radius=14)
@@ -280,7 +299,15 @@ class TadoTab(UiQueuePumpMixin):
             self._portrait = portrait
             self._layout_cards()
 
+    def _layout_top_buttons(self, hero: bool) -> None:
+        for p in (*self._bulk_pills, self._refresh_pill):
+            p.pack_forget()
+        for p in ((self._refresh_pill,) if hero else (*self._bulk_pills, self._refresh_pill)):
+            p.pack(side=tk.LEFT, padx=4)
+
     def _columns(self) -> int:
+        if self._hero:
+            return 1
         n = max(1, len(self._rooms))
         if self._portrait:
             return min(n, 2)
@@ -293,11 +320,34 @@ class TadoTab(UiQueuePumpMixin):
             return
         if width < 100:
             return
+        if self._hero:
+            self._resize_hero(width)
+            return
         cols = self._columns()
         size = max(130, min(RING_SIZE, int((width - 40) / cols) - 34))
         for w in self._cards.values():
             w["ring"].set_size(size)
             w["chart"].set_width(size + 20)
+
+    def _resize_hero(self, width: int) -> None:
+        """Einraum-Layout: Ring links + Tasten rechts (breit) bzw. untereinander (schmal)."""
+        w = self._cards.get(self._rooms[0].id) if self._rooms else None
+        if not w:
+            return
+        inner = max(320, width - 70)                       # nutzbare Breite innerhalb der Karte
+        side = inner >= 760
+        ring = max(200, min(HERO_RING_SIZE, int(inner * 0.42) if side else inner - 40))
+        w["ring"].set_size(ring)
+        w["detail"].configure(wraplength=inner - 40)
+        w["chart"].set_height(470 if self._portrait else 390)
+        if side != w.get("side"):
+            w["side"] = side
+            if side:
+                w["ring"].grid_configure(row=1, column=0, columnspan=1, padx=(18, 10), pady=(4, 8))
+                w["actions"].grid_configure(row=1, column=1, columnspan=1, padx=(10, 18), pady=(4, 8))
+            else:
+                w["ring"].grid_configure(row=1, column=0, columnspan=2, padx=18, pady=(4, 4))
+                w["actions"].grid_configure(row=2, column=0, columnspan=2, padx=18, pady=(4, 8))
 
     def _layout_cards(self) -> None:
         cols = self._columns()
@@ -309,7 +359,65 @@ class TadoTab(UiQueuePumpMixin):
                 w["frame"].grid(row=i // cols, column=i % cols, sticky="nsew", padx=4, pady=4)
         self._resize_rings()
 
+    def _build_hero(self, room: C.Room) -> dict:
+        """Einraum-Layout: Status-Banner, grosser Ring, grosse Tasten, grosses Tagesdiagramm."""
+        f = ctk.CTkFrame(self._grid, fg_color=COLOR_CARD, corner_radius=22)
+        f.grid_columnconfigure(0, weight=1)
+        f.grid_columnconfigure(1, weight=1)
+        rid = room.id
+
+        # Zeile 0: Raumname + Status-Pille (Zeitplan / Manuell / Timer / Abwesend ...) + Klartext
+        banner = ctk.CTkFrame(f, fg_color=COLOR_ROOT, corner_radius=18)
+        banner.grid(row=0, column=0, columnspan=2, sticky="ew", padx=14, pady=(14, 6))
+        banner.grid_columnconfigure(0, weight=1)
+        name = ctk.CTkLabel(banner, text=room.name, text_color=COLOR_TEXT, anchor="w",
+                            font=get_safe_font("Bahnschrift", 24, "bold"))
+        name.grid(row=0, column=0, sticky="w", padx=(18, 8), pady=(12, 0))
+        badge = ctk.CTkLabel(banner, text="…", height=46, corner_radius=23, fg_color=COLOR_PRIMARY,
+                             text_color="#0B0D10", font=get_safe_font("Bahnschrift", 20, "bold"))
+        badge.grid(row=0, column=1, sticky="e", padx=(8, 14), pady=(12, 0))
+        detail = ctk.CTkLabel(banner, text="", text_color=COLOR_TEXT, anchor="w", justify="left",
+                              font=get_safe_font("Bahnschrift", 19), wraplength=700)
+        detail.grid(row=1, column=0, columnspan=2, sticky="w", padx=18, pady=(6, 14))
+
+        ring = ThermostatRing(f, from_=C.TARGET_MIN, to=C.TARGET_MAX, size=HERO_RING_SIZE,
+                              on_release=lambda v, r=rid: self._set_target(r, v),
+                              on_step=lambda d, r=rid: self._nudge(r, d))
+        ring.grid(row=1, column=0, padx=(18, 10), pady=(4, 8))
+
+        actions = ctk.CTkFrame(f, fg_color="transparent")
+        actions.grid(row=1, column=1, sticky="nsew", padx=(10, 18), pady=(4, 8))
+        actions.grid_columnconfigure((0, 1), weight=1, uniform="act")
+        actions.grid_rowconfigure((0, 1), weight=1, uniform="actr")
+        big = dict(height=84, corner_radius=22, fg_color=COLOR_ROOT, hover_color=COLOR_BORDER, border_width=2,
+                   text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 18, "bold"))
+        btn_plan = ctk.CTkButton(actions, text="📅  Zeitplan", border_color=COLOR_PRIMARY,
+                                 command=lambda r=rid: self._set_plan(r), **big)
+        btn_timer = ctk.CTkButton(actions, text="⏱  1 Std.", border_color=LEVEL_COLORS["manual"],
+                                  command=lambda r=rid: self._set_timer(r, self._levels(r)[1]), **big)
+        btn_eco = ctk.CTkButton(actions, text="🌿  Absenkung", border_color=LEVEL_COLORS["eco"],
+                                command=lambda r=rid: self._set_target(r, self._levels(r)[0]), **big)
+        btn_comfort = ctk.CTkButton(actions, text="☀  Komfort", border_color=LEVEL_COLORS["comfort"],
+                                    command=lambda r=rid: self._set_target(r, self._levels(r)[1]), **big)
+        for i, b in enumerate((btn_plan, btn_timer, btn_eco, btn_comfort)):
+            b.grid(row=i // 2, column=i % 2, sticky="nsew", padx=6, pady=6)
+
+        chart = PlanChart(f, height=470, on_tap=self._cycle_range)
+        chart.grid(row=3, column=0, columnspan=2, sticky="ew", padx=14, pady=(4, 14))
+        return {"frame": f, "name": name, "ring": ring, "chart": chart, "hero": True, "badge": badge,
+                "detail": detail, "actions": actions, "side": None, "btn_plan": btn_plan, "btn_timer": btn_timer,
+                "btn_eco": btn_eco, "btn_comfort": btn_comfort}
+
+    def _levels(self, rid: str) -> tuple:
+        """(Absenkung, Komfort) - aus dem gelernten Zeitplan, sonst die Standardwerte (TADO_ECO/COMFORT_TEMP)."""
+        plan = self._plans.get(rid)
+        if plan is not None and plan.has_change and plan.eco is not None and plan.comfort is not None:
+            return plan.eco, plan.comfort
+        return float(TADO_ECO_TEMP), float(TADO_COMFORT_TEMP)
+
     def _build_card(self, room: C.Room) -> dict:
+        if self._hero:
+            return self._build_hero(room)
         f = ctk.CTkFrame(self._grid, fg_color=COLOR_CARD, corner_radius=22)
         name = ctk.CTkLabel(f, text=room.name, text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 16, "bold"))
         name.pack(pady=(8, 0))
@@ -335,6 +443,11 @@ class TadoTab(UiQueuePumpMixin):
         """Nur auf dem UI-Thread aufrufen."""
         old_ids = [r.id for r in self._rooms]
         self._rooms = list(rooms)
+        hero = len(rooms) == 1
+        if hero != self._hero:
+            self._hero = hero
+            self._layout_top_buttons(hero)
+            old_ids = None                       # Layout-Wechsel: Karten neu bauen
         if [r.id for r in rooms] != old_ids:
             for w in self._cards.values():
                 w["frame"].destroy()
@@ -358,6 +471,33 @@ class TadoTab(UiQueuePumpMixin):
         w["name"].configure(text=r.name if r.available else f"{r.name} (offline)")
         w["ring"].set_state(current=r.current, target=r.target, humidity=r.humidity, heating=r.heating,
                             mode=r.mode, window_open=r.window_open, force=force_slider)
+        if w.get("hero"):
+            self._update_hero(r, w)
+
+    def _update_hero(self, r: C.Room, w: dict) -> None:
+        """Status-Banner, Tastenbeschriftung und Diagramm des Einraum-Layouts."""
+        plan = self._plans.get(r.id)
+        st = P.describe_status(r, plan, time.time())
+        col = LEVEL_COLORS.get(st.level, COLOR_PRIMARY)
+        w["badge"].configure(text=st.title, fg_color=col, text_color=COLOR_TEXT if st.level == "off" else "#0B0D10")
+        detail = st.detail
+        if plan is None and r.next_change_ts is None and st.on_plan:
+            detail += " · Zeitplan wird aus dem Verlauf gelernt (noch zu wenig Daten)"
+        w["detail"].configure(text=detail)
+        eco, comfort = self._levels(r.id)
+        w["btn_eco"].configure(text=f"🌿  Absenkung {C.fmt_temp(eco, 0 if eco == int(eco) else 1)}")
+        w["btn_comfort"].configure(text=f"☀  Komfort {C.fmt_temp(comfort, 0 if comfort == int(comfort) else 1)}")
+        w["btn_timer"].configure(text=f"⏱  1 Std. {C.fmt_temp(comfort, 0 if comfort == int(comfort) else 1)}")
+        # "Zeitplan" leuchtet, solange etwas den Plan uebersteuert - das ist die Taste, die zurueckstellt
+        overridden = st.kind in ("manual", "timer")
+        w["btn_plan"].configure(fg_color=COLOR_PRIMARY if overridden else COLOR_ROOT)
+        self._refresh_hero_chart(r, w, plan)
+
+    def _refresh_hero_chart(self, r: C.Room, w: dict, plan=None) -> None:
+        w["chart"].set_data(self._series.get(r.id, []), time.time(), self._hist_hours,
+                            plan if plan is not None else self._plans.get(r.id),
+                            current=r.current, target=r.target,
+                            override_end=r.override_end_ts if r.mode == "manual" else None)
 
     def _update_summary(self) -> None:
         s = C.summarize(self._rooms)
@@ -419,11 +559,12 @@ class TadoTab(UiQueuePumpMixin):
             t = r.target
             self._command(lambda: self._do_set_temp([rid], t), f"{r.name}: {C.fmt_temp(t)}")
 
-    def _set_timer(self, rid: str) -> None:
+    def _set_timer(self, rid: str, temp: float | None = None) -> None:
         r = self._room(rid)
         if not r:
             return
-        temp = r.target if r.target is not None else TADO_COMFORT_TEMP
+        if temp is None:
+            temp = r.target if r.target is not None else TADO_COMFORT_TEMP
         self._optimistic(rid, temp, "manual")
         self._command(lambda: self._do_set_temp([rid], temp, duration_s=3600),
                       f"{r.name}: {C.fmt_temp(temp)} für 1 Stunde")
@@ -581,6 +722,7 @@ class TadoTab(UiQueuePumpMixin):
         if self._history is not None and rooms:
             try:
                 self._history.add_rooms(rooms)
+                self._learn_plans([r.id for r in rooms])
                 series = self._load_series([r.id for r in rooms], self._hist_hours)
             except Exception as exc:
                 logging.warning("[TADO] Verlauf speichern fehlgeschlagen: %s", exc)
@@ -597,14 +739,29 @@ class TadoTab(UiQueuePumpMixin):
     # ------------------------------------------------------------ Verlauf --
 
     def _load_series(self, ids: list, hours: float) -> dict:
-        since = time.time() - hours * 3600 - 600
+        # "Heute" (0) braucht ab Mitternacht - hoechstens ~24 h plus Reserve
+        since = time.time() - (hours if hours else 26) * 3600 - 600
         return {rid: self._history.query(rid, since) for rid in ids}
+
+    def _learn_plans(self, ids: list) -> None:
+        """Typischen Tagesplan (Absenkung/Komfort) aus dem Verlauf lernen - Worker-Thread, selten."""
+        now = time.time()
+        for rid in ids:
+            if rid in self._plans and now - self._plan_ts.get(rid, 0) < PLAN_REFRESH_S:
+                continue
+            self._plans[rid] = P.plan_from_history(self._history.query(rid, now - 15 * 86400), now)
+            self._plan_ts[rid] = now
 
     def _apply_series(self, series: dict) -> None:
         self._series = series
         now = time.time()
         for rid, w in self._cards.items():
-            w["chart"].set_data(series.get(rid, []), self._hist_hours, now)
+            if w.get("hero"):
+                r = self._room(rid)
+                if r:
+                    self._refresh_hero_chart(r, w)
+            else:
+                w["chart"].set_data(series.get(rid, []), self._hist_hours or 24, now)
 
     def _update_range_buttons(self) -> None:
         for hrs, b in self._range_btns.items():
@@ -627,8 +784,8 @@ class TadoTab(UiQueuePumpMixin):
         threading.Thread(target=work, daemon=True).start()
 
     def _cycle_range(self) -> None:
-        order = [6, 24, 48]
-        self._set_range(order[(order.index(self._hist_hours) + 1) % 3] if self._hist_hours in order else 24)
+        order = [0, 24, 48]
+        self._set_range(order[(order.index(self._hist_hours) + 1) % 3] if self._hist_hours in order else 0)
 
     def _backfill(self, ids: list) -> None:
         """Einmal beim Start: die letzten 2 Tage aus HA bzw. dem Tado-Tagesreport nachladen."""

@@ -11,7 +11,9 @@ berechnet (direct_poll_s), damit hoechstens ~70 % davon fuer Abfragen draufgehen
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 DIRECT_POLL_MIN_S = 60
@@ -37,6 +39,13 @@ class Room:
     mode: str = "plan"            # "plan" | "manual" | "off"
     window_open: bool = False
     available: bool = True
+    # --- Zeitplan-Kontext (None = Quelle liefert es nicht) -----------------
+    presence: Optional[str] = None        # "home" | "away" (Tado-Anwesenheit/Geofencing)
+    override: Optional[str] = None        # nur bei mode "manual": "next_block" | "timer" | "hold"
+    override_end_ts: Optional[float] = None   # Ende des manuellen Eingriffs (Unix-Sek.), falls bekannt
+    next_change_ts: Optional[float] = None    # naechste Planaenderung (Unix-Sek.)
+    next_change_temp: Optional[float] = None  # Zieltemperatur danach (None + next_change_off = Aus)
+    next_change_off: bool = False
 
     @property
     def mode_text(self) -> str:
@@ -48,6 +57,24 @@ def _f(v) -> Optional[float]:
         return float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _iso_ts(v) -> Optional[float]:
+    """ISO-8601-Zeitstempel (mit 'Z' oder Offset) -> Unix-Sekunden, sonst None."""
+    if not v:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _presence(v) -> Optional[str]:
+    t = str(v or "").strip().lower()
+    return t if t in ("home", "away") else None
 
 
 def rooms_from_ha(states: List[Dict[str, Any]]) -> List[Room]:
@@ -73,6 +100,7 @@ def rooms_from_ha(states: List[Dict[str, Any]]) -> List[Room]:
             mode=mode,
             window_open=bool(a.get("open_window") or a.get("window_open")),
             available=state not in ("unavailable", "unknown"),
+            presence=_presence(a.get("preset_mode")),   # Tado-HA: preset "home" / "away"
         ))
     rooms.sort(key=lambda r: r.name.lower())
     return rooms
@@ -106,12 +134,53 @@ def room_from_tado_state(zone_id: Any, name: str, state: Dict[str, Any]) -> Room
         power_pct = _get(state, "activityDataPoints", "heatingPower", "percentage")
     manual = bool(overlay) or bool(state.get("overlay_active"))
     mode = "off" if power_state == "OFF" else ("manual" if manual else "plan")
+    override, override_end = (_override_from_state(state, overlay) if manual else (None, None))
+    next_ts, next_temp, next_off = _next_change_from_state(state)
     return Room(
         id=str(zone_id), name=name, current=_f(current), target=_f(target), humidity=_f(humidity),
         heating=bool(power_pct and float(power_pct) > 0), power_pct=int(power_pct) if power_pct is not None else None,
         mode=mode, window_open=bool(state.get("openWindow") or state.get("openWindowDetected")
                          or state.get("open_window") or state.get("open_window_detected")),
+        presence=_presence(state.get("tadoMode") or state.get("tado_mode")),
+        override=override, override_end_ts=override_end,
+        next_change_ts=next_ts, next_change_temp=next_temp, next_change_off=next_off,
     )
+
+
+def _override_from_state(state: Dict[str, Any], overlay: Any) -> tuple:
+    """Art und Ende des manuellen Eingriffs: ('next_block'|'timer'|'hold'|None, Unix-Sek.|None).
+
+    Tado-API: overlay.termination.type = MANUAL | TIMER | TADO_MODE; die App-Variante
+    steht in typeSkillBasedApp (NEXT_TIME_BLOCK = "bis zum naechsten Zeitblock").
+    PyTado-Objekt-Variante: overlay_termination_type / overlay_termination_timestamp.
+    """
+    term = (overlay or {}).get("termination") or {}
+    raw = (term.get("typeSkillBasedApp") or term.get("type")
+           or state.get("overlay_termination_type") or "")
+    kind = {"NEXT_TIME_BLOCK": "next_block", "TADO_MODE": "next_block",
+            "TIMER": "timer", "MANUAL": "hold"}.get(str(raw).upper())
+    end = _iso_ts(term.get("expiry") or state.get("overlay_termination_timestamp"))
+    if end is None:
+        rem = _f(term.get("remainingTimeInSeconds"))
+        if rem is not None:
+            end = time.time() + rem
+    if kind == "hold":
+        end = None
+    return kind, end
+
+
+def _next_change_from_state(state: Dict[str, Any]) -> tuple:
+    """(Zeitpunkt, Zieltemperatur, aus?) der naechsten Planaenderung - aus demselben zoneState."""
+    nxt = state.get("nextScheduleChange") or state.get("next_schedule_change")
+    if not isinstance(nxt, dict):
+        return None, None, False
+    ts = _iso_ts(nxt.get("start"))
+    setting = nxt.get("setting") or {}
+    if ts is None or not isinstance(setting, dict):
+        return None, None, False
+    if str(setting.get("power") or "").upper() == "OFF":
+        return ts, None, True
+    return ts, _f(_get(setting, "temperature", "celsius")), False
 
 
 @dataclass
