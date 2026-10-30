@@ -17,7 +17,7 @@ from ui.styles import COLOR_ROOT, COLOR_BORDER, COLOR_SUBTEXT
 # Chart-Tabs, statt einen der beiden alten Werte einfach zu "gewinnen".
 GRID_ALPHA = 0.14
 GRID_LINEWIDTH = 0.6
-TICK_LABELSIZE = 10
+TICK_LABELSIZE = 12
 TICK_LENGTH = 3
 TICK_WIDTH = 0.5
 SPINE_LINEWIDTH = 0.6

@@ -26,6 +26,9 @@ from core.climate import Room, fmt_temp
 DAY_MIN = 1440
 SETBACK_DELTA = 1.0       # >= 1 K unter dem Komfortwert gilt als "Absenkung"
 
+MATCH_TOL = 0.5          # so nah (°C) muss ein Tag am Median liegen, um zu "passen"
+MIN_AGREEMENT = 0.8      # Anteil passender Zeitfenster, ab dem ein Plan als erkannt gilt
+
 # (ts, current, target, heating) wie in core/climate_history.py
 Point = Tuple[int, Optional[float], Optional[float], bool]
 
@@ -113,8 +116,9 @@ def plan_from_history(points: Sequence[Point], now_ts: float, days: int = 14, sl
       Art von "heute" vorliegen - sonst zaehlen alle Tage.
     * Manuelle Eingriffe fallen heraus, solange sie nicht an der Mehrheit der Tage zur selben
       Uhrzeit passieren.
+    * Tage mit durchgehend gleichem Soll (Abwesenheit, Frostschutz) zaehlen nicht mit.
     * Liefert None, wenn zu wenig Verlauf da ist (< min_days Tage oder > 25 % der Zeitfenster
-      ohne Daten).
+      ohne Daten) oder die Tage nicht zusammenpassen (< 80 % der Zeitfenster innerhalb 0,5 °C).
     """
     n_slots = DAY_MIN // slot_min
     since = now_ts - days * 86400
@@ -128,8 +132,16 @@ def plan_from_history(points: Sequence[Point], now_ts: float, days: int = 14, sl
             continue                                    # heute ist unvollstaendig (und evtl. manuell)
         slot = (dt.hour * 60 + dt.minute) // slot_min
         by_day.setdefault(dt.date(), {}).setdefault(slot, []).append(float(tgt))
-    same_kind = {d: v for d, v in by_day.items() if (d.weekday() >= 5) == (today.weekday() >= 5)}
-    use = same_kind if len(same_kind) >= min_days else by_day
+    # Tage mit durchgehend gleichem Soll (Abwesenheit/Frostschutz/Dauer-Handeingriff) sagen nichts
+    # ueber den Zeitplan - ausser alle Tage sind so.
+    def _flat(slots: dict) -> bool:
+        vals = [statistics.median(v) for v in slots.values()]
+        return max(vals) - min(vals) < 1.0
+
+    varied = {d: v for d, v in by_day.items() if not _flat(v)}
+    pool = varied if len(varied) >= min_days else by_day
+    same_kind = {d: v for d, v in pool.items() if (d.weekday() >= 5) == (today.weekday() >= 5)}
+    use = same_kind if len(same_kind) >= min_days else pool
     if len(use) < min_days:
         return None
     med: List[Optional[float]] = []
@@ -137,6 +149,16 @@ def plan_from_history(points: Sequence[Point], now_ts: float, days: int = 14, sl
         day_vals = [statistics.median(v[slot]) for v in use.values() if slot in v]
         med.append(round(statistics.median(day_vals) * 2) / 2 if len(day_vals) >= min_days else None)
     if sum(1 for m in med if m is None) > n_slots * 0.25:
+        return None
+    # Stimmen die Tage ueberein? Sonst ist das kein Zeitplan, sondern Handbetrieb -> kein Plan.
+    hits = total = 0
+    for v in use.values():
+        for slot, vals in v.items():
+            if med[slot] is None:
+                continue
+            total += 1
+            hits += abs(statistics.median(vals) - med[slot]) <= MATCH_TOL
+    if total == 0 or hits / total < MIN_AGREEMENT:
         return None
     # Luecken fuellen: vorwaerts, am Anfang rueckwaerts
     last = next((m for m in med if m is not None), None)

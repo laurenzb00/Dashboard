@@ -640,7 +640,7 @@ class MainApp(UiQueuePumpMixin):
         # anderen beiden Energie-Tab-Karten, statt eines eigenen, kleineren
         # tk.Label-Headers in Segoe UI nur innerhalb der Sparkline-Ansicht -
         # die drei Karten wirkten dadurch bisher nicht "aus einem Guss".
-        self.sparkline_card.add_title("PV & Außentemperatur (24h)", icon="🔆")
+        self.sparkline_card.add_title("PV & Außentemperatur (gestern + heute)", icon="🔆")
         self.sparkline_view = PVSparklineView(self.sparkline_card.content(), datastore=self.datastore)
         self.sparkline_view.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 

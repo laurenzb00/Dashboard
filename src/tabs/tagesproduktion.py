@@ -491,7 +491,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame
         avg_window = 0
         if window_days > 180:
             avg_window = 14
-        elif window_days > 30:
+        elif window_days > 7:
             avg_window = 7
 
         # Plot: daily line with markers so individual days are easy to see.
@@ -522,7 +522,7 @@ class TagesproduktionTab(MatplotlibCanvasResizeMixin, UiQueuePumpMixin, tk.Frame
             )
             self.ax.legend(
                 loc="upper right",
-                fontsize=8,
+                fontsize=10,
                 facecolor=COLOR_CARD,
                 edgecolor=COLOR_BORDER,
                 labelcolor=COLOR_TEXT,

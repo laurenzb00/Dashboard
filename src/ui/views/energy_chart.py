@@ -179,7 +179,7 @@ class EnergyChart(MatplotlibCanvasResizeMixin):
             self.ax.spines[spine].set_color(COLOR_BORDER)
             self.ax.spines[spine].set_linewidth(0.6)
 
-        self.ax.tick_params(axis="both", which="major", labelsize=9, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.ax.tick_params(axis="both", which="major", labelsize=11, colors=COLOR_SUBTEXT, length=2, width=0.5)
         # Very subtle horizontal grid.
         self.ax.grid(True, axis="y", color=COLOR_BORDER, alpha=0.08, linewidth=0.6)
         self.ax.grid(False, axis="x")
@@ -393,7 +393,7 @@ class EnergyChart(MatplotlibCanvasResizeMixin):
             self.ax2.set_ylim(0, 105)
             self.ax2.set_yticks([0, 50, 100])
             self.ax2.yaxis.set_major_formatter(lambda v, _pos: f"{v:.0f}%")
-            self.ax2.tick_params(axis="y", labelsize=8, colors=COLOR_SUCCESS, length=2, width=0.5)
+            self.ax2.tick_params(axis="y", labelsize=10, colors=COLOR_SUCCESS, length=2, width=0.5)
             for spine in ("top", "left", "bottom"):
                 self.ax2.spines[spine].set_visible(False)
             self.ax2.spines["right"].set_color(COLOR_BORDER)
@@ -435,7 +435,7 @@ class EnergyChart(MatplotlibCanvasResizeMixin):
 
         if len(handles) > 2 or forecast or self._has_soc_axis:
             leg = self.ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.12), ncol=len(handles),
-                                 frameon=False, fontsize=8, handlelength=1.8, columnspacing=1.2)
+                                 frameon=False, fontsize=10, handlelength=1.8, columnspacing=1.2)
             for txt in leg.get_texts():
                 txt.set_color(COLOR_SUBTEXT)
 

@@ -1081,19 +1081,19 @@ class EnergyFlowView(tk.Frame):
             pulse = self._anim_phase * flow_strength(pv_w)
             self._draw_arrow(draw, pv, home, COLOR_PV, thickness(pv_w), pulse=pulse)
             self._draw_flow_dots(draw, pv, home, COLOR_PV, flow_strength(pv_w))
-            self._draw_flow_label(img, pv, home, pv_w, offset=28, outside_pad=26, along=0, color=COLOR_PV, outside="above")
+            self._draw_flow_label(img, pv, home, pv_w, offset=28, outside_pad=26, along=0, color=COLOR_PV, outside="above", force_flat=True)
 
         # Grid Import/Export
         if grid_w > min_flow_w:
             pulse = self._anim_phase * flow_strength(grid_w)
             self._draw_arrow(draw, grid, home, COLOR_GRID, thickness(grid_w), pulse=pulse)
             self._draw_flow_dots(draw, grid, home, COLOR_GRID, flow_strength(grid_w))
-            self._draw_flow_label(img, grid, home, grid_w, offset=28, along=0, color=COLOR_GRID)
+            self._draw_flow_label(img, grid, home, grid_w, offset=28, along=0, color=COLOR_GRID, force_flat=True)
         elif grid_w < -min_flow_w:
             pulse = self._anim_phase * flow_strength(grid_w)
             self._draw_arrow(draw, home, grid, COLOR_GRID, thickness(grid_w), pulse=pulse)
             self._draw_flow_dots(draw, home, grid, COLOR_GRID, flow_strength(grid_w))
-            self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_GRID)
+            self._draw_flow_label(img, home, grid, grid_w, offset=28, along=0, color=COLOR_GRID, force_flat=True)
 
         # Batterie Laden/Entladen (Richtung dynamisch nach Vorzeichen, Farbe
         # bleibt Batteriegruen in beiden Richtungen - die Pfeilrichtung zeigt

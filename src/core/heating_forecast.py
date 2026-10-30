@@ -106,7 +106,7 @@ def _fmt_when(ts: datetime, now: datetime) -> str:
 
 def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional[float],
          pv_forecast_utc: Optional[dict], now: Optional[datetime] = None,
-         kessel_active_now: bool = False, rate_fn=None, factor_fn=None, solar_fn=None,
+         kessel_active_now: bool = False, glut_now: bool = False, rate_fn=None, factor_fn=None, solar_fn=None,
          e_max: Optional[float] = None) -> Recommendation:
     """Simuliert die naechsten 36 h und leitet die Empfehlung ab.
 
@@ -175,7 +175,10 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
         sun_note = " · Solar-Anteil wird noch gelernt"
 
     if kessel_active_now:
-        rec.level, rec.title = "burning", "Kessel läuft – Puffer wird geladen"
+        if glut_now:
+            rec.level, rec.title = "burning", "Glutphase – Füllung ist abgebrannt"
+        else:
+            rec.level, rec.title = "burning", "Kessel läuft – Puffer wird geladen"
         rec.detail = f"Verbrauch zuletzt ≈ {rate_kw:.1f} kW"
         return rec
     if empty_at is None:
@@ -229,12 +232,14 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
 
     usable = None
     kessel_now = False
+    glut_now = False
     base = cfg.usable_from_c * (cfg.puffer_kwh_per_k + cfg.boiler_kwh_per_k)
     for b in reversed(buckets):
         q = hs.heat_content_kwh(b, cfg)
         if q is not None:
             usable = max(0.0, q - base)
             kessel_now = hs.kessel_active(b) and (now - b.ts) <= timedelta(minutes=45)
+            glut_now = kessel_now and str(getattr(b, "modus", "") or "").strip().upper().startswith("GLUT")
             break
 
     factor = None
@@ -321,7 +326,7 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
             heat_demand._temp_for(t.replace(minute=0, second=0, microsecond=0), temps_utc or {}, outdoor_now),
             tank_now)
 
-    rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now,
+    rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now, glut_now=glut_now,
                rate_fn=rate_fn, factor_fn=factor_fn, solar_fn=solar_fn, e_max=e_max)
     rec.outdoor_now = outdoor_now
     rec.solar_live_factor = live_factor

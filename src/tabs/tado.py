@@ -482,7 +482,7 @@ class TadoTab(UiQueuePumpMixin):
         w["badge"].configure(text=st.title, fg_color=col, text_color=COLOR_TEXT if st.level == "off" else "#0B0D10")
         detail = st.detail
         if plan is None and r.next_change_ts is None and st.on_plan:
-            detail += " · Zeitplan wird aus dem Verlauf gelernt (noch zu wenig Daten)"
+            detail += " · Kein fester Zeitplan im Verlauf erkennbar"
         w["detail"].configure(text=detail)
         eco, comfort = self._levels(r.id)
         w["btn_eco"].configure(text=f"🌿  Absenkung {C.fmt_temp(eco, 0 if eco == int(eco) else 1)}")

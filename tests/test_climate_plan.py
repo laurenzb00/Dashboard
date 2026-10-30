@@ -87,6 +87,27 @@ class TestHistoryPlan(unittest.TestCase):
         weekend_plan = P.plan_from_history(pts, sat, days=14)
         self.assertEqual(weekend_plan.at(13 * 60).temp, 22.5)
 
+    def test_away_days_with_flat_target_are_ignored(self):
+        pts = self.history(10)
+        away = {1, 4, 7}                                          # Tage mit durchgehend 13 Grad (Abwesenheit)
+        today = datetime.fromtimestamp(self.NOW).date().toordinal()
+        pts = [(ts, c, 13.0 if (today - datetime.fromtimestamp(ts).date().toordinal()) in away else t, h)
+               for ts, c, t, h in pts]
+        plan = P.plan_from_history(pts, self.NOW)
+        self.assertEqual(plan.at(3 * 60).temp, 17.0)
+        self.assertEqual(plan.at(13 * 60).temp, 21.0)
+
+    def test_no_plan_when_days_do_not_agree(self):
+        """Handbetrieb mit jeden Tag anderen Werten ist kein Zeitplan -> lieber kein Plan als ein falscher."""
+        pts = []
+        for dd in range(1, 11):
+            base = (datetime.fromtimestamp(self.NOW).replace(hour=0, minute=0, second=0, microsecond=0)).timestamp() - dd * 86400
+            for slot in range(0, 24 * 12):
+                hour = slot / 12
+                tgt = 14.0 + ((int(hour * 2) * 3 + dd * 5) % 4) * 1.5     # wechselt je Tag und Halbstunde
+                pts.append((int(base + slot * 300), 20.0, tgt, False))
+        self.assertIsNone(P.plan_from_history(pts, self.NOW))
+
     def test_too_little_history(self):
         self.assertIsNone(P.plan_from_history(self.history(2), self.NOW))
         self.assertIsNone(P.plan_from_history([], self.NOW))

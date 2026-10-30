@@ -368,7 +368,7 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
                 handles1 + handles2,
                 labels1 + labels2,
                 loc="upper left",
-                fontsize=7,
+                fontsize=9,
                 frameon=False,
                 labelcolor=COLOR_SUBTEXT,
             )
@@ -385,10 +385,10 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
         ax2.spines['bottom'].set_color(COLOR_BORDER)
         ax2.spines['right'].set_linewidth(0.5)
         ax2.spines['bottom'].set_linewidth(0.5)
-        self.spark_ax.tick_params(axis='both', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        ax2.tick_params(axis='y', which='major', labelsize=8, colors=COLOR_SUBTEXT, length=2, width=0.5)
-        self.spark_ax.set_ylabel('kW', fontsize=8, color=SPARK_PV_COLOR, rotation=0, labelpad=10, va='center')
-        ax2.set_ylabel('°C', fontsize=8, color=SPARK_TEMP_COLOR, rotation=0, labelpad=10, va='center')
+        self.spark_ax.tick_params(axis='both', which='major', labelsize=10, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        ax2.tick_params(axis='y', which='major', labelsize=10, colors=COLOR_SUBTEXT, length=2, width=0.5)
+        self.spark_ax.set_ylabel('kW', fontsize=10, color=SPARK_PV_COLOR, rotation=0, labelpad=10, va='center')
+        ax2.set_ylabel('°C', fontsize=10, color=SPARK_TEMP_COLOR, rotation=0, labelpad=10, va='center')
         tick_hours = list(range(0, 49, 6))
         tick_times = [cutoff + timedelta(hours=h) for h in tick_hours]
         self.spark_ax.xaxis.set_major_locator(FixedLocator(mdates.date2num(tick_times)))

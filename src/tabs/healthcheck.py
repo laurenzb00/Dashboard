@@ -290,7 +290,9 @@ class HealthTab:
             self.var_last_update,
             self.var_backup,
         ):
-            ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 14), text_color=COLOR_TEXT).pack(anchor="w", pady=4)
+            # wraplength: lange Meldungen (z.B. Backup-Fehler) werden umgebrochen statt abgeschnitten
+            ctk.CTkLabel(body, textvariable=v, font=("Segoe UI", 14), text_color=COLOR_TEXT,
+                         wraplength=900, justify="left").pack(anchor="w", pady=4)
 
         # Load last update info on startup
         self._load_last_update_info()
@@ -506,24 +508,30 @@ class HealthTab:
                     states = client.get_states()
                     ms = int((time.perf_counter() - t0) * 1000)
 
+                    # Gleiche Auswahl wie im Licht-Tab (ohne ausgeschlossene Lichter/Szenen),
+                    # sonst weichen die Zahlen ab. Ohne Licht-Tab-Daten: alle light./scene.-Entitaeten.
+                    tab_lights = {str(getattr(li, "entity_id", "")) for li in (getattr(tab, "_lights", None) or [])}
+                    tab_scenes = [s.get("entity_id") for s in (getattr(tab, "_scenes", None) or [])]
                     lights_total = 0
                     lights_on = 0
-                    scenes = 0
+                    scenes = len(tab_scenes)
                     for st in states:
                         try:
                             ent = str(st.get("entity_id") or "")
                             state = str(st.get("state") or "").lower()
                             if ent.startswith("light."):
+                                if tab_lights and ent not in tab_lights:
+                                    continue
                                 if state not in ("unknown", "unavailable"):
                                     lights_total += 1
                                     if state == "on":
                                         lights_on += 1
-                            elif ent.startswith("scene."):
+                            elif ent.startswith("scene.") and not tab_scenes:
                                 scenes += 1
                         except Exception:
                             continue
 
-                    msg = f"Home Assistant: OK ({ms}ms), lights_on={lights_on}/{lights_total}, scenes={scenes}"
+                    msg = f"Home Assistant: OK ({ms}ms), Lichter an: {lights_on}/{lights_total}, Szenen: {scenes}"
             except requests.exceptions.RequestException as exc:
                 msg = f"Home Assistant: Fehler ({type(exc).__name__})"
             except Exception as exc:

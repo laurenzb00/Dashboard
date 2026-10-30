@@ -407,6 +407,13 @@ class SpotifyTab:
         self.track_var = tk.StringVar(value="–")
         self.artist_var = tk.StringVar(value="")
         self.album_var = tk.StringVar(value="")
+        # Titel / Interpret / Album - die Variablen wurden gesetzt, aber nie angezeigt
+        tk.Label(info_box, textvariable=self.track_var, font=get_safe_font("Bahnschrift", 20, "bold"),
+                 bg=COLOR_ROOT, fg=COLOR_TEXT, anchor="w", justify=LEFT, wraplength=520).pack(fill=tk.X)
+        tk.Label(info_box, textvariable=self.artist_var, font=get_safe_font("Bahnschrift", 15),
+                 bg=COLOR_ROOT, fg=COLOR_TITLE, anchor="w", justify=LEFT, wraplength=520).pack(fill=tk.X, pady=(2, 0))
+        tk.Label(info_box, textvariable=self.album_var, font=get_safe_font("Bahnschrift", 12),
+                 bg=COLOR_ROOT, fg=COLOR_SUBTEXT, anchor="w", justify=LEFT, wraplength=520).pack(fill=tk.X, pady=(2, 0))
 
         # War zuvor ein ttk.Labelframe mit eigenem Rahmen/Titel-Font statt
         # der geteilten Card-Komponente, die der Rest der App fuer betitelte
@@ -487,27 +494,27 @@ class SpotifyTab:
         tk.Label(
             right,
             textvariable=self.progress_var,
-            font=get_safe_font("Bahnschrift", 11),
+            font=get_safe_font("Bahnschrift", 14),
             bg=COLOR_ROOT,
             fg=COLOR_SUBTEXT,
-            anchor="w",
+            anchor="center",
         ).grid(row=3, column=0, sticky="ew", pady=(16, 4))
 
         # Feine Glas-Icons statt ttk-Buttons mit Text/Emoji (siehe
         # glyph_icon.py) - passend zur selben Formsprache wie Header und
         # Energiefluss. Play/Pause braucht zwei Icon+Farb-Varianten, die
         # per _update_now_playing() je nach is_playing getauscht werden.
-        self._icon_play = ctk_icon("play", COLOR_TEXT, size=26)
-        self._icon_pause = ctk_icon("pause", COLOR_ROOT, size=26)
+        self._icon_play = ctk_icon("play", COLOR_TEXT, size=34)
+        self._icon_pause = ctk_icon("pause", COLOR_ROOT, size=34)
 
         controls = tk.Frame(right, bg=COLOR_ROOT)
         controls.grid(row=4, column=0, pady=(0, 0))
         ctk.CTkButton(
             controls,
             text="",
-            image=ctk_icon("skip_prev", COLOR_TEXT, size=22),
-            width=52,
-            height=44,
+            image=ctk_icon("skip_prev", COLOR_TEXT, size=28),
+            width=84,
+            height=64,
             corner_radius=14,
             fg_color=COLOR_CARD,
             hover_color=COLOR_BORDER,
@@ -519,8 +526,8 @@ class SpotifyTab:
             controls,
             text="",
             image=self._icon_play,
-            width=64,
-            height=44,
+            width=110,
+            height=64,
             corner_radius=16,
             fg_color=COLOR_CARD,
             hover_color=COLOR_BORDER,
@@ -532,9 +539,9 @@ class SpotifyTab:
         ctk.CTkButton(
             controls,
             text="",
-            image=ctk_icon("skip_next", COLOR_TEXT, size=22),
-            width=52,
-            height=44,
+            image=ctk_icon("skip_next", COLOR_TEXT, size=28),
+            width=84,
+            height=64,
             corner_radius=14,
             fg_color=COLOR_CARD,
             hover_color=COLOR_BORDER,
