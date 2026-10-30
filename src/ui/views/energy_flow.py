@@ -688,7 +688,17 @@ class EnergyFlowView(tk.Frame):
         # Draw main text on top
         draw.text((text_x, text_y), text, font=font, fill=color)
 
+    _FONT_CACHE: dict = {}
+
     def _get_font(self, size: int, bold: bool = False):
+        key = (int(size), bool(bold))
+        font = EnergyFlowView._FONT_CACHE.get(key)
+        if font is None:
+            font = self._load_font(int(size), bool(bold))
+            EnergyFlowView._FONT_CACHE[key] = font
+        return font
+
+    def _load_font(self, size: int, bold: bool = False):
         candidates = [
             "arialbd.ttf" if bold else "arial.ttf",
             "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",

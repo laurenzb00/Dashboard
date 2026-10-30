@@ -990,8 +990,11 @@ class SpotifyTab:
         tk.Label(info_frame, textvariable=self.token_info_var, font=get_safe_font("Bahnschrift", 9), bg=COLOR_CARD, fg=COLOR_SUBTEXT).pack(anchor=W, pady=(0, 4))
     # ------------------------------------------------------------------
     def _update_devices(self, devices: list[dict]) -> None:
-        if devices == self._devices:
+        # Nur anzeigerelevante Felder vergleichen (Lautstaerke o.ae. aendert sich staendig)
+        sig = [(d.get("id"), d.get("name"), d.get("type"), bool(d.get("is_active"))) for d in devices]
+        if sig == getattr(self, "_devices_sig", None):
             return
+        self._devices_sig = sig
         self._devices = devices
         for child in self.device_container.winfo_children():
             child.destroy()
