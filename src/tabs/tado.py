@@ -13,6 +13,7 @@ import threading
 import time
 import tkinter as tk
 import webbrowser
+from dataclasses import replace as dc_replace
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from tkinter import ttk
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -21,9 +22,12 @@ import customtkinter as ctk
 
 from core import climate as C
 from core import climate_plan as P
+from core import own_schedule as S
+from core import presence as PR
 from core.climate_history import ClimateHistory, points_from_ha_history, points_from_tado_day_report
 from core.homeassistant import HomeAssistantClient, load_homeassistant_config
 from ui.components.plan_chart import PlanChart
+from ui.components.schedule_editor import ScheduleEditor
 from ui.components.tab_shell import TabShell
 from ui.components.temp_chart import TempChart
 from ui.components.thermostat_ring import ThermostatRing
@@ -163,8 +167,15 @@ class TadoTab(UiQueuePumpMixin):
         self._hist_hours = 0             # 0 = "Heute" (00-24 Uhr mit Zeitplan), sonst Stunden zurueck
         self._series: dict = {}
         self._backfill_started = False
-        self._plans: dict = {}           # Raum-ID -> DayPlan | None (gelernt aus dem Verlauf)
+        self._learned: dict = {}         # Raum-ID -> DayPlan | None (gelernt aus dem Verlauf)
         self._plan_ts: dict = {}
+        self._sched = S.load()           # eigener Wochenplan (config/zeitplan.json)
+        self._enforcer = S.Enforcer()
+        self._editor = None
+        self._presence = PR.PresenceTracker()
+        self._presence_state = PR.PresenceState()
+        self._home_coords = None         # (lat, lon) aus zone.home, sonst Wetter-Konfiguration
+        self._presence_err_logged = False
         self._hero = False               # genau ein Raum -> grosses Einraum-Layout
         try:
             self._history = ClimateHistory()
@@ -255,6 +266,21 @@ class TadoTab(UiQueuePumpMixin):
                                               command=self._reset_tado_token)
         self._reset_token_btn.pack(side=tk.RIGHT, padx=6, pady=8)
         self._hint_anchor = top
+
+        # --- Eigener Zeitplan: Schalter, Klartext (jetzt / naechste Aenderung), Bearbeiten
+        sbar = ctk.CTkFrame(body, fg_color=COLOR_CARD, corner_radius=18, border_width=1, border_color=COLOR_BORDER)
+        sbar.pack(fill=tk.X, padx=4, pady=(0, 8), after=top)
+        sbar.grid_columnconfigure(1, weight=1)
+        self._own_var = tk.BooleanVar(value=self._sched.enabled and self._sched.usable)
+        ctk.CTkSwitch(sbar, text="Eigener Zeitplan", variable=self._own_var, command=self._toggle_own,
+                      text_color=COLOR_TEXT, font=get_safe_font("Bahnschrift", 16, "bold")
+                      ).grid(row=0, column=0, padx=(16, 8), pady=14)
+        self._sched_lbl = ctk.CTkLabel(sbar, text="", text_color=COLOR_SUBTEXT, anchor="w", justify="left",
+                                       font=get_safe_font("Bahnschrift", 14), wraplength=560)
+        self._sched_lbl.grid(row=0, column=1, sticky="w", padx=8)
+        self._pill(sbar, "✎  Bearbeiten", self._open_editor, COLOR_PRIMARY, 150).grid(row=0, column=2, padx=(8, 14),
+                                                                                       pady=10)
+        self._refresh_sched_bar()
         self.var_hint.trace_add("write", lambda *_: self._update_hint_visibility())
 
         # --- Raumkarten
@@ -408,9 +434,33 @@ class TadoTab(UiQueuePumpMixin):
                 "detail": detail, "actions": actions, "side": None, "btn_plan": btn_plan, "btn_timer": btn_timer,
                 "btn_eco": btn_eco, "btn_comfort": btn_comfort}
 
+    def _own_active(self) -> bool:
+        return bool(self._sched.enabled and self._sched.usable)
+
+    def _plan_for(self, rid: str):
+        """Tagesplan fuer Diagramm/Statustext: der eigene Plan (heute), sonst der aus dem Verlauf gelernte."""
+        if self._own_active():
+            return S.day_plan(self._sched, date.today())
+        return self._learned.get(rid)
+
+    def _status_room(self, r: C.Room) -> C.Room:
+        """Raum fuer die Anzeige. Beim eigenen Plan stammt 'naechste Aenderung' aus diesem Plan, und der von
+        uns gesetzte Timer (Temperatur = Plan) zaehlt nicht als manueller Eingriff."""
+        if not self._own_active():
+            return r
+        now = datetime.now()
+        nxt = S.next_change(self._sched, now)
+        out = dc_replace(r, next_change_ts=nxt[0].timestamp() if nxt else None,
+                         next_change_temp=nxt[1] if nxt else None, next_change_off=False)
+        want = S.target_at(self._sched, now)
+        if (r.mode == "manual" and want is not None and r.target is not None
+                and abs(r.target - want) < S.TOLERANCE and r.override in ("timer", "next_block", "hold")):
+            out = dc_replace(out, mode="plan", override=None, override_end_ts=None)
+        return out
+
     def _levels(self, rid: str) -> tuple:
         """(Absenkung, Komfort) - aus dem gelernten Zeitplan, sonst die Standardwerte (TADO_ECO/COMFORT_TEMP)."""
-        plan = self._plans.get(rid)
+        plan = self._plan_for(rid)
         if plan is not None and plan.has_change and plan.eco is not None and plan.comfort is not None:
             return plan.eco, plan.comfort
         return float(TADO_ECO_TEMP), float(TADO_COMFORT_TEMP)
@@ -476,8 +526,16 @@ class TadoTab(UiQueuePumpMixin):
 
     def _update_hero(self, r: C.Room, w: dict) -> None:
         """Status-Banner, Tastenbeschriftung und Diagramm des Einraum-Layouts."""
-        plan = self._plans.get(r.id)
+        r = self._status_room(r)
+        plan = self._plan_for(r.id)
         st = P.describe_status(r, plan, time.time())
+        if self._own_active() and st.kind == "plan":
+            st.title = "Eigener Zeitplan"
+        away = self._own_active() and self._sched.away_enabled and self._presence_state.mode == PR.AWAY
+        if away and not r.window_open:
+            st = P.Status("away", "Abwesend",
+                          f"Niemand zu Hause (Home Assistant) – Heizung auf {C.fmt_temp(self._sched.away_temp)}. "
+                          f"Sobald du dich näherst, läuft der Zeitplan wieder an.", "away", False)
         col = LEVEL_COLORS.get(st.level, COLOR_PRIMARY)
         w["badge"].configure(text=st.title, fg_color=col, text_color=COLOR_TEXT if st.level == "off" else "#0B0D10")
         detail = st.detail
@@ -495,7 +553,7 @@ class TadoTab(UiQueuePumpMixin):
 
     def _refresh_hero_chart(self, r: C.Room, w: dict, plan=None) -> None:
         w["chart"].set_data(self._series.get(r.id, []), time.time(), self._hist_hours,
-                            plan if plan is not None else self._plans.get(r.id),
+                            plan if plan is not None else self._plan_for(r.id),
                             current=r.current, target=r.target,
                             override_end=r.override_end_ts if r.mode == "manual" else None)
 
@@ -514,6 +572,176 @@ class TadoTab(UiQueuePumpMixin):
                 parts.append(f"nächste Abfrage {self._next_poll:%H:%M}")
             parts.append(f"{self._req_count}/{DAILY_LIMIT} Tado-Abfragen heute")
         self._info_lbl.configure(text=" · ".join(parts))
+        self._refresh_sched_bar()
+
+    # ------------------------------------------------------ Eigener Zeitplan --
+
+    def _refresh_sched_bar(self) -> None:
+        sched = self._sched
+        if not sched.usable:
+            txt = "Noch kein Plan angelegt – „Bearbeiten“ tippen"
+        elif sched.enabled:
+            txt = S.describe(sched, datetime.now())
+            if sched.away_enabled and self._presence_state.mode != PR.UNKNOWN:
+                txt += "\n" + PR.describe(self._presence_state, time.time(), sched.away_temp)
+            elif sched.respect_away and any(r.presence == "away" for r in self._rooms):
+                txt += " · pausiert, solange niemand zu Hause ist"
+        else:
+            txt = "Aus – es gilt der Zeitplan aus der Tado-App"
+        try:
+            self._sched_lbl.configure(text=txt, text_color=COLOR_TEXT if sched.enabled and sched.usable else COLOR_SUBTEXT)
+            if self._own_var.get() != self._own_active():
+                self._own_var.set(self._own_active())
+        except Exception:
+            pass
+
+    def _toggle_own(self) -> None:
+        want = bool(self._own_var.get())
+        if want and not self._sched.usable:
+            self._own_var.set(False)
+            self._open_editor()
+            return
+        if not want and self._own_active():
+            # eigenen Timer-Eingriff beenden: Raeume, die gerade unseren Plan-Wert halten, zurueck an Tado
+            now = datetime.now()
+            plan_t = S.target_at(self._sched, now)
+            back = [r.id for r in self._rooms if r.mode == "manual" and plan_t is not None
+                    and r.target is not None and abs(r.target - plan_t) < S.TOLERANCE]
+            self._sched.enabled = False
+            if back:
+                self._command(lambda: self._do_plan(back), "Zeitplan aus der Tado-App wieder aktiv")
+        else:
+            self._sched.enabled = want
+        self._persist_sched("Eigener Zeitplan eingeschaltet" if want else "Eigener Zeitplan ausgeschaltet")
+
+    def _persist_sched(self, msg: str) -> bool:
+        try:
+            S.save(self._sched)
+        except Exception as exc:
+            logging.warning("[ZEITPLAN] Speichern fehlgeschlagen: %s", exc)
+            self.var_status.set(f"⚠️ Zeitplan konnte nicht gespeichert werden ({type(exc).__name__})")
+            return False
+        self.var_status.set(msg)
+        self._refresh_sched_bar()
+        for r in list(self._rooms):
+            self._update_card(r)
+        self._wake.set()                # sofort neu abfragen und den Plan anwenden
+        return True
+
+    def _open_editor(self) -> None:
+        if self._editor is not None:
+            return
+        ed = ScheduleEditor(self.tab_frame, self._sched, on_save=self._save_sched, on_close=self._close_editor,
+                            on_import=self._import_learned)
+        ed.place(x=0, y=0, relwidth=1, relheight=1)
+        ed.lift()
+        self._editor = ed
+
+    def _close_editor(self) -> None:
+        ed, self._editor = self._editor, None
+        if ed is not None:
+            try:
+                ed.destroy()
+            except Exception:
+                pass
+
+    def _save_sched(self, sched: S.WeekSchedule) -> None:
+        old = self._sched
+        self._sched = sched
+        if self._persist_sched("Eigener Zeitplan gespeichert und eingeschaltet" if sched.enabled
+                               else "Eigener Zeitplan gespeichert"):
+            self._own_var.set(self._own_active())
+            self._close_editor()
+        else:
+            self._sched = old           # Editor bleibt offen, damit nichts verloren geht
+
+    def _import_learned(self):
+        """Startwert aus dem Plan, den das Dashboard bisher aus dem Tado-Verlauf gelernt hat."""
+        plan = next((p for p in self._learned.values() if p is not None), None)
+        return S.from_day_plan(plan) if plan is not None else None
+
+    def _presence_client(self):
+        if self._ha_client is None:
+            try:
+                cfg = load_homeassistant_config()
+            except Exception:
+                cfg = None
+            if cfg:
+                self._ha_client = HomeAssistantClient(cfg)
+        return self._ha_client
+
+    def _poll_presence(self, sched: S.WeekSchedule, now: float):
+        """Anwesenheit aus Home Assistant (person.* + zone.home). None = nicht verfuegbar/abgeschaltet."""
+        if not sched.away_enabled:
+            return None
+        client = self._presence_client()
+        if client is None:
+            return None
+        ids = sched.persons or [os.environ.get("DASHBOARD_PRESENCE_ENTITY_ID", "").strip() or "person.laurenz"]
+        persons = []
+        try:
+            for ent in ids:
+                st = client.get_state(ent)
+                if st:
+                    st.setdefault("entity_id", ent)
+                    persons.append(st)
+            if self._home_coords is None:
+                self._home_coords = PR.home_from_zone(client.get_state("zone.home")) or self._weather_coords()
+            if self._presence_err_logged:
+                logging.info("[ANWESENHEIT] Home Assistant wieder erreichbar")
+            self._presence_err_logged = False
+        except Exception as exc:
+            if not self._presence_err_logged:
+                logging.warning("[ANWESENHEIT] Abfrage fehlgeschlagen (%s) - behalte letzten Zustand", exc)
+            self._presence_err_logged = True
+        prev = self._presence_state.mode
+        state = self._presence.update(persons, self._home_coords, now, approach_km=sched.approach_km)
+        self._presence_state = state
+        if state.mode != prev:
+            logging.info("[ANWESENHEIT] %s -> %s (%s)", prev, state.mode,
+                         f"{state.distance_km:.1f} km" if state.distance_km is not None else "Entfernung unbekannt")
+            self._post_ui(self._refresh_sched_bar)
+        return state
+
+    @staticmethod
+    def _weather_coords():
+        try:
+            from core.weather import load_weather_config
+            cfg = load_weather_config()
+            return float(cfg.latitude), float(cfg.longitude)
+        except Exception:
+            return None
+
+    def _enforce(self, rooms: list) -> None:
+        """Worker-Thread: dem Thermostat den Wert des eigenen Plans sagen, wenn noetig (siehe core/own_schedule)."""
+        sched = self._sched
+        if not sched.enabled or not sched.usable or self.source is None:
+            return
+        now = time.time()
+        presence = self._poll_presence(sched, now)
+        for r in rooms:
+            act = self._enforcer.step(sched, r, now, presence)
+            if act is None:
+                continue
+            try:
+                ok = bool(self._do_set_temp([r.id], act.temp, act.duration_s))
+            except Exception as exc:
+                logging.warning("[ZEITPLAN] %s: Setzen fehlgeschlagen: %s", r.name, exc)
+                ok = False
+            self._enforcer.record(act, now, ok)
+            until = datetime.fromtimestamp(now + act.duration_s).strftime("%H:%M")
+            if act.reason == "abwesend":
+                msg = f"🚗 Abwesend: {r.name} auf {C.fmt_temp(act.temp)}"
+            elif act.reason == "zurueck":
+                msg = f"🏠 {r.name}: {C.fmt_temp(act.temp)} bis {until} (du bist wieder da)"
+            else:
+                msg = f"🗓 {r.name}: {C.fmt_temp(act.temp)} bis {until}"
+            if not ok:
+                msg = f"⚠️ Zeitplan: {r.name} konnte nicht auf {C.fmt_temp(act.temp)} gestellt werden"
+            logging.info("[ZEITPLAN] %s -> %s (%s, %s)", r.name, act.temp, act.reason, "ok" if ok else "Fehler")
+            self._post_ui(lambda m=msg: self.var_status.set(m))
+            if ok and (self.source == "ha" or DAILY_LIMIT >= 1000):
+                threading.Timer(3.0, self._wake.set).start()
 
     # ------------------------------------------------------------ Befehle --
 
@@ -570,7 +798,8 @@ class TadoTab(UiQueuePumpMixin):
                       f"{r.name}: {C.fmt_temp(temp)} für 1 Stunde")
 
     def _set_plan(self, rid: str) -> None:
-        self._optimistic(rid, mode="plan")
+        want = S.target_at(self._sched, datetime.now()) if self._own_active() else None
+        self._optimistic(rid, want, mode="plan")
         self._command(lambda: self._do_plan([rid]), f"{self._name(rid)}: zurück auf Zeitplan")
 
     def _all_plan(self) -> None:
@@ -625,6 +854,9 @@ class TadoTab(UiQueuePumpMixin):
         threading.Thread(target=worker, daemon=True).start()
 
     def _do_set_temp(self, ids: list, temp: float, duration_s: int | None = None) -> bool:
+        if duration_s is None and self._own_active():
+            # Handeingriff gilt bis zum naechsten Zeitpunkt des eigenen Plans (wie "bis zum naechsten Zeitblock")
+            duration_s = S.seconds_to_next_change(self._sched, datetime.now())
         if self.source == "ha":
             c = self._ha_client
             if duration_s:
@@ -645,6 +877,10 @@ class TadoTab(UiQueuePumpMixin):
         return False
 
     def _do_plan(self, ids: list) -> bool:
+        if self._own_active():       # "Zeitplan" = zurueck auf den eigenen Plan
+            now = datetime.now()
+            want = S.target_at(self._sched, now)
+            return want is not None and self._do_set_temp(ids, want, S.seconds_to_next_change(self._sched, now))
         if self.source == "ha":
             return self._ha_client.call_service("climate", "set_hvac_mode", {"entity_id": ids, "hvac_mode": "auto"})
         if self.source == "direct":
@@ -726,6 +962,10 @@ class TadoTab(UiQueuePumpMixin):
                 series = self._load_series([r.id for r in rooms], self._hist_hours)
             except Exception as exc:
                 logging.warning("[TADO] Verlauf speichern fehlgeschlagen: %s", exc)
+        try:
+            self._enforce(rooms)
+        except Exception as exc:
+            logging.warning("[ZEITPLAN] Durchsetzung fehlgeschlagen: %s", exc)
 
         def apply():
             self._last_update = datetime.now()
@@ -747,9 +987,9 @@ class TadoTab(UiQueuePumpMixin):
         """Typischen Tagesplan (Absenkung/Komfort) aus dem Verlauf lernen - Worker-Thread, selten."""
         now = time.time()
         for rid in ids:
-            if rid in self._plans and now - self._plan_ts.get(rid, 0) < PLAN_REFRESH_S:
+            if rid in self._learned and now - self._plan_ts.get(rid, 0) < PLAN_REFRESH_S:
                 continue
-            self._plans[rid] = P.plan_from_history(self._history.query(rid, now - 15 * 86400), now)
+            self._learned[rid] = P.plan_from_history(self._history.query(rid, now - 15 * 86400), now)
             self._plan_ts[rid] = now
 
     def _apply_series(self, series: dict) -> None:
