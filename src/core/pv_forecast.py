@@ -22,6 +22,15 @@ gelernt, aus ALLEN gesammelten Stunden.
    Fehler der Wettervorhersage bei bestimmten Lagen gelernt. Wenig Daten in
    der Naehe -> Faktor geht gegen 1 (reine Physik).
 
+3. Nachfuehr-Faktor (neu)
+   Das gelernte Modell unterschaetzte im Herbst 2026 um 15-22 % (tiefe Sonne, trueber Himmel).
+   Darum wird die Prognose mit dem zeitgewichteten Verhaeltnis gemessen / Modell der letzten
+   Tage multipliziert (Halbwertszeit 5 Tage, Fenster 21 Tage, begrenzt auf 0,6 ... 1,6). Test mit
+   den Oktober-Daten: Bias -22,6 % -> +0,3 %, Tagesfehler 31,9 % -> 30,7 %.
+   Die bisherige "Wettervorhersage-Fehler"-Tabelle (forecast_log.learn_pv_bias) wird weiter gelernt,
+   aber nur noch angewendet, wenn USE_FORECAST_BIAS gesetzt ist: sie verbesserte den Tagesfehler
+   nicht (Okt. 2026: 40,4 % statt 36,7 % ohne).
+
 Neu gelernt wird einmal nach jedem Programmstart und dann einmal pro Tag
 (im Worker-Thread des aufrufenden Tabs). Modell: data/pv_forecast_model.json.
 Prognose: eine Open-Meteo-Abfrage, gecacht 30 min in data/pv_forecast_cache.json.
@@ -68,6 +77,15 @@ CORR_KT = np.arange(0.05, 0.86, 0.1)
 CORR_SIGMA = (7.0, 3.0, 0.08)
 CORR_STRENGTH_H = 3.0            # so viele "typische Stunden" wiegt der Ausgangswert 1,0
 CORR_CLIP = (0.2, 1.5)
+
+# Nachfuehr-Faktor
+TRAIL_HALF_LIFE_D = 5.0
+TRAIL_WINDOW_D = 21
+TRAIL_CLIP = (0.6, 1.6)
+TRAIL_MIN_DAYS = 4
+TRAIL_MIN_DAY_KWH = 1.0          # Tage mit weniger Modell-Ertrag zaehlen nicht (Verhaeltnis zu unsicher)
+TRAIL_MAX_AGE_D = 3.0            # aelter als das -> nicht mehr anwenden
+USE_FORECAST_BIAS = False
 
 FORECAST_MAX_AGE_S = 30 * 60
 FORECAST_PAST_DAYS = 7
@@ -212,6 +230,9 @@ def fit_from_data(d: dict, lat: float, lon: float) -> Optional[dict]:
         model["corr"] = {"az": CORR_AZ.tolist(), "el": CORR_EL.tolist(), "kt": CORR_KT.tolist(),
                          "table": np.round(corr_table, 3).tolist()}
     pred = predict_arrays(model, t, ghi, dni, dhi, temp)
+    trail = trailing_factor(t, y, pred)
+    if trail:
+        model["trail"] = trail
     for name, p in (("phys", phys), ("final", pred)):
         err = p[good] - y[good]
         model[f"rmse_{name}_kw"] = float(np.sqrt(np.mean(err ** 2)))
@@ -225,9 +246,62 @@ def fit_from_data(d: dict, lat: float, lon: float) -> Optional[dict]:
     if nz.any():
         model["day_mape_pct"] = float(np.mean(np.abs(dp[nz] - dm[nz]) / dm[nz]) * 100.0)
     logger.info("[PV-Prognose] Gelernt aus %d h: Neigung %d°, R²=%.3f, RMSE %.2f -> %.2f kW (Aehnlich-Korrektur), "
-                "Tagesfehler %.0f %%", model["hours"], tilt, model["r2"], model["rmse_phys_kw"],
-                model["rmse_final_kw"], model.get("day_mape_pct", float("nan")))
+                "Tagesfehler %.0f %%, Nachfuehr-Faktor %s", model["hours"], tilt, model["r2"], model["rmse_phys_kw"],
+                model["rmse_final_kw"], model.get("day_mape_pct", float("nan")),
+                "%.2f" % model["trail"]["factor"] if model.get("trail") else "-")
     return model
+
+
+# ---------------------------------------------------------------------------
+# Nachfuehr-Faktor
+# ---------------------------------------------------------------------------
+
+def trailing_factor(t_end, measured, modeled, ref: Optional[float] = None,
+                    half_life_d: float = TRAIL_HALF_LIFE_D, window_d: int = TRAIL_WINDOW_D,
+                    clip: tuple = TRAIL_CLIP) -> Optional[dict]:
+    """Zeitgewichtetes Verhaeltnis gemessen / Modell der letzten vollstaendigen Tage.
+
+    t_end: Stundenende (UTC-Unix), measured/modeled: kW. ref = Zeitpunkt "jetzt" (Default: letzte Stunde);
+    der Tag von ref zaehlt nicht mit (unvollstaendig). Gibt {"factor", "days", "asof"} oder None.
+    """
+    t = np.asarray(t_end, float)
+    y = np.asarray(measured, float)
+    m = np.asarray(modeled, float)
+    ok = ~np.isnan(t) & ~np.isnan(y) & ~np.isnan(m)
+    if not ok.any():
+        return None
+    t, y, m = t[ok], y[ok], m[ok]
+    ref = float(t.max()) if ref is None else float(ref)
+    day = ((t - 1800.0) // 86400).astype(int)
+    today = int((ref - 1800.0) // 86400)
+    num = den = 0.0
+    used = 0
+    for d in np.unique(day):
+        age = today - int(d)
+        if age < 1 or age > window_d:
+            continue
+        s = day == d
+        pm = float(m[s].sum())
+        if pm < TRAIL_MIN_DAY_KWH:
+            continue
+        w = 0.5 ** ((age - 1) / half_life_d)
+        num += w * float(y[s].sum())
+        den += w * pm
+        used += 1
+    if used < TRAIL_MIN_DAYS or den <= 0:
+        return None
+    return {"factor": float(np.clip(num / den, *clip)), "days": used, "asof": ref}
+
+
+def trail_multiplier(model: Optional[dict], now: Optional[float] = None) -> float:
+    """Faktor fuer kommende Stunden; 1,0 wenn unbekannt oder zu alt."""
+    tr = (model or {}).get("trail")
+    if not tr:
+        return 1.0
+    now = time.time() if now is None else now
+    if now - float(tr.get("asof", 0.0)) > TRAIL_MAX_AGE_D * 86400:
+        return 1.0
+    return float(tr.get("factor", 1.0))
 
 
 def predict_arrays(model: dict, t_end, ghi, dni, dhi, temp) -> np.ndarray:
@@ -331,15 +405,18 @@ def get_forecast(store, cfg: Optional[WeatherConfig] = None, allow_network: bool
         stale = (time.time() - float(cache.get("fetched_at", 0.0) or 0.0)) > FORECAST_MAX_AGE_S
         if stale and allow_network and cfg.enabled and model:
             try:
-                rows = fl.fetch_weather(cfg, FORECAST_PAST_DAYS, FORECAST_DAYS)
+                rows = fl.fetch_weather(cfg, FORECAST_PAST_DAYS, FORECAST_DAYS, cfg.pv_model)
                 if rows:
                     arr = np.array([[np.nan if v is None else v for v in r] for r in rows], dtype=float)
                     raw = predict_arrays(model, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4])
                     # Lern-Korrektur der Wettervorhersage nur fuer kommende Stunden; vergangene
                     # Stunden beruhen schon auf (fast) gemessenem Wetter.
                     future = arr[:, 0] - 3600 >= time.time()
-                    corrected = forecast_log.apply_bias(model.get("bias"), arr[:, 0], raw, arr[:, 1],
-                                                        model["latitude"], model["longitude"])
+                    corrected = raw
+                    if USE_FORECAST_BIAS:
+                        corrected = forecast_log.apply_bias(model.get("bias"), arr[:, 0], raw, arr[:, 1],
+                                                            model["latitude"], model["longitude"])
+                    corrected = corrected * trail_multiplier(model)
                     pred = np.where(future, np.clip(corrected, 0.0, model.get("cap_kw") or None), raw)
                     try:
                         forecast_log.record_pv(arr[:, 0], pred, arr[:, 1], kw_raw=raw)
@@ -351,6 +428,11 @@ def get_forecast(store, cfg: Optional[WeatherConfig] = None, allow_network: bool
                     cutoff = (datetime.now(timezone.utc) - timedelta(days=CACHE_KEEP_DAYS)).strftime(DB_TS_FORMAT)
                     values = {k: v for k, v in values.items() if k >= cutoff}
                     _write_json(CACHE_PATH, {"fetched_at": time.time(), "values": values})
+                    try:
+                        from . import forecast_models
+                        forecast_models.log_models_async(model, cfg)
+                    except Exception as exc:
+                        logger.info("[PV-Prognose] Modellvergleich nicht gestartet: %s", exc)
             except Exception as exc:
                 logger.info("[PV-Prognose] Abruf fehlgeschlagen, nutze Cache: %s", exc)
         if not values:

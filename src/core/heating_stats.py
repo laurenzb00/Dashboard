@@ -247,17 +247,74 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
                           bot=m.get("bot"), warm=m.get("warm"), outdoor=m.get("outdoor"),
                           # Rauchgas: Spitzenwert im Bucket (brennt es irgendwann darin?)
                           rauchgas=max(slot["rauchgas"]) if slot.get("rauchgas") else None,
-                          # Modus: brennt es irgendwann im Bucket, zaehlt das
-                          modus=next((m for m in slot.get("modus", []) if mode_is_firing(m)),
-                                     (slot.get("modus") or [None])[-1])))
+                          # Modus: brennt es irgendwann im Bucket, zaehlt das (staerkster Modus gewinnt)
+                          modus=_pick_mode(slot.get("modus", []))))
     # Rauchgas-Spalte nur verwenden, wenn darin je ein Feuer zu sehen war (sonst ist
     # der BMK-Index evtl. etwas anderes) - dann gilt die Episoden-Pruefung.
     rg = [b.rauchgas for b in out if b.rauchgas is not None]
     if rg and max(rg) < RAUCHGAS_PLAUSIBEL_C:
         for b in out:
             b.rauchgas = None
+    mark_false_starts(out)
     classify_episodes(out, _pv_hourly(conn, s, e))
     return out
+
+
+# Rangfolge, wenn im selben Bucket mehrere Brennmodi vorkommen: ein echter Brand schlaegt Start/Nachlegen.
+_MODE_RANK = (("VOLL", 5), ("TEIL", 4), ("GLUT", 3), ("NACHLEG", 2), ("START", 1))
+_REAL_BURN_PREFIXES = ("VOLL", "TEIL", "GLUT")
+
+
+def _mode_rank(mode) -> int:
+    m = str(mode or "").strip().upper()
+    for prefix, rank in _MODE_RANK:
+        if m.startswith(prefix):
+            return rank
+    return 0
+
+
+def _pick_mode(modes: list) -> Optional[str]:
+    """Staerkster Brennmodus im Bucket; ohne Brennmodus der zuletzt gemeldete Modus."""
+    firing = [m for m in modes if mode_is_firing(m)]
+    if firing:
+        return max(firing, key=_mode_rank)
+    return modes[-1] if modes else None
+
+
+def _is_real_burn_mode(mode) -> bool:
+    return str(mode or "").strip().upper().startswith(_REAL_BURN_PREFIXES)
+
+
+def mark_false_starts(buckets: list["Bucket"]) -> int:
+    """START-Phasen ohne anschliessenden Brand (und reine NACHLEGEN-Fenster) sind kein Feuer.
+
+    Der BMK meldet haeufig ~20 min START, ohne dass Teil-/Volllast folgt (31 von 41 Laeufen in 21 Tagen,
+    Okt. 2026). Solche Laeufe sperrten sonst Stunden fuers Lernen und liefen als Feuer-Nachlauf mit.
+    Ein Lauf = aufeinanderfolgende Buckets mit Brennmodus; er zaehlt als Feuer, wenn irgendwo
+    TEILLAST/VOLLLAST/GLUTERHALT vorkommt. Laeufe am Rand des Zeitfensters bleiben unveraendert
+    (der Brand kann gerade erst beginnen). Gibt die Zahl umbenannter Buckets zurueck.
+    """
+    n = len(buckets)
+    changed = 0
+    i = 0
+    while i < n:
+        if not (isinstance(buckets[i].modus, str) and mode_is_firing(buckets[i].modus)):
+            i += 1
+            continue
+        j = i
+        while (j + 1 < n and isinstance(buckets[j + 1].modus, str) and mode_is_firing(buckets[j + 1].modus)
+               and (buckets[j + 1].ts - buckets[j].ts) <= timedelta(minutes=BUCKET_MIN * 1.5)):
+            j += 1
+        run = buckets[i:j + 1]
+        at_edge = i == 0 or j == n - 1
+        if not at_edge and not any(_is_real_burn_mode(b.modus) for b in run):
+            label = "FEHLSTART" if any(str(b.modus).strip().upper().startswith("START") for b in run) \
+                else "NACHLEGEFENSTER"
+            for b in run:
+                b.modus = label
+                changed += 1
+        i = j + 1
+    return changed
 
 
 def _pv_hourly(conn, s: str, e: str) -> dict:
@@ -338,7 +395,8 @@ def _kessel_hot(b: Bucket) -> bool:
 
 # Betriebsmodi, in denen KEIN Holz brennt (BMK-Text, Grossschreibung egal). Alles andere
 # (Anheizen/Start, Teillast, Volllast, Ausbrand ...) zaehlt als Feuer.
-_MODE_NOT_FIRING = {"STANDBY", "AUS", "OFF", "BEREIT", "STÖRUNG", "STOERUNG", "FEHLER", "SOMMER", "FROSTSCHUTZ"}
+_MODE_NOT_FIRING = {"STANDBY", "AUS", "OFF", "BEREIT", "STÖRUNG", "STOERUNG", "FEHLER", "SOMMER", "FROSTSCHUTZ",
+                    "FEHLSTART", "NACHLEGEFENSTER"}       # die letzten beiden setzt mark_false_starts()
 
 
 def mode_is_firing(mode) -> bool:

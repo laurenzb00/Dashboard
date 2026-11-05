@@ -38,6 +38,9 @@ BMK_WARMWASSER_C: Final[str] = "bmk_warmwasser_c"
 BMK_BETRIEBSMODUS: Final[str] = "bmk_betriebsmodus"
 """BMK operating mode (string or numeric)."""
 
+BMK_DEUTUNG: Final[str] = "bmk_deutung"
+"""Interpretation der BMK-Werte (dict: phase, headline, detail, tone, empfehlung ...), siehe core/bmk_interpret.py."""
+
 # Buffer storage temperatures
 BUF_TOP_C: Final[str] = "buf_top_c"
 """Buffer storage top temperature in Celsius."""
@@ -58,6 +61,7 @@ ALL_KEYS: Final[Set[str]] = {
     BMK_KESSEL_C,
     BMK_WARMWASSER_C,
     BMK_BETRIEBSMODUS,
+    BMK_DEUTUNG,
     BUF_TOP_C,
     BUF_MID_C,
     BUF_BOTTOM_C,

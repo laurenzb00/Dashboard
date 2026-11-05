@@ -62,6 +62,10 @@ class WeatherConfig:
     longitude: float = _DEFAULT_LON
     enabled: bool = True
     timeout_s: float = 6.0
+    # Wettermodell fuer die PV-Prognose ("best_match" = Standard von Open-Meteo, sonst z.B. "icon_d2").
+    pv_model: str = "best_match"
+    # Modelle, die nur mitprotokolliert und mit dem Ertrag verglichen werden (leer = aus).
+    log_models: tuple = ("icon_d2", "icon_eu", "ecmwf_ifs025", "gfs_seamless")
 
 
 def load_weather_config() -> WeatherConfig:
@@ -73,6 +77,9 @@ def load_weather_config() -> WeatherConfig:
             longitude=float(data.get("longitude", _DEFAULT_LON)),
             enabled=bool(data.get("enabled", True)),
             timeout_s=float(data.get("timeout_s", 6.0)),
+            pv_model=str(data.get("pv_wettermodell", "best_match")),
+            log_models=tuple(str(m) for m in data.get("wettermodelle_vergleich",
+                                                         WeatherConfig.log_models)),
         )
     except Exception as exc:
         logger.debug("Konnte config/weather.json nicht laden, nutze Standardwerte: %s", exc)

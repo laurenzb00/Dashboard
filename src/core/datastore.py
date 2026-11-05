@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 """Central SQLite datastore for PV and heating metrics."""
-from .time_utils import ensure_utc, parse_db_ts, to_db_ts
+from .time_utils import db_ts_to_local, ensure_utc, parse_db_ts, to_db_ts
 from .utils import safe_float
 from collections import defaultdict
 import csv
@@ -598,6 +598,53 @@ class DataStore:
                 self._execute_with_retry("DELETE FROM heating_bmk_raw WHERE timestamp < ?",
                                          (_hours_ago_iso(keep_days * 24),))
             self._commit_with_retry()
+
+    _BMK_STATUS_COLS = ("modus", "kessel", "aussen", "ladung", "saugzug", "primaer", "sekundaer", "co2", "pumpe",
+                        "heizfreigabe", "vl_eg", "vl_og", "betriebsstunden", "meldung")
+
+    def insert_bmk_status(self, timestamp, row: dict, keep_days: int = 800) -> None:
+        """Gedeutete BMK-Kanaele (Modus, Pufferladung, Luftklappen, CO2, Vorlauf ...) dauerhaft, 1 Zeile/min.
+
+        Anders als heating_bmk_raw (21 Tage) bleibt das fuer die Feuer-Bilanz ueber die ganze Saison erhalten.
+        """
+        ts = to_db_ts(timestamp)
+        if not ts or not row:
+            return
+        cols = self._BMK_STATUS_COLS
+        with self._lock:
+            self._execute_with_retry(
+                "CREATE TABLE IF NOT EXISTS bmk_status (timestamp TEXT PRIMARY KEY, modus TEXT, kessel REAL, "
+                "aussen REAL, ladung REAL, saugzug REAL, primaer REAL, sekundaer REAL, co2 REAL, pumpe REAL, "
+                "heizfreigabe INTEGER, vl_eg REAL, vl_og REAL, betriebsstunden INTEGER, meldung TEXT)", ())
+            self._execute_with_retry(
+                "INSERT OR REPLACE INTO bmk_status (timestamp, " + ", ".join(cols) + ") VALUES (?, "
+                + ", ".join("?" for _ in cols) + ")", (ts,) + tuple(row.get(c) for c in cols))
+            if ts[14:16] == "00":
+                self._execute_with_retry("DELETE FROM bmk_status WHERE timestamp < ?",
+                                         (_hours_ago_iso(keep_days * 24),))
+            self._commit_with_retry()
+
+    def get_bmk_status(self, days: float = 14.0, hours: Optional[float] = None) -> List[dict]:
+        """Gespeicherte BMK-Deutungskanaele, aufsteigend; ts = lokale (naive) Zeit."""
+        cutoff = _hours_ago_iso(hours if hours is not None else days * 24)
+        cols = self._BMK_STATUS_COLS
+        with self._lock:
+            try:
+                cur = self.conn.execute(
+                    "SELECT timestamp, " + ", ".join(cols) + " FROM bmk_status WHERE timestamp >= ? "
+                    "ORDER BY timestamp", (cutoff,))
+                rows = cur.fetchall()
+            except Exception:
+                return []
+        out = []
+        for r in rows:
+            ts = db_ts_to_local(r[0])
+            if ts is None:
+                continue
+            d = {c: r[i + 1] for i, c in enumerate(cols)}
+            d["ts"] = ts
+            out.append(d)
+        return out
 
     def get_recent_fronius(self, hours: int = 24, limit: Optional[int] = None) -> List[dict]:
         cutoff = _hours_ago_iso(hours)

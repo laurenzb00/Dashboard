@@ -834,4 +834,11 @@ def _forecast_status_text() -> str:
             parts.append("Prognose-Güte: wird gesammelt")
     except Exception:
         pass
+    try:
+        from core import forecast_models
+        txt = forecast_models.status_text()
+        if txt:
+            parts.append(txt)
+    except Exception:
+        pass
     return "   ".join(parts)

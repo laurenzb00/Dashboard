@@ -109,7 +109,7 @@ def _unix(dt: datetime) -> int:
 # Wetter (Open-Meteo)
 # ---------------------------------------------------------------------------
 
-def _parse_hourly(payload: dict) -> list[tuple]:
+def _parse_hourly(payload: dict, model: Optional[str] = None) -> list[tuple]:
     h = (payload or {}).get("hourly") or {}
     rows = []
     for i, t in enumerate(h.get("time") or []):
@@ -119,7 +119,11 @@ def _parse_hourly(payload: dict) -> list[tuple]:
             continue
 
         def v(name):
-            arr = h.get(name) or []
+            # Bei Abfrage mit "models=" haengt Open-Meteo je nach Fall den Modellnamen an die Variable an.
+            arr = h.get(name)
+            if arr is None and model:
+                arr = h.get(f"{name}_{model}")
+            arr = arr or []
             x = arr[i] if i < len(arr) else None
             return float(x) if x is not None else None
         rows.append((ts, v("shortwave_radiation"), v("direct_normal_irradiance"), v("diffuse_radiation"),
@@ -127,14 +131,20 @@ def _parse_hourly(payload: dict) -> list[tuple]:
     return rows
 
 
-def fetch_weather(cfg: WeatherConfig, past_days: int, forecast_days: int) -> list[tuple]:
-    r = _session.get(FORECAST_URL, params={
+def fetch_weather(cfg: WeatherConfig, past_days: int, forecast_days: int, model: Optional[str] = None) -> list[tuple]:
+    """Stuendliche Strahlung/Temperatur. model=None oder "best_match": Standardmodell von Open-Meteo."""
+    params = {
         "latitude": cfg.latitude, "longitude": cfg.longitude, "hourly": WEATHER_VARS,
         "past_days": max(0, min(MAX_PAST_DAYS, int(past_days))),
         "forecast_days": max(1, min(16, int(forecast_days))), "timezone": "UTC",
-    }, timeout=max(8.0, cfg.timeout_s))
+    }
+    if model and model != "best_match":
+        params["models"] = model
+    else:
+        model = None
+    r = _session.get(FORECAST_URL, params=params, timeout=max(8.0, cfg.timeout_s))
     r.raise_for_status()
-    return _parse_hourly(r.json())
+    return _parse_hourly(r.json(), model)
 
 
 def fetch_archive(cfg: WeatherConfig, start: date, end: date) -> list[tuple]:

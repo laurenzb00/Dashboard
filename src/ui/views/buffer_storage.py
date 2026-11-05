@@ -59,6 +59,7 @@ from core.schema import (
     BUF_BOTTOM_C,
     BMK_WARMWASSER_C,
     BMK_BETRIEBSMODUS,
+    BMK_DEUTUNG,
     PV_POWER_KW,
 )
 
@@ -382,6 +383,11 @@ class BufferStorageView(tk.Frame):
                 self.mode_label.destroy()
             except Exception:
                 pass
+        if hasattr(self, "mode_detail") and self.mode_detail.winfo_exists():
+            try:
+                self.mode_detail.destroy()
+            except Exception:
+                pass
         self.fig = Figure(figsize=(fig_width, fig_height), dpi=100)
         self.fig.patch.set_facecolor(COLOR_CARD)
         self.ax = self.fig.add_subplot(111)
@@ -397,6 +403,17 @@ class BufferStorageView(tk.Frame):
             anchor="w",
         )
         self.mode_label.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(2, 0))
+        # Zweite Zeile: Deutung der BMK-Werte (nur sichtbar, wenn es etwas zu sagen gibt)
+        self.mode_detail = tk.Label(
+            self.plot_frame,
+            text="",
+            bg=COLOR_CARD,
+            fg=COLOR_SUBTEXT,
+            font=("Segoe UI", 11),
+            anchor="w",
+            justify=tk.LEFT,
+        )
+        self.mode_label.bind("<Configure>", self._wrap_mode_labels)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -702,6 +719,47 @@ class BufferStorageView(tk.Frame):
         self._mode_color_map[mode] = color
         return color
 
+    _TONE_COLORS = {"aus": "subtext", "ok": "success", "info": "primary", "warn": "warning", "hot": "warning"}
+
+    def _tone_color(self, tone: str, fallback: str) -> str:
+        name = self._TONE_COLORS.get(tone)
+        return {"subtext": COLOR_SUBTEXT, "success": COLOR_SUCCESS, "primary": COLOR_PRIMARY,
+                "warning": COLOR_WARNING}.get(name, fallback)
+
+    def _wrap_mode_labels(self, event=None) -> None:
+        try:
+            width = max(200, int(self.mode_label.winfo_width()) - 12)
+            self.mode_label.configure(wraplength=width, justify=tk.LEFT)
+            self.mode_detail.configure(wraplength=width)
+        except Exception:
+            pass
+
+    def _show_deutung(self, deutung, mode: str, mode_color: str) -> None:
+        """Ueberschrift + Detailzeile. Faellt auf 'Betriebsmodus: X' zurueck, wenn keine Deutung vorliegt."""
+        if not hasattr(self, "mode_label"):
+            return
+        headline = deutung.get("headline") if isinstance(deutung, dict) else None
+        if not headline:
+            self.mode_label.configure(text=f"Betriebsmodus: {mode}", fg=mode_color)
+            detail = ""
+        else:
+            self.mode_label.configure(text=headline, fg=self._tone_color(deutung.get("tone"), mode_color))
+            parts = [deutung.get("detail") or ""]
+            parts += [f"⚠ {h}" for h in (deutung.get("hinweise") or [])]
+            detail = "   ".join(p for p in parts if p)
+        if not hasattr(self, "mode_detail"):
+            return
+        shown = bool(self.mode_detail.winfo_ismapped())
+        if detail:
+            self.mode_detail.configure(text=detail)
+            if not shown:
+                kwargs = dict(side=tk.TOP, fill=tk.X, padx=6, pady=(0, 2))
+                if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
+                    kwargs["before"] = self.canvas_widget
+                self.mode_detail.pack(**kwargs)
+        elif shown:
+            self.mode_detail.pack_forget()
+
     def _update_mode_state(self, payload: dict) -> bool:
         mode_raw = payload.get(BMK_BETRIEBSMODUS)
         if mode_raw in (None, ""):
@@ -715,10 +773,10 @@ class BufferStorageView(tk.Frame):
 
         color = self._mode_color(mode)
 
-        # Update headline over heatmap (prominent + color matches timeline)
+        # Headline ueber der Heatmap: Deutung aus der Kombination der BMK-Werte (core/bmk_interpret),
+        # ohne sie wie bisher der rohe Betriebsmodus.
         try:
-            if hasattr(self, "mode_label"):
-                self.mode_label.configure(text=f"Betriebsmodus: {mode}", fg=color)
+            self._show_deutung(payload.get(BMK_DEUTUNG), mode, color)
         except Exception:
             pass
 

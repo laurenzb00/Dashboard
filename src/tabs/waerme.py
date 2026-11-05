@@ -32,6 +32,7 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+from core import bmk_interpret
 from core import heating_forecast as hf
 from core import heating_stats as hs
 from core import pv_forecast
@@ -385,6 +386,14 @@ class WaermeTab(UiQueuePumpMixin):
             except Exception:
                 heat_alert = None
             self._heat_alert = heat_alert
+            # Feuer-Bilanz aus dem dauerhaft gespeicherten BMK-Verlauf (core/bmk_interpret)
+            try:
+                fires = bmk_interpret.recent_fires(self.datastore, days=14, cfg=self.cfg)
+                self._fire_lines = bmk_interpret.fire_lines(fires, 1)
+                self._false_starts = bmk_interpret.false_start_count(fires)
+            except Exception:
+                logger.exception("[WAERME] Feuer-Bilanz fehlgeschlagen")
+                self._fire_lines, self._false_starts = [], 0
 
             def apply() -> None:
                 if not self.alive or token != self._update_token:
@@ -467,6 +476,11 @@ class WaermeTab(UiQueuePumpMixin):
             parts.append(f"zuletzt {ev.start:%d.%m. %H:%M}, {h} h {m:02d} min, max {ev.peak_kessel:.0f}°, {ev.wood_kwh:.0f} kWh")
         else:
             parts.append("In dieser Saison noch kein Einheizen erkannt")
+        for line in getattr(self, "_fire_lines", None) or []:
+            parts.append("Feuer-Bilanz: " + line)
+        n_fs = getattr(self, "_false_starts", 0)
+        if n_fs:
+            parts.append(f"{n_fs}× Start ohne Brand in 14 Tagen")
         alert = getattr(self, "_heat_alert", None)
         if alert:
             parts.insert(0, f"⚠ {alert[1]} ({datetime.fromtimestamp(alert[0]):%H:%M})")

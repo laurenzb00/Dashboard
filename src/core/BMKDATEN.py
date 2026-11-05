@@ -7,6 +7,7 @@ from typing import Dict, Optional
 
 import pytz
 import requests
+from core import bmk_interpret
 from core.datastore import get_shared_datastore
 from core.utils import safe_float
 
@@ -48,19 +49,19 @@ PP_INDEX_MAPPING = {
     0: "Betriebsmodus",
     1: "Kesseltemperatur",
     2: "Außentemperatur",
-    3: "Wert_3",
+    3: "Pufferladung_Prozent",       # linear zur mittleren Puffertemperatur (r = 0,9998)
     4: "Puffer_Oben",
     5: "Pufferspeicher_Mitte",
     6: "Puffer_Unten",
-    7: "Wert_7",
+    7: "Pumpe_7",                    # 0/100, ~98 % in Teil-/Volllast
     # 8/9 waren als Kesselruecklauf/Rauchgas eingetragen - die Diagnose vom 06.10.2026 zeigt
     # etwas anderes (8 = 100 und 9 = Rampe 0..96 taeglich ~19 Uhr bei kaltem Kessel).
     # Rohwerte werden jetzt minuetlich in heating_bmk_raw gespeichert, um die echte
     # Rauchgas-Position beim naechsten Einheizen zu finden.
-    8: "Wert_8",
-    9: "Wert_9",
-    10: "Wert_10",
-    11: "Rauchgasauslastung",
+    8: "Saugzug_Prozent",
+    9: "Primaerluft_Prozent",
+    10: "Sekundaerluft_Prozent",
+    11: "CO2_Abgas_Prozent",         # 18,07 = Leerwert im Standby
     12: "Warmwassertemperatur",
     13: "Wert_13",
     14: "Hysterese_14",
@@ -70,7 +71,7 @@ PP_INDEX_MAPPING = {
     18: "Heizkreispumpe_EG",
     19: "Solltemperatur_EG",
     20: "Vorlauftemp_EG",
-    21: "Raumtemp_EG",
+    21: "Vorlauftemp_EG_Ist",
     22: "Heizkreispumpe_OG",
     23: "Solltemperatur_OG",
     24: "Vorlauftemp_OG",
@@ -101,10 +102,10 @@ PP_INDEX_MAPPING = {
     49: "Relais_13_Status",
     50: "Relais_14_Status",
     51: "Relais_15_Status",
-    52: "Tick_Counter",
-    53: "Betriebsstunden",
-    54: "Wert_54",
-    55: "Wert_55",
+    52: "Geraetenummer",
+    53: "Service_Intervall",
+    54: "Betriebsstunden",
+    55: "Betriebstage",
     56: "Wert_56",
     57: "Wert_57",
     58: "Wert_58",
@@ -182,6 +183,12 @@ def abrufen_und_speichern() -> Optional[Dict[str, float]]:
 
         _persist_to_datastore(result)
         _persist_raw(values, zeitstempel)
+        try:
+            deutung = _interpret(values, now_local, zeitstempel)
+            if deutung:
+                result["Deutung"] = deutung
+        except Exception as exc:
+            logger.debug("[BMK] Deutung fehlgeschlagen: %s", exc)
 
         return result
     except Exception as exc:
@@ -196,6 +203,9 @@ def _extrahiere_alle_daten(values, zeitstempel):
 
     try:
         daten = {"Zeitstempel": zeitstempel}
+        values, meldung = bmk_interpret.normalize_fields(values)     # NACHLEGEN: 2 Zusatzfelder ab Index 52
+        if meldung:
+            daten["Meldung"] = meldung
         for idx in range(min(len(values), len(PP_INDEX_MAPPING))):
             spalten_name = PP_INDEX_MAPPING.get(idx, f"Wert_{idx}")
             wert = values[idx].strip() if idx < len(values) else ""
@@ -250,6 +260,38 @@ def _bestimme_puffer_status(oben, mitte, unten):
 
 _last_raw = 0.0
 RAW_INTERVAL_S = 60
+_last_status = 0.0
+_live_preloaded = False
+
+
+def _preload_live() -> None:
+    """Nach einem Neustart den Trend aus den letzten Stunden der Datenbank aufbauen."""
+    global _live_preloaded
+    _live_preloaded = True
+    try:
+        rows = get_shared_datastore().get_bmk_status(hours=4)
+        bmk_interpret.live().preload(bmk_interpret.reading_from_row(r["ts"], r) for r in rows)
+    except Exception as exc:
+        logger.debug("[BMK] Verlauf fuer Deutung nicht geladen: %s", exc)
+
+
+def _interpret(values, now_local, zeitstempel) -> Optional[dict]:
+    """Rohwerte -> Aussage (Phase, Nachlegen, Platz im Puffer ...) und dauerhaft speichern (1x/min)."""
+    global _last_status
+    reading = bmk_interpret.parse_bmk(values, now_local.replace(tzinfo=None))
+    if reading is None:
+        return None
+    if not _live_preloaded:
+        _preload_live()
+    deutung = bmk_interpret.live().interpret(reading).to_dict()
+    now = time.time()
+    if now - _last_status >= RAW_INTERVAL_S:
+        _last_status = now
+        try:
+            get_shared_datastore().insert_bmk_status(zeitstempel, bmk_interpret.status_row(reading))
+        except Exception as exc:
+            logger.debug("[DB] BMK-Status nicht gespeichert: %s", exc)
+    return deutung
 
 
 def _persist_raw(values, zeitstempel) -> None:
