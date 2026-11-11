@@ -4,6 +4,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 
 from core.time_utils import db_ts_to_local
+from core import heating_stats as hs
 from typing import Optional
 
 import matplotlib.dates as mdates
@@ -516,6 +517,45 @@ class BufferStorageView(tk.Frame):
             alpha=0.16, zorder=4.3,
         ))
 
+    # --- Layout der Tanks (Achsen-Koordinaten) --------------------------------
+    # Zwei Puffer in Reihe + Boiler. Fuehler: Puffer 1 oben, Puffer 2 oben,
+    # Puffer 2 unten (siehe core/heating_stats.split_tanks).
+    TANK_BOTTOM = 0.06
+    TANK_TOP = 0.86
+    BOILER_TOP = 0.56
+    P1_X = 0.03
+    P2_X = 0.29
+    TANK_W = 0.22
+    BOILER_X = 0.60
+    BOILER_W = 0.26
+    TANK_ROUNDING = 0.07
+    # Hoehe der Fuehler relativ zur Tankhoehe (0 = unten, 1 = oben)
+    SENSOR_REL_TOP = 0.90
+    SENSOR_REL_BOT = 0.10
+
+    @classmethod
+    def _sensor_y(cls, rel: float) -> float:
+        return cls.TANK_BOTTOM + (cls.TANK_TOP - cls.TANK_BOTTOM) * rel
+
+    @classmethod
+    def _tank_profile(cls, t_top, t_bottom, layers: int = 120, cols: int = 12) -> np.ndarray:
+        """Temperaturverlauf eines Tanks (unten -> oben, passend zu origin="lower").
+
+        Linear zwischen den beiden Fuehlerhoehen, darueber/darunter konstant.
+        """
+        try:
+            a = float(t_top)
+            b = float(t_bottom)
+        except Exception:
+            a, b = 0.0, 0.0
+        if np.isnan(a):
+            a = 0.0
+        if np.isnan(b):
+            b = 0.0
+        h = np.linspace(0.0, 1.0, layers)
+        temps = np.interp(h, [cls.SENSOR_REL_BOT, cls.SENSOR_REL_TOP], [b, a])
+        return np.tile(temps[:, np.newaxis], (1, cols))
+
     def _setup_plot(self) -> None:
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
@@ -523,120 +563,100 @@ class BufferStorageView(tk.Frame):
         self.ax.set_facecolor(COLOR_CARD)
 
         self.norm = Normalize(vmin=self.TEMP_MIN, vmax=self.TEMP_MAX)
+        self._storage_cfg = getattr(self, "_storage_cfg", None) or hs.load_storage_config()
 
-        # Flat, modern vessel: thin outline only, no drop-shadow/glossy 3D
-        # treatment. Top capped below the title line so the "PUFFER" /
-        # "WARMWASSER" labels always keep a clear gap above the graphic.
-        PUFFER_TOP = 0.86
-        BOILER_TOP = 0.56
-
-        self.im = self.ax.imshow(
-            self.data,
-            aspect="auto",
-            interpolation="bicubic",
-            cmap=self._build_cmap(),
-            norm=self.norm,
-            origin="lower",
-            extent=[0.06, 0.50, 0.06, PUFFER_TOP],
-            zorder=2,
-        )
-
-        puffer_cyl = FancyBboxPatch(
-            (0.09, 0.06),
-            0.34,
-            PUFFER_TOP - 0.06,
-            # Staerker abgerundete Ecken (0.10 -> 0.17) + duennerer Rand fuer
-            # eine modernere, weichere Silhouette (Nutzer-Feedback: "form
-            # etwas moderner").
-            boxstyle="round,pad=0.02,rounding_size=0.17",
-            transform=self.ax.transAxes,
-            linewidth=1.1,
-            edgecolor=COLOR_ROOT,
-            facecolor="none",
-            alpha=0.75,
-            zorder=4,
-        )
-        self.im.set_clip_path(puffer_cyl)
-        self.ax.add_patch(puffer_cyl)
-        # Glow/Zylinder-Rundung/Kappen-Glanzlicht - "kuehler" Glow (aus der
-        # blauen Seite der Ocean-to-Ember-Palette), da der Puffer im
-        # ueblichen Betriebsbereich meist im kuehleren Skalenabschnitt liegt.
-        self._add_vessel_depth(0.09, 0.34, 0.06, PUFFER_TOP, puffer_cyl, glow_color="#1f7fa8")
-        self.ax.add_patch(Ellipse((0.26, PUFFER_TOP), 0.34, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
-        self.ax.add_patch(Ellipse((0.26, 0.06), 0.34, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
-        # Feste Schriftgröße und feste Ränder für optimalen Sitz
-        self.fig.subplots_adjust(left=0.04, right=0.96, top=0.91, bottom=0.10)
-        title_kw = dict(color=COLOR_TITLE, fontsize=14, va="top", ha="center", weight="bold")
-        self.ax.text(0.26, 0.985, "PUFFER", transform=self.ax.transAxes, **title_kw)
-        self.ax.text(0.74, 0.985, "WARMWASSER", transform=self.ax.transAxes, **title_kw)
-
-        # Subtle dark outline behind the white value text keeps it legible no
-        # matter which part of the gradient (pale ice-blue, bright orange) sits
-        # behind it.
+        y0, top = self.TANK_BOTTOM, self.TANK_TOP
+        rounding = self.TANK_ROUNDING
         text_outline = [path_effects.withStroke(linewidth=3, foreground=COLOR_ROOT, alpha=0.85)]
+        title_kw = dict(color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold")
 
-        # Temperatur-Textfelder links
+        # --- zwei Puffer in Reihe ------------------------------------------------
+        self.tank_images = []
+        self.tank_patches = []
+        self.kwh_texts = []
+        profiles = (self._tank_profile(60.0, 50.0), self._tank_profile(50.0, 40.0))
+        for idx, (x0, label) in enumerate(((self.P1_X, "PUFFER 1"), (self.P2_X, "PUFFER 2"))):
+            w = self.TANK_W
+            im = self.ax.imshow(
+                profiles[idx], aspect="auto", interpolation="bicubic", cmap=self._build_cmap(),
+                norm=self.norm, origin="lower", extent=[x0, x0 + w, y0, top], zorder=2,
+            )
+            body = FancyBboxPatch(
+                (x0, y0), w, top - y0,
+                boxstyle=f"round,pad=0.0,rounding_size={rounding}",
+                transform=self.ax.transAxes, linewidth=1.1, edgecolor=COLOR_ROOT,
+                facecolor="none", alpha=0.75, zorder=4,
+            )
+            im.set_clip_path(body)
+            self.ax.add_patch(body)
+            self._add_vessel_depth(x0, w, y0, top, body, glow_color="#1f7fa8", rounding=rounding)
+            for yy in (top, y0):
+                self.ax.add_patch(Ellipse((x0 + w / 2, yy), w, 0.08, transform=self.ax.transAxes,
+                                          edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0,
+                                          alpha=0.7, zorder=4))
+            self.ax.text(x0 + w / 2, 0.985, label, transform=self.ax.transAxes, **title_kw)
+            self.kwh_texts.append(
+                self.ax.text(x0 + w / 2, 0.46, "-- kWh", color=COLOR_TEXT, fontsize=12, va="center",
+                             ha="center", transform=self.ax.transAxes, weight="bold", zorder=5,
+                             path_effects=text_outline, linespacing=1.1)
+            )
+            self.tank_images.append(im)
+            self.tank_patches.append(body)
+        self.im = self.tank_images[0]   # Farbbalken / Kompatibilitaet
+        # Bilder (Datenkoordinaten) und Rahmen/Texte (Achsenkoordinaten) muessen deckungsgleich sein:
+        # imshow setzt die Achsengrenzen sonst auf die Vereinigung der Extents.
+        self.ax.set_xlim(0.0, 1.0)
+        self.ax.set_ylim(0.0, 1.0)
+
+        # Puffer 1 hat unten keinen Fuehler -> unteren Bereich leicht abdunkeln und benennen
+        est_top = self._sensor_y(0.55)
+        est = Rectangle((self.P1_X, y0), self.TANK_W, est_top - y0, transform=self.ax.transAxes,
+                        facecolor=COLOR_CARD, edgecolor="none", alpha=0.22, zorder=3)
+        self.ax.add_patch(est)
+        est.set_clip_path(self.tank_patches[0])
+        self.ax.text(self.P1_X + self.TANK_W / 2, -0.015, "unten geschätzt", transform=self.ax.transAxes,
+                     color=COLOR_SUBTEXT, fontsize=8, style="italic", va="top", ha="center")
+
+        # Temperaturwerte + Fuehlerpunkte: Puffer 1 oben, Puffer 2 oben, Puffer 2 unten
+        y_hi = self._sensor_y(self.SENSOR_REL_TOP)
+        y_lo = self._sensor_y(self.SENSOR_REL_BOT)
+        sensors = ((self.P1_X, y_hi), (self.P2_X, y_hi), (self.P2_X, y_lo))
         self.val_texts = [
-            self.ax.text(0.12, 0.78, "--°C", color=COLOR_TEXT, fontsize=16, va="center", ha="left",
-                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
-            self.ax.text(0.12, 0.46, "--°C", color=COLOR_TEXT, fontsize=16, va="center", ha="left",
-                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
-            self.ax.text(0.12, 0.14, "--°C", color=COLOR_TEXT, fontsize=16, va="center", ha="left",
-                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline),
+            self.ax.text(x0 + 0.055, yy, "--°C", color=COLOR_TEXT, fontsize=13, va="center", ha="left",
+                         transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline)
+            for x0, yy in sensors
         ]
-
-        # Kleine Kreismarker vor jedem Messwert ("Fühlerposition" der drei
-        # Puffer-Sensoren). Farbe folgt derselben Temperatur-Skala wie
-        # Heatmap/Farbbalken (_temp_color) statt einer neuen Akzentfarbe -
-        # rein kosmetisch, keine neue Datenquelle. In update_temperatures()
-        # wird nur die Füllfarbe aktualisiert.
         self.sensor_dots = [
-            self.ax.scatter([0.095], [y], s=110, transform=self.ax.transAxes,
-                            color=self._temp_color(60.0), edgecolor=COLOR_ROOT,
-                            linewidth=1.3, zorder=6)
-            for y in (0.78, 0.46, 0.14)
+            self.ax.scatter([x0 + 0.032], [yy], s=80, transform=self.ax.transAxes,
+                            color=self._temp_color(60.0), edgecolor=COLOR_ROOT, linewidth=1.3, zorder=6)
+            for x0, yy in sensors
         ]
 
+        # --- Boiler -----------------------------------------------------------------
+        bx, bw, btop = self.BOILER_X, self.BOILER_W, self.BOILER_TOP
         self.boiler_rect = FancyBboxPatch(
-            (0.58, 0.06),
-            0.32,
-            BOILER_TOP - 0.06,
-            boxstyle="round,pad=0.02,rounding_size=0.17",
-            transform=self.ax.transAxes,
-            linewidth=1.0,
-            edgecolor=COLOR_ROOT,
-            facecolor=self._temp_color(60),
-            alpha=0.95,
-            zorder=4,
+            (bx, y0), bw, btop - y0,
+            boxstyle=f"round,pad=0.0,rounding_size={rounding}",
+            transform=self.ax.transAxes, linewidth=1.0, edgecolor=COLOR_ROOT,
+            facecolor=self._temp_color(60), alpha=0.95, zorder=4,
         )
         self.ax.add_patch(self.boiler_rect)
-        # Warmer Glow (Bernstein/Orange-Seite der Palette) - Warmwasser liegt
-        # ueblicherweise im oberen, waermeren Skalenbereich.
-        self._add_vessel_depth(0.58, 0.32, 0.06, BOILER_TOP, self.boiler_rect, glow_color="#e8542f")
-        self.ax.add_patch(Ellipse((0.74, BOILER_TOP), 0.32, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
-        self.ax.add_patch(Ellipse((0.74, 0.06), 0.32, 0.08, transform=self.ax.transAxes,
-                                  edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0, alpha=0.7, zorder=4))
-        self.ax.text(0.74, 0.62, "Boiler", transform=self.ax.transAxes,
-             color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold", zorder=5)
-        # Boiler-Temperaturtext
-        self.boiler_text = self.ax.text(0.74, 0.34, "--°C", color=COLOR_TEXT, fontsize=23, va="center", ha="center",
-                                        transform=self.ax.transAxes, weight="bold", zorder=5, path_effects=text_outline)
-        # Boiler-Modus-Text (Betriebsmodus)
-        self.boiler_mode_text = self.ax.text(
-            0.74,
-            0.22,
-            "",
-            color=COLOR_TEXT,
-            fontsize=11,
-            va="center",
-            ha="center",
-            transform=self.ax.transAxes,
-            weight="bold",
-            zorder=5,
-        )
+        self._add_vessel_depth(bx, bw, y0, btop, self.boiler_rect, glow_color="#e8542f", rounding=rounding)
+        for yy in (btop, y0):
+            self.ax.add_patch(Ellipse((bx + bw / 2, yy), bw, 0.08, transform=self.ax.transAxes,
+                                      edgecolor=COLOR_ROOT, facecolor="none", linewidth=1.0,
+                                      alpha=0.7, zorder=4))
+        self.ax.text(bx + bw / 2, 0.985, "WARMWASSER", transform=self.ax.transAxes, **title_kw)
+        self.ax.text(bx + bw / 2, 0.67, "Boiler", transform=self.ax.transAxes,
+                     color=COLOR_TITLE, fontsize=13, va="top", ha="center", weight="bold", zorder=5)
+        self.boiler_text = self.ax.text(bx + bw / 2, 0.34, "--°C", color=COLOR_TEXT, fontsize=21, va="center",
+                                        ha="center", transform=self.ax.transAxes, weight="bold", zorder=5,
+                                        path_effects=text_outline)
+        self.boiler_mode_text = self.ax.text(bx + bw / 2, 0.22, "", color=COLOR_TEXT, fontsize=11, va="center",
+                                             ha="center", transform=self.ax.transAxes, weight="bold", zorder=5)
+
+        # Feste Schriftgröße und feste Ränder für optimalen Sitz
+        self.fig.subplots_adjust(left=0.04, right=0.96, top=0.91, bottom=0.10)
 
         divider = make_axes_locatable(self.ax)
         cax = divider.append_axes("right", size="4%", pad=0.15)
@@ -916,13 +936,19 @@ class BufferStorageView(tk.Frame):
 
 
     def update_temperatures(self, top, mid, bot, boiler):
-        # Update heatmap with stratified 2D array
-        self.data = self._build_stratified_data(top, mid, bot)
-        
-        if hasattr(self, 'im'):
-            self.im.set_data(self.data)
-            self.im.set_cmap(self._build_cmap())
-            self.im.set_norm(self.norm)
+        # Zwei Puffer in Reihe: Puffer 1 = oben (top) bis geschaetzt unten (= Puffer 2 oben, mid),
+        # Puffer 2 = oben (mid) bis unten (bot).
+        for im, (t_up, t_down) in zip(getattr(self, "tank_images", []), ((top, mid), (mid, bot))):
+            im.set_data(self._tank_profile(t_up, t_down))
+            im.set_cmap(self._build_cmap())
+            im.set_norm(self.norm)
+        # Waermemenge je Puffer (nutzbar oberhalb "nutzbar ab")
+        if getattr(self, "kwh_texts", None):
+            for text, tank in zip(self.kwh_texts, hs.split_tanks(top, mid, bot, self._storage_cfg)):
+                if tank.usable_kwh is None:
+                    text.set_text("-- kWh")
+                else:
+                    text.set_text(f"{tank.usable_kwh:.0f} kWh\nnutzbar")
         # Update left temperature texts
         if hasattr(self, 'val_texts') and len(self.val_texts) == 3:
             self.val_texts[0].set_text(f"{top:.1f}°C")

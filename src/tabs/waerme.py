@@ -1,7 +1,8 @@
 """Waerme-Tab: Pufferspeicher live, Solarthermie und Holz.
 
-* Live-Grafik: Puffer (2 x 2000 l, Sensoren oben/mitte/unten) und Boiler als
-  Tanks mit Temperaturschichtung, Ladezustand, Kessel-/Solar-Anzeige.
+* Live-Grafik: zwei Puffer in Reihe (je 2000 l; Fuehler: Puffer 1 oben,
+  Puffer 2 oben, Puffer 2 unten) und Boiler als Tanks mit Temperaturschichtung,
+  Waermemenge je Puffer, Ladezustand, Kessel-/Solar-Anzeige.
 * Kacheln: nutzbare Energie, Solar/Holz heute, letztes Einheizen,
   Holz in der Saison (Raummeter), Solaranteil der Saison.
 * Einheiz-Empfehlung (core/heating_forecast): "Heute Abend einheizen - Puffer
@@ -71,21 +72,23 @@ LIVE_REFRESH_MS = 15_000
 CHART_REFRESH_MS = 5 * 60_000
 
 
-def layer_temp(frac: float, top, mid, bot) -> float | None:
-    """Temperatur an relativer Hoehe (0 = oben, 1 = unten); Sensoren bei 10/50/90 %."""
-    pts = [(p, v) for p, v in ((0.1, top), (0.5, mid), (0.9, bot)) if v is not None]
-    if not pts:
-        return None
-    if frac <= pts[0][0]:
-        return pts[0][1]
-    for (p0, v0), (p1, v1) in zip(pts, pts[1:]):
-        if frac <= p1:
-            return v0 + (v1 - v0) * (frac - p0) / (p1 - p0)
-    return pts[-1][1]
+def tank_layer_temp(frac: float, t_top, t_bot) -> float | None:
+    """Temperatur an relativer Hoehe (0 = oben, 1 = unten) eines einzelnen Tanks.
+
+    Die Fuehler sitzen bei 10 % (oben) und 90 % (unten); dazwischen linear,
+    ausserhalb konstant. Fehlt ein Wert, gilt der andere.
+    """
+    if t_top is None:
+        return t_bot
+    if t_bot is None or frac <= 0.1:
+        return t_top
+    if frac >= 0.9:
+        return t_bot
+    return t_top + (t_bot - t_top) * (frac - 0.1) / 0.8
 
 
 class TankCanvas(tk.Canvas):
-    """Zeichnet Puffer und Boiler als Tanks mit Temperaturschichtung."""
+    """Zeichnet die zwei Puffer in Reihe und den Boiler als Tanks mit Temperaturschichtung."""
 
     def __init__(self, parent):
         super().__init__(parent, bg=COLOR_CARD, highlightthickness=0)
@@ -96,7 +99,7 @@ class TankCanvas(tk.Canvas):
         self.state.update(state)
         self.redraw()
 
-    def _tank(self, x, y, w, h, top, mid, bot, title, subtitle, labels=True):
+    def _tank(self, x, y, w, h, t_top, t_bot, title, subtitle, labels=(), note=""):
         r = min(w * 0.22, 26)
         yy = float(y)
         while yy < y + h:
@@ -109,7 +112,7 @@ class TankCanvas(tk.Canvas):
                 inset = r - math.sqrt(max(0.0, r * r - (r - dy_top) ** 2))
             elif dy_bot < r:
                 inset = r - math.sqrt(max(0.0, r * r - (r - dy_bot) ** 2))
-            col = temp_color(layer_temp((yy - y) / h, top, mid, bot))
+            col = temp_color(tank_layer_temp((yy - y) / h, t_top, t_bot))
             self.create_rectangle(x + inset, yy, x + w - inset, yy + step, fill=col, outline="")
             yy += step
         # Umriss: exakt dieselben Radien wie die Fuellung
@@ -122,19 +125,22 @@ class TankCanvas(tk.Canvas):
             self.create_arc(bx0, by0, bx0 + 2 * r, by0 + 2 * r, start=start, extent=90, style="arc", outline=oc, width=ow)
         # Glanzlicht
         self.create_line(x + w * 0.18, y + r, x + w * 0.18, y + h - r, fill="#ffffff", width=2, stipple="gray25")
-        if labels:
-            for frac, val in ((0.1, top), (0.5, mid), (0.9, bot)):
-                if val is None:
-                    continue
-                yy = y + h * frac
-                self.create_line(x + w + 4, yy, x + w + 14, yy, fill=COLOR_SUBTEXT)
-                self.create_text(x + w + 18, yy, text=f"{val:.0f}°", anchor="w", fill=COLOR_TEXT,
-                                 font=get_safe_font("Bahnschrift", 13, "bold"))
+        # Messwerte an den echten Fuehlerhoehen (frac: 0 = oben, 1 = unten)
+        for frac, val in labels:
+            if val is None:
+                continue
+            yy = y + h * frac
+            self.create_line(x + w + 4, yy, x + w + 14, yy, fill=COLOR_SUBTEXT)
+            self.create_text(x + w + 18, yy, text=f"{val:.0f}°", anchor="w", fill=COLOR_TEXT,
+                             font=get_safe_font("Bahnschrift", 13, "bold"))
         self.create_text(x + w / 2, y + h + 16, text=title, fill=COLOR_TEXT,
                          font=get_safe_font("Bahnschrift", 12, "bold"))
         if subtitle:
             self.create_text(x + w / 2, y + h + 34, text=subtitle, fill=COLOR_SUBTEXT,
                              font=get_safe_font("Bahnschrift", 11))
+        if note:
+            self.create_text(x + w / 2, y + h + 50, text=note, fill=COLOR_SUBTEXT,
+                             font=get_safe_font("Bahnschrift", 9, "italic"))
 
     def redraw(self) -> None:
         self.delete("all")
@@ -146,23 +152,36 @@ class TankCanvas(tk.Canvas):
         kessel = st.get("kessel")
 
         head_h = 34
-        foot_h = 44
+        foot_h = 60
         avail_h = max(60, H - head_h - foot_h - 10)
-        puffer_w = max(60, min(W * 0.34, avail_h * 0.55))
-        boiler_w = puffer_w * 0.6
+        # Zwei Puffer in Reihe + Boiler; je Tank 46 px Platz rechts fuer die Fuehlerwerte
+        gutter = 46
+        tank_w = max(46, min(W * 0.17, avail_h * 0.42))
+        boiler_w = tank_w * 0.75
         boiler_h = avail_h * 0.55
-        gap = (W - puffer_w - boiler_w - 2 * 46) / 3
-        px = gap
-        bx = px + puffer_w + 46 + gap
+        gap = max(6.0, (W - 2 * tank_w - boiler_w - 2 * gutter) / 3.5)
+        p1x = gap
+        p2x = p1x + tank_w + gutter + gap * 0.5
+        bx = p2x + tank_w + gutter + gap
         y0 = head_h
 
-        mean = hs.puffer_mean(top, mid, bot)
-        pct = hs.charge_pct(mean, cfg)
-        self._tank(px, y0, puffer_w, avail_h, top, mid, bot,
-                   f"Puffer {cfg.puffer_liter:.0f} l",
-                   f"{pct:.0f} % geladen" if pct is not None else "")
-        self._tank(bx, y0 + avail_h - boiler_h, boiler_w, boiler_h, warm, warm, warm,
-                   f"Boiler {cfg.boiler_liter:.0f} l", "Warmwasser", labels=False)
+        # Fuehler: top = Puffer 1 oben, mid = Puffer 2 oben, bot = Puffer 2 unten.
+        # Puffer 1 hat unten keinen Fuehler (geschaetzt = Puffer 2 oben).
+        t1, t2 = hs.split_tanks(top, mid, bot, cfg)
+
+        def sub(t) -> str:
+            if t.usable_kwh is None:
+                return ""
+            return f"{t.usable_kwh:.0f} kWh · {t.charge_pct:.0f} %"
+
+        self._tank(p1x, y0, tank_w, avail_h, top, mid,
+                   f"Puffer 1 · {cfg.tank_liter:.0f} l", sub(t1),
+                   labels=((0.1, top),), note="unten geschätzt")
+        self._tank(p2x, y0, tank_w, avail_h, mid, bot,
+                   f"Puffer 2 · {cfg.tank_liter:.0f} l", sub(t2),
+                   labels=((0.1, mid), (0.9, bot)))
+        self._tank(bx, y0 + avail_h - boiler_h, boiler_w, boiler_h, warm, warm,
+                   f"Boiler {cfg.boiler_liter:.0f} l", "Warmwasser")
         if warm is not None:
             self.create_text(bx + boiler_w / 2, y0 + avail_h - boiler_h / 2, text=f"{warm:.0f}°",
                              fill="#ffffff", font=get_safe_font("Bahnschrift", 16, "bold"))
@@ -349,7 +368,7 @@ class WaermeTab(UiQueuePumpMixin):
         top, mid, bot = val(BUF_TOP_C), val(BUF_MID_C), val(BUF_BOTTOM_C)
         self.tank.set_state(cfg=self.cfg, top=top, mid=mid, bot=bot, warm=val(BMK_WARMWASSER_C),
                             kessel=val(BMK_KESSEL_C))
-        usable = hs.usable_kwh(hs.puffer_mean(top, mid, bot), self.cfg)
+        usable = hs.tanks_usable_kwh(top, mid, bot, self.cfg)   # Summe beider Puffer
         self.tiles["nutzbar"].set_value(f"{usable:.0f} kWh" if usable is not None else "--")
         self._live_job = self.root.after(LIVE_REFRESH_MS, self._refresh_live)
 

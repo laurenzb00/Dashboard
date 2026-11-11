@@ -216,6 +216,34 @@ class ErtragTab(UiQueuePumpMixin):
         self.root.after(500, self.energy_chart.refresh_size)
         self.root.after(1200, self.energy_chart.refresh_size)
 
+        # Beim (Wieder-)Oeffnen des Tabs immer auf "Tag" + heute zurueck.
+        self._shell.bind("<Map>", self._on_tab_shown, add="+")
+
+    def _on_tab_shown(self, event=None) -> None:
+        """Tab wird sichtbar: Tagesansicht von heute anzeigen.
+
+        Ohne das blieb nach dem Wegblaettern der zuletzt gewaehlte Tag bzw.
+        Zeitraum stehen (und ueber Mitternacht der gestrige Tag).
+        <Map> kommt auch fuer Kind-Widgets -> nur auf den Tab-Rahmen reagieren.
+        """
+        if not self.alive:
+            return
+        if event is not None and event.widget is not self._shell:
+            return
+        changed = False
+        if self._period_var.get() != "Tag":
+            self._period_var.set("Tag")
+            self._update_period_button_colors()
+            changed = True
+        today = date.today()
+        if self._day != today:
+            self._day = today
+            changed = True
+        if changed:
+            self._last_key = None
+            self._apply_mode_ui()
+            self._update_plot()
+
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
             self._shell.set_portrait_layout(portrait)

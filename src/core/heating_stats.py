@@ -90,6 +90,15 @@ class StorageConfig:
     def boiler_kwh_per_k(self) -> float:
         return self.boiler_liter * WH_PER_LITER_K / 1000.0 * self.storage_factor
 
+    @property
+    def tank_liter(self) -> float:
+        """Inhalt eines der beiden gleich grossen Puffer in Reihe."""
+        return self.puffer_liter / 2.0
+
+    @property
+    def tank_kwh_per_k(self) -> float:
+        return self.puffer_kwh_per_k / 2.0
+
 
 def load_storage_config() -> StorageConfig:
     try:
@@ -650,6 +659,54 @@ def charge_pct(mean_c: Optional[float], cfg: StorageConfig) -> Optional[float]:
         return None
     span = max(1.0, cfg.full_at_c - cfg.usable_from_c)
     return max(0.0, min(100.0, (mean_c - cfg.usable_from_c) / span * 100.0))
+
+
+# ---------------------------------------------------------------------------
+# Zwei Puffer in Reihe: Zuordnung der drei Fuehler (nur fuer die Anzeige)
+# ---------------------------------------------------------------------------
+# Fuehler "top" = Puffer 1 oben, "mid" = Puffer 2 oben, "bot" = Puffer 2 unten.
+# Puffer 1 hat keinen unteren Fuehler. In Reihe verlaesst das Wasser Puffer 1
+# unten und tritt oben in Puffer 2 ein -> "Puffer 1 unten" wird mit dem Fuehler
+# "Puffer 2 oben" (mid) geschaetzt (in der Anzeige als "geschaetzt" markiert).
+# Innerhalb eines Puffers wird linear zwischen oben und unten gemittelt.
+#
+# Die kalibrierte Holz-/Solar-Bilanz (heat_content_kwh) bleibt bewusst
+# unveraendert: Sie mittelt alle drei Fuehler gleich ((t+m+b)/3); die
+# Zwei-Tank-Gewichtung ((t+2m+b)/4) weicht davon im Median nur um ~0,3 K
+# (~2 kWh) ab, wuerde aber die Kalibrierung vom 08.10./30.10. verschieben.
+
+@dataclass(frozen=True)
+class TankView:
+    top_c: Optional[float]          # Temperatur am oberen Fuehler
+    bottom_c: Optional[float]       # unten (gemessen oder geschaetzt)
+    bottom_measured: bool           # False = aus dem Nachbar-Fuehler geschaetzt
+    mean_c: Optional[float]         # Mittel ueber die Hoehe
+    usable_kwh: Optional[float]     # Waerme oberhalb "nutzbar ab"
+    charge_pct: Optional[float]
+
+
+def _tank(top, bottom, bottom_measured: bool, cfg: StorageConfig) -> TankView:
+    vals = [v for v in (top, bottom) if v is not None]
+    if top is None or not vals:
+        return TankView(top, bottom, bottom_measured, None, None, None)
+    mean = sum(vals) / len(vals)
+    kwh = max(0.0, mean - cfg.usable_from_c) * cfg.tank_kwh_per_k
+    return TankView(top, bottom, bottom_measured, mean, kwh, charge_pct(mean, cfg))
+
+
+def split_tanks(top, mid, bot, cfg: Optional[StorageConfig] = None) -> tuple[TankView, TankView]:
+    """(Puffer 1, Puffer 2) aus den drei Fuehlern. Fehlende Werte (None) bleiben None."""
+    cfg = cfg or StorageConfig()
+    tank1 = _tank(top, mid, False, cfg)
+    # Puffer 2: oben = mid, unten = bot. Fehlt mid, gilt bot allein nicht als "oben".
+    tank2 = _tank(mid, bot, True, cfg)
+    return tank1, tank2
+
+
+def tanks_usable_kwh(top, mid, bot, cfg: Optional[StorageConfig] = None) -> Optional[float]:
+    """Summe der nutzbaren Waerme beider Puffer (None, wenn kein Puffer bewertbar ist)."""
+    parts = [t.usable_kwh for t in split_tanks(top, mid, bot, cfg) if t.usable_kwh is not None]
+    return sum(parts) if parts else None
 
 
 def wood_rm(wood_kwh: float, cfg: StorageConfig) -> float:

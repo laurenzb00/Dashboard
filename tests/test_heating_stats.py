@@ -232,5 +232,48 @@ class TestWaermeHelpers(unittest.TestCase):
         self.assertAlmostEqual(b.wood_kwh, a.wood_kwh)
         self.assertEqual(len(b.events), 1)
 
+
+class TestZweiPufferInReihe(unittest.TestCase):
+    """Fuehler: top = Puffer 1 oben, mid = Puffer 2 oben, bot = Puffer 2 unten."""
+
+    def test_zuordnung_und_mittel(self):
+        cfg = StorageConfig(puffer_liter=4000, storage_factor=1.0)
+        p1, p2 = hs.split_tanks(70.0, 50.0, 40.0, cfg)
+        self.assertEqual((p1.top_c, p1.bottom_c, p1.bottom_measured), (70.0, 50.0, False))
+        self.assertEqual((p2.top_c, p2.bottom_c, p2.bottom_measured), (50.0, 40.0, True))
+        self.assertAlmostEqual(p1.mean_c, 60.0)
+        self.assertAlmostEqual(p2.mean_c, 45.0)
+
+    def test_kwh_je_tank_und_summe(self):
+        cfg = StorageConfig(puffer_liter=4000, storage_factor=1.0, usable_from_c=35.0)
+        p1, p2 = hs.split_tanks(70.0, 50.0, 40.0, cfg)
+        self.assertAlmostEqual(p1.usable_kwh, (60.0 - 35.0) * 2.326, places=2)   # 2000 l = 2,326 kWh/K
+        self.assertAlmostEqual(p2.usable_kwh, (45.0 - 35.0) * 2.326, places=2)
+        self.assertAlmostEqual(hs.tanks_usable_kwh(70.0, 50.0, 40.0, cfg), p1.usable_kwh + p2.usable_kwh)
+
+    def test_gleiche_gewichtung_wie_formel(self):
+        # Summe beider Tanks = V * (t + 2m + b)/4 oberhalb der Nutzgrenze, solange beide Tanks darueber liegen
+        cfg = StorageConfig(puffer_liter=4000, storage_factor=1.4, usable_from_c=35.0)
+        t, m, b = 72.0, 58.0, 41.0
+        expected = ((t + 2 * m + b) / 4 - 35.0) * cfg.puffer_kwh_per_k
+        self.assertAlmostEqual(hs.tanks_usable_kwh(t, m, b, cfg), expected)
+
+    def test_kalter_tank_zaehlt_nicht_negativ(self):
+        cfg = StorageConfig(puffer_liter=4000, storage_factor=1.0, usable_from_c=35.0)
+        p1, p2 = hs.split_tanks(60.0, 30.0, 25.0, cfg)
+        self.assertEqual(p2.usable_kwh, 0.0)
+        self.assertGreater(p1.usable_kwh, 0.0)
+
+    def test_fehlende_fuehler(self):
+        cfg = StorageConfig(puffer_liter=4000, storage_factor=1.0)
+        p1, p2 = hs.split_tanks(None, 50.0, 40.0, cfg)
+        self.assertIsNone(p1.usable_kwh)
+        self.assertIsNotNone(p2.usable_kwh)
+        p1, p2 = hs.split_tanks(70.0, None, 40.0, cfg)
+        self.assertEqual(p1.mean_c, 70.0)        # ohne Nachbar-Fuehler gilt der obere Wert
+        self.assertIsNone(p2.usable_kwh)
+        self.assertIsNone(hs.tanks_usable_kwh(None, None, None, cfg))
+
+
 if __name__ == "__main__":
     unittest.main()
