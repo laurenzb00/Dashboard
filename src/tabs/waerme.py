@@ -69,6 +69,7 @@ FIRE_HISTORY_DAYS = 60          # Fenster fuer "typische Brennzeit" (bmk_status 
 TYP_BURN_CACHE_S = 3600.0       # 60 Tage Minutendaten sind teuer -> hoechstens stuendlich neu
 LIVE_BMK_HOURS = 12.0           # Vorlauf fuer Trend/Brennzeit der Live-Deutung
 LIVE_BMK_MAX_AGE_MIN = 15.0     # aelter -> keine Live-Aussage mehr
+WEAK_LOAD_SHARE = 0.5           # Ladeleistung unter der Haelfte der ueblichen -> schwacher Abbrand
 COLOR_SOLAR = "#f4b63d"
 
 # Gleiche Farbskala wie die Puffer-Heatmap im Energie-Tab (ui/temp_colors.py)
@@ -231,8 +232,8 @@ class _FactsStrip(tk.Canvas):
     zu der sie gehoeren, statt als eigener Textbrocken.
     """
 
-    CARD_H = 108
-    ALERT_H = 38
+    CARD_H = 84
+    ALERT_H = 34
     GAP = 8
 
     def __init__(self, master):
@@ -278,9 +279,36 @@ class _FactsStrip(tk.Canvas):
             self.create_arc(cx, cy, cx + 2 * r, cy + 2 * r, start=start, extent=90,
                             style="arc", outline=outline)
 
-    def _bar(self, x, y, w, frac, color, h=9):
-        """Waagrechter Balken 0..1 auf grauer Spur."""
+    def _fit(self, x, y, text, font, maxw, **kw):
+        """Text zeichnen und bei Bedarf mit Auslassung kuerzen.
+
+        Canvas-Text wird nicht am Elementrand abgeschnitten, sondern laeuft
+        einfach weiter - im Hochformat sind die Karten schmal genug, dass die
+        Unterzeile sonst in die Nachbarkarte ragt.
+        """
+        item = self.create_text(x, y, text=text, anchor="w", font=font, **kw)
+        try:
+            t = text
+            while len(t) > 4 and self.bbox(item)[2] - x > maxw:
+                t = t[:-2]
+                self.itemconfigure(item, text=t + "…")
+        except Exception:
+            pass
+        return item
+
+    def _bar(self, x, y, w, frac, color, h=9, span=None):
+        """Waagrechter Balken 0..1 auf grauer Spur.
+
+        `span` (lo, hi) markiert den Bereich, in dem das Ereignis ueblicherweise
+        eintritt - so ist auf einen Blick zu sehen, wie unscharf die Aussage ist,
+        statt nur eines Fuellstands, der Genauigkeit vortaeuscht.
+        """
         self.create_rectangle(x, y, x + w, y + h, fill=COLOR_BORDER, outline="")
+        if span:
+            lo = max(0.0, min(1.0, span[0]))
+            hi = max(lo, min(1.0, span[1]))
+            self.create_rectangle(x + w * lo, y - 2, x + w * hi, y + h + 2,
+                                  fill="", outline=COLOR_SUBTEXT, dash=(2, 2))
         f = max(0.0, min(1.0, float(frac)))
         if f > 0:
             self.create_rectangle(x, y, x + w * f, y + h, fill=color, outline="")
@@ -321,14 +349,14 @@ class _FactsStrip(tk.Canvas):
     def _card(self, x, y, w, h, c) -> None:
         self._round_rect(x, y, w, h, fill=COLOR_CARD, outline=COLOR_BORDER)
         pad = 14
-        self.create_oval(x + pad, y + 15, x + pad + 8, y + 23, fill=c["color"], outline="")
-        cap_item = self.create_text(x + pad + 14, y + 19, text=c["cap"], anchor="w", fill=COLOR_SUBTEXT,
+        self.create_oval(x + pad, y + 12, x + pad + 8, y + 20, fill=c["color"], outline="")
+        cap_item = self.create_text(x + pad + 14, y + 16, text=c["cap"], anchor="w", fill=COLOR_SUBTEXT,
                                     font=get_safe_font("Bahnschrift", 12, "bold"))
         # Der grosse Wert ist hier nicht immer eine Zahl, sondern auch mal ein Satz
         # ("Heute Abend einheizen"). Groesse so weit reduzieren, bis er in die Karte
         # passt, statt ihn am Rand abzuschneiden.
-        for size in (23, 20, 17, 15, 13):
-            val_item = self.create_text(x + pad, y + 46, text=c["val"], anchor="w", fill=c["color"],
+        for size in (22, 19, 17, 15, 13):
+            val_item = self.create_text(x + pad, y + 40, text=c["val"], anchor="w", fill=c["color"],
                                         font=get_safe_font("Bahnschrift", size, "bold"))
             try:
                 if self.bbox(val_item)[2] <= x + w - pad or size == 13:
@@ -337,13 +365,13 @@ class _FactsStrip(tk.Canvas):
                 break
             self.delete(val_item)
         if c.get("sub"):
-            self.create_text(x + pad, y + 68, text=c["sub"], anchor="w", fill=COLOR_TEXT,
-                             font=get_safe_font("Bahnschrift", 13))
+            self._fit(x + pad, y + 59, c["sub"], get_safe_font("Bahnschrift", 13),
+                      w - 2 * pad, fill=COLOR_TEXT)
 
-        gx, gw, gy = x + pad, w - 2 * pad, y + 84
+        gx, gw, gy = x + pad, w - 2 * pad, y + 70
         kind = c.get("kind")
         if kind == "bar":
-            self._bar(gx, gy, gw, c["frac"], c["color"])
+            self._bar(gx, gy, gw, c["frac"], c["color"], span=c.get("span"))
         elif kind == "range":
             # Ladung vorher -> nachher auf der 0..100-%-Spur
             self.create_rectangle(gx, gy, gx + gw, gy + 9, fill=COLOR_BORDER, outline="")
@@ -362,7 +390,7 @@ class _FactsStrip(tk.Canvas):
             # Fussnote rechts oben - im Hochformat sind die Karten schmal genug,
             # dass sie in die Ueberschrift laufen wuerde. Erst zeichnen, dann
             # anhand der echten Textbreite wieder verwerfen, wenn es kollidiert.
-            note_item = self.create_text(x + w - pad, y + 19, text=c["note"], anchor="e",
+            note_item = self.create_text(x + w - pad, y + 16, text=c["note"], anchor="e",
                                          fill=COLOR_SUBTEXT, font=get_safe_font("Bahnschrift", 11))
             try:
                 if self.bbox(note_item)[0] < self.bbox(cap_item)[2] + 12:
@@ -405,9 +433,11 @@ class WaermeTab(UiQueuePumpMixin):
         self._update_token = 0
         # Zustand fuer die Kartenleiste (wird im Worker gefuellt)
         self._deutung = None            # bmk_interpret.Deutung der letzten Messung
+        self._cur_load = None           # laufende Ofenladung {min, kwh, kw}
         self._burn_min = None           # Minuten Teil-/Volllast am Stueck
         self._last_fire = None          # letztes abgeschlossenes Feuer
-        self._typ_burn_cache = None     # Median-Brennzeit, siehe _typical_burn_min()
+        self._typ_burn_cache = None     # Minuten-Korridor, siehe _typical_burn_min()
+        self._typ_kwh_cache = None      # kWh-Korridor je Ofenladung
         self._typ_burn_at = 0.0
         self._last_result = None
         self._init_ui_queue()
@@ -618,7 +648,7 @@ class WaermeTab(UiQueuePumpMixin):
             # BMK-Verlauf. Bewusst ueber den Store statt ueber bmk_interpret.live():
             # der gemeinsame Interpreter gehoert dem Collector-Thread und waere leer,
             # wenn der Collector in diesem Prozess gar nicht laeuft.
-            self._deutung, self._burn_min = None, None
+            self._deutung, self._burn_min, self._cur_load = None, None, None
             try:
                 rows = self.datastore.get_bmk_status(hours=LIVE_BMK_HOURS) or []
                 readings = [bmk_interpret.reading_from_row(r["ts"], r) for r in rows if r.get("ts")]
@@ -626,7 +656,9 @@ class WaermeTab(UiQueuePumpMixin):
                     li = bmk_interpret.LiveInterpreter(self.cfg, keep_min=int(LIVE_BMK_HOURS * 60))
                     li.preload(readings[:-1])
                     self._deutung = li.interpret(readings[-1])
-                    self._burn_min = li.burn_minutes(readings[-1])
+                    # Laufende Ofenladung inkl. Pufferzuwachs und Ladeleistung
+                    self._cur_load = bmk_interpret.current_load(rows, self.cfg)
+                    self._burn_min = (self._cur_load or {}).get("min")
             except Exception:
                 logger.exception("[WAERME] Live-Deutung fehlgeschlagen")
 
@@ -699,6 +731,10 @@ class WaermeTab(UiQueuePumpMixin):
         self.tank.set_state(solar_active=any(p.source == "solar" for p in recent))
 
         self.facts.set_facts(self._build_facts(rec))
+        # Die Leiste aendert ihre Hoehe je nach Zustand (Warnzeile da oder nicht).
+        # Ohne das behaelt die Matplotlib-Figur ihre alte Groesse und draengt den
+        # Rest nach unten aus dem Fenster.
+        self.root.after(60, self.chart.refresh_size)
         self._render_chart(timeline, today_stats, season, rec)
 
     # Farbe der Nachlege-Karte nach dem Ton aus bmk_interpret.deuten()
@@ -734,7 +770,7 @@ class WaermeTab(UiQueuePumpMixin):
         # --- 1. Was ist zu tun? ---------------------------------------------
         if d is not None and phase != "aus":
             cards.append({"cap": "NACHLEGEN", "val": self._advice_value(d),
-                          "sub": d.headline, "color": self._TONE_COLOR.get(d.tone, COLOR_TEXT),
+                          "sub": self._short(d.headline), "color": self._TONE_COLOR.get(d.tone, COLOR_TEXT),
                           "kind": None, "note": ""})
         elif rec is not None and rec.level != "unknown":
             # Kessel aus: die Einheiz-Empfehlung aus core/heating_forecast
@@ -744,32 +780,61 @@ class WaermeTab(UiQueuePumpMixin):
 
         # --- 2. Wie weit ist die Fuellung? ----------------------------------
         if burning and burn_min is not None and typ_min:
-            early, med, late = typ_min
+            early, med, late, n_loads = typ_min
+            load = getattr(self, "_cur_load", None) or {}
+            typ_kwh = getattr(self, "_typ_kwh_cache", None)
+            kwh = load.get("kwh")
+
+            # Fortschritt aus Zeit UND Waermemenge, der weitere von beiden zaehlt.
+            # Rueckrechnung an der Diagnose 13.11.: die Waermemenge allein ist als
+            # Zeitprognose deutlich schlechter (mittlerer Fehler 101 statt 42 min),
+            # weil der Pufferzuwachs saettigt, sobald der Puffer voll ist, und
+            # zusammenbricht, wenn das Haus gleichzeitig Waerme zieht. Zusammen
+            # mit der Zeit schadet sie nicht und spricht frueher an, wenn ein
+            # heisses Feuer den Puffer schnell fuellt.
             frac = max(0.0, min(1.0, burn_min / med))
-            now = datetime.now()
-            rest = max(0.0, med - burn_min)
-            # Korridor aus dem 25-/75-%-Quantil: der Median allein waere zu genau
-            # dargestellt (siehe bmk_interpret.typical_load_burn).
-            lo = now + timedelta(minutes=max(0.0, early - burn_min))
-            hi = now + timedelta(minutes=max(0.0, late - burn_min))
-            cards.append({"cap": "FÜLLUNG ABGEBRANNT", "color": COLOR_WOOD, "kind": "bar", "frac": frac,
-                          "val": ("gleich" if rest < 10 else f"ca. {now + timedelta(minutes=rest):%H:%M}"),
-                          "sub": f"meist {lo:%H:%M}–{hi:%H:%M}  ·  brennt seit {self._fmt_min(burn_min)}",
-                          "note": f"{frac * 100:.0f} % von {self._fmt_min(med)}"})
+            if typ_kwh and kwh is not None and typ_kwh[1] > 0:
+                frac = max(frac, min(1.0, kwh / typ_kwh[1]))
+            rest = med * (1.0 - frac)
+            if frac >= 1.0:
+                val = "überfällig" if burn_min >= late else "gleich"
+            elif rest < 10:
+                val = "gleich"
+            else:
+                val = f"ca. {datetime.now() + timedelta(minutes=rest):%H:%M}"
+
+            # Korridor als Dauer, nicht als Uhrzeit: sonst schrumpft er auf
+            # "17:31-17:32" zusammen, sobald die Ladung laenger brennt als ueblich.
+            sub = f"seit {self._fmt_hm(burn_min)}  ·  meist {self._fmt_span(early, late)}"
+            if kwh is not None and typ_kwh:
+                sub = f"{kwh:.0f} von ~{typ_kwh[1]:.0f} kWh  ·  seit {self._fmt_hm(burn_min)}"
+            note = f"{frac * 100:.0f} % · aus {n_loads} Ladungen"
+            # Schwacher Abbrand: die Ladeleistung trennt das klar (4-10 kW gegen
+            # 15-60 kW in der Diagnose 13.11.).
+            kw = load.get("kw")
+            weak = kw is not None and typ_kwh and med > 0 and kw < (typ_kwh[1] / (med / 60.0)) * WEAK_LOAD_SHARE
+            cards.append({"cap": "FÜLLUNG ABGEBRANNT",
+                          "color": COLOR_WARNING if weak else COLOR_WOOD,
+                          "kind": "bar", "frac": frac, "val": val, "sub": sub,
+                          # Korridor auf dem Balken sichtbar machen: so ist zu sehen,
+                          # wie unscharf die Aussage ist, statt nur eines Fuellstands.
+                          "span": (early / med, late / med) if med > 0 else None,
+                          "note": (f"schwach · {kw:.0f} kW" if weak else note)})
         elif burning:
             cards.append({"cap": "FÜLLUNG", "val": "brennt", "color": COLOR_WOOD, "kind": None,
-                          "sub": (f"seit {self._fmt_min(burn_min)}" if burn_min else "Brennzeit wird gemessen"),
+                          "sub": (f"seit {self._fmt_hm(burn_min)}" if burn_min else "Brennzeit wird gemessen"),
                           "note": ""})
         elif phase == "gluterhalt" and fire is not None:
             cards.append({"cap": "FÜLLUNG ABGEBRANNT", "val": f"{fire.end:%H:%M}", "color": COLOR_SUBTEXT,
-                          "sub": f"{self._fmt_min(fire.brenn_min)} Teil-/Volllast", "kind": None, "note": ""})
+                          "sub": f"{self._fmt_hm(fire.brenn_min)} Teil-/Volllast", "kind": None, "note": ""})
         elif fire is not None and fire.dauer_min:
-            h, m = divmod(int(round(fire.dauer_min)), 60)
-            bits = [f"{fire.kwh:.0f} kWh"] if fire.kwh else []
+            bits = [self._fmt_hm(fire.dauer_min)]
+            if fire.kwh:
+                bits.append(f"{fire.kwh:.0f} kWh")
             if fire.kessel_peak is not None:
                 bits.append(f"max {fire.kessel_peak:.0f}°")
             cards.append({"cap": "LETZTES FEUER", "val": f"{fire.start:%d.%m. %H:%M}", "color": COLOR_WOOD,
-                          "sub": f"{h} h {m:02d} min  ·  " + "  ·  ".join(bits) if bits else f"{h} h {m:02d} min",
+                          "sub": "  ·  ".join(bits),
                           "kind": "bar", "frac": fire.brenn_min / fire.dauer_min,
                           "note": f"{fire.brenn_min / fire.dauer_min * 100:.0f} % Teil-/Volllast"})
 
@@ -808,17 +873,38 @@ class WaermeTab(UiQueuePumpMixin):
         try:
             rows = self.datastore.get_bmk_status(days=FIRE_HISTORY_DAYS) or []
             self._typ_burn_cache = bmk_interpret.typical_load_burn(rows)
+            self._typ_kwh_cache = bmk_interpret.typical_load_kwh(rows, self.cfg)
         except Exception:
             logger.exception("[WAERME] typische Brennzeit fehlgeschlagen")
-            self._typ_burn_cache = None
+            self._typ_burn_cache = self._typ_kwh_cache = None
         return self._typ_burn_cache
 
     @staticmethod
-    def _fmt_min(m) -> str:
+    def _fmt_hm(m) -> str:
+        """Kurzform fuer schmale Karten: "1:46 h" bzw. "46 min"."""
         if m is None:
             return "–"
-        h, mm = divmod(int(round(m)), 60)
-        return f"{h} h {mm:02d} min" if h else f"{mm} min"
+        m = int(round(m))
+        return f"{m // 60}:{m % 60:02d} h" if m >= 60 else f"{m} min"
+
+    @staticmethod
+    def _fmt_span(a, b) -> str:
+        """Kompakte Dauer-Spanne fuer die schmale Karte: "1:06-1:47 h" bzw. "35-50 min"."""
+        if a >= 60 or b >= 60:
+            f = lambda m: f"{int(m) // 60}:{int(m) % 60:02d}"
+            return f"{f(a)}–{f(b)} h"
+        return f"{int(round(a))}–{int(round(b))} min"
+
+    @staticmethod
+    def _short(headline: str, parts: int = 2) -> str:
+        """Nur die ersten Abschnitte der Deutungs-Kopfzeile.
+
+        Die volle Zeile ("Brennt (Volllast) · Kessel 71 °C · Puffer 41 % (+2 %/h)")
+        passt im Hochformat nicht auf die Karte - und der Pufferstand steht
+        ohnehin auf der Karte "Platz im Puffer".
+        """
+        return " · ".join((headline or "").split(" · ")[:parts])
+
 
     @staticmethod
     def _advice_value(d) -> str:

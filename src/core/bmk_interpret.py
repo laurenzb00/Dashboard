@@ -618,75 +618,145 @@ def false_start_count(fires: Sequence[Fire]) -> int:
 # Fuer die Frage "wann ist die Fuellung abgebrannt" zaehlt darum nicht
 # Fire.brenn_min, sondern der Abschnitt zwischen zwei NACHLEGEN-Bloecken.
 LOAD_MIN_BURN_MIN = 20.0        # weniger Teil-/Volllast -> Fuellung ist wieder ausgegangen, zaehlt nicht
+# Die Tuer zu oeffnen heisst nicht, dass Holz dazukam (Laurenz, 13.11.) - nachsehen,
+# schueren oder Asche raeumen sieht im Modus genauso aus. Beweisen kann es nur die
+# Waerme danach: Glut allein bringt den Puffer nicht nennenswert hoch. In der
+# Diagnose 13.11. klafft genau dort eine Luecke (13 gegen 34 kWh). Abschnitte
+# darunter sind kein Abbrand einer Fuellung, sondern der Ausklang der vorigen.
+LOAD_MIN_KWH_SHARE = 0.10       # Anteil einer vollen Fuellung (~19 kWh); stabil fuer 15-30 kWh
                                 # (Diagnose 13.11.: Median 84 min, stabil fuer Schwellen 15-30 min;
                                 #  mit 10 min rutschen zwei erloschene Fuellungen rein -> 76 min)
 TYPICAL_LOADS = 20              # Median ueber die letzten N Ofenladungen
 TYPICAL_LOADS_MIN_N = 5         # darunter keine Aussage
 
 
-def load_burn_minutes(rows: Sequence[dict]) -> list[float]:
-    """Minuten Teil-/Volllast je abgeschlossener Ofenladung, aelteste zuerst.
+def _scan_loads(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) -> list[dict]:
+    """Ofenladungen als {min, kwh, closed} - gemeinsame Basis der Funktionen unten.
 
-    rows: wie fire_summaries, aufsteigend nach ts (datetime) mit Schluessel modus.
-    Eine Ladung beginnt mit einem NACHLEGEN-Block (Tuer auf) und endet mit dem
-    naechsten - oder, fuer die letzte Ladung, sobald der Kessel in Gluterhalt
-    oder Standby gegangen ist. Eine noch brennende Ladung wird nicht gezaehlt,
-    sonst zoege sie den Median nach unten.
+Ein Abschnitt beginnt mit einem NACHLEGEN-Block (die Tuer zu oeffnen setzt den
+    Kessel in diesen Modus) und endet mit dem naechsten oder sobald
+    GLUTERHALT/STANDBY erreicht ist (closed=True). Der letzte Abschnitt kann noch
+    brennen (closed=False). Bei einer Datenluecke (> GAP_MIN) ist der laufende
+    Abschnitt nicht mehr bewertbar und faellt weg.
 
-    Ladungen mit weniger als LOAD_MIN_BURN_MIN Brennzeit fallen raus: das sind
-    Tueroeffnungen ohne Feuer und Fuellungen, die gleich wieder ausgegangen sind.
-    Bei einer Datenluecke (> GAP_MIN) ist die laufende Ladung nicht mehr
-    bewertbar und wird verworfen.
+    Als Ofenladung zaehlt ein Abschnitt nur, wenn danach genug Waerme kam
+    (LOAD_MIN_KWH_SHARE) - sonst wurde die Tuer zwar geoeffnet, aber kein Holz
+    aufgelegt.
+
+    `kwh` ist der Zuwachs der Pufferladung waehrend der Ladung - weniger als die
+    Fuellung hergab (das Haus entnimmt gleichzeitig), aber als Fortschritts- und
+    Guetemass konsistent. Achtung: der Wert saettigt, sobald der Puffer voll ist.
     """
-    out: list[float] = []
-    cur: Optional[float] = None
-    done = False                      # Ladung ist abgebrannt (Gluterhalt/Standby gesehen)
+    cfg = cfg or hs.load_storage_config()
+    kwh_per_pct = cfg.puffer_kwh_per_k * (T_LADUNG_100 - T_LADUNG_0) / 100.0
+    min_kwh = FILL_RM * cfg.wood_kwh_per_rm * cfg.boiler_efficiency * LOAD_MIN_KWH_SHARE
+    out: list[dict] = []
+    cur: Optional[dict] = None
+
+    def close(by_nachlegen: bool):
+        if cur is None:
+            return
+        # Ohne Ladungsdaten kann die Waerme nicht geprueft werden -> nur die Zeit zaehlt
+        enough_heat = cur["kwh"] is None or cur["kwh"] >= min_kwh
+        if cur["min"] >= LOAD_MIN_BURN_MIN and enough_heat and (by_nachlegen or cur["done"]):
+            cur["closed"] = True
+            out.append(cur)
+        elif not by_nachlegen and cur["min"] > 0:
+            out.append(cur)                      # laeuft noch
+
     for a, b in zip(rows, list(rows[1:]) + [None]):
         ph = phase_of(a.get("modus") or "")
         if ph == "nachlegen":
-            if cur is not None and cur >= LOAD_MIN_BURN_MIN:
-                out.append(cur)
-            cur, done = 0.0, False    # Tuer offen -> neue Fuellung beginnt
+            close(True)
+            cur = {"min": 0.0, "kwh": None, "lad0": None, "peak": None, "done": False, "closed": False}
             continue
         if cur is None:
             continue
-        if b is not None:
-            gap = (b["ts"] - a["ts"]).total_seconds() / 60.0
-            if gap > GAP_MIN:         # Datenluecke -> Ladung nicht mehr bewertbar
-                cur, done = None, False
-                continue
-        else:
-            gap = 1.0
+        gap = (b["ts"] - a["ts"]).total_seconds() / 60.0 if b is not None else 1.0
+        if gap > GAP_MIN:                        # Datenluecke -> nicht mehr bewertbar
+            cur = None
+            continue
+        lad = a.get("ladung")
+        if lad is not None:
+            if cur["lad0"] is None:
+                cur["lad0"] = lad
+            cur["peak"] = lad if cur["peak"] is None else max(cur["peak"], lad)
+            cur["kwh"] = max(0.0, cur["peak"] - cur["lad0"]) * kwh_per_pct
         if ph in ("teillast", "volllast"):
-            cur += min(5.0, max(0.0, gap))
-            done = False
+            cur["min"] += min(5.0, max(0.0, gap))
+            cur["done"] = False
         elif ph in ("gluterhalt", "aus"):
-            done = True
-    if cur is not None and done and cur >= LOAD_MIN_BURN_MIN:
-        out.append(cur)
+            cur["done"] = True
+    close(False)
     return out
+
+
+def load_burns(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) -> list[tuple]:
+    """[(Minuten Teil-/Volllast, kWh in den Puffer), ...] je ABGESCHLOSSENER Ofenladung."""
+    return [(L["min"], L["kwh"]) for L in _scan_loads(rows, cfg) if L["closed"]]
+
+
+def load_burn_minutes(rows: Sequence[dict]) -> list[float]:
+    """Nur die Brennminuten je abgeschlossener Ofenladung."""
+    return [m for m, _ in load_burns(rows)]
+
+
+def load_burn_kwh(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) -> list[float]:
+    """Nur der Pufferzuwachs je abgeschlossener Ofenladung."""
+    return [k for _, k in load_burns(rows, cfg) if k is not None]
+
+
+def current_load(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) -> Optional[dict]:
+    """Die gerade brennende Ofenladung als {min, kwh, kw} - oder None.
+
+    None, wenn nichts brennt, die Ladung schon abgebrannt ist oder die Daten
+    eine Luecke haben. `kw` ist die mittlere Ladeleistung bisher; sie trennt
+    schwache von normalen Abbraenden deutlich (Diagnose 13.11.: 4-10 kW gegen
+    15-60 kW), waehrend die reine kWh-Zahl als Zeitprognose nichts taugt.
+    """
+    loads = _scan_loads(rows, cfg)
+    if not loads:
+        return None
+    L = loads[-1]
+    # done = Gluterhalt/Standby erreicht: die Fuellung ist durch, auch wenn sie
+    # fuer die Statistik zu kurz war und darum nicht als "closed" gilt.
+    if L["closed"] or L["done"] or L["min"] <= 0:
+        return None
+    kw = (L["kwh"] / (L["min"] / 60.0)) if L["kwh"] and L["min"] > 0 else None
+    return {"min": L["min"], "kwh": L["kwh"], "kw": kw}
+
+
+def _quantiles(values: Sequence[float], n: int) -> Optional[tuple]:
+    """(25 %, Median, 75 %, Anzahl) der letzten n Werte, oder None.
+
+    Die Anzahl wird mitgeliefert, damit die Anzeige sagen kann, auf wie vielen
+    Ladungen die Aussage beruht - bei 20 Ladungen aus 8 Tagen ist das relevant.
+    """
+    xs = sorted(values[-n:])
+    if len(xs) < TYPICAL_LOADS_MIN_N:
+        return None
+    k = len(xs)
+    q = lambda p: xs[min(k - 1, max(0, int(round(p * (k - 1)))))]
+    mid = k // 2
+    med = xs[mid] if k % 2 else (xs[mid - 1] + xs[mid]) / 2.0
+    return q(0.25), med, q(0.75), k
+
+
+def typical_load_kwh(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None,
+                     n: int = TYPICAL_LOADS) -> Optional[tuple]:
+    """(wenig, typisch, viel) kWh Pufferzuwachs je Ofenladung."""
+    return _quantiles(load_burn_kwh(rows, cfg), n)
 
 
 def typical_load_burn(rows: Sequence[dict], n: int = TYPICAL_LOADS) -> Optional[tuple]:
     """(frueh, typisch, spaet) Brennminuten einer Ofenladung als 25/50/75-%-Quantil.
 
     Ein Einzelwert waere zu selbstsicher: ueber die Diagnose 13.11. lag der
-    Median bei 84 min, die Ladungen streuten aber 35-246 min (mittlerer Abstand
-    zum Median 23 min, nur 55 % innerhalb einer halben Stunde). Darum derselbe
+    Median bei 84 min, die Ladungen streuten aber 35-246 min. Darum derselbe
     Weg wie bei der PV-Tagesprognose (forecast_log.pv_band): ein Korridor.
     None, wenn zu wenige verwertbare Ladungen vorliegen.
     """
-    burns = sorted(load_burn_minutes(rows)[-n:])
-    if len(burns) < TYPICAL_LOADS_MIN_N:
-        return None
-    k = len(burns)
-
-    def q(p: float) -> float:
-        return burns[min(k - 1, max(0, int(round(p * (k - 1)))))]
-
-    mid = k // 2
-    med = burns[mid] if k % 2 else (burns[mid - 1] + burns[mid]) / 2.0
-    return q(0.25), med, q(0.75)
+    return _quantiles(load_burn_minutes(rows), n)
 
 
 def typical_load_burn_min(rows: Sequence[dict], n: int = TYPICAL_LOADS) -> Optional[float]:
