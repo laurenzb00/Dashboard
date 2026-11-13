@@ -33,6 +33,14 @@ LIVE_DECAY_H = 48.0
 MIN_RATE_KW = 0.2
 MIN_FACTOR_DAYS = 5
 GAIN_EPS_KWH = 0.05
+# Speicherverlust: ein heisser Speicher verliert mehr als ein lauwarmer (Auswertung 13.11.2026:
+# Sommernaechte 0,8 kW unter 40 °C, 2,0 kW bei 50-60 °C). Das Bedarfsmodell kennt nur das Wetter,
+# darum wird der Verbrauch in der Simulation um TANK_LOSS * (Speicher - Lernmittel) korrigiert.
+TANK_LOSS_CLIP = (0.0, 0.2)      # kW je K Speichermittel
+TANK_LOSS_MIN_HOURS = 300
+TANK_LOSS_MAX_AGE_S = 6 * 3600
+TANK_LOSS_MAX_KW = 3.0           # Korrektur begrenzen
+_tank_loss_cache: dict = {"at": 0.0, "value": None}
 
 
 @dataclass
@@ -95,6 +103,54 @@ def solar_factor(season: hs.HeatingStats, pv_daily: dict[date, float]) -> Option
     return solar_sum / pv_sum
 
 
+def fit_tank_loss(rows) -> Optional[tuple[float, float]]:
+    """(kW je K, Bezugs-Speichertemperatur) aus Stundenbilanzen, oder None.
+
+    rows: (quiet_kwh, quiet_min, kessel_min, tank_c, outdoor_c) je Stunde. Kleinste Quadrate
+    Verbrauch ~ a + b * max(0, 16 - aussen) + c * Speicher; zurueck kommt c (begrenzt) und das
+    Speichermittel der Lernstunden (dort ist die Korrektur 0).
+    """
+    xs = []
+    for q_kwh, q_min, k_min, tank, out in rows:
+        if q_min is None or q_min < 45 or (k_min or 0) > 0 or tank is None or out is None or q_kwh is None:
+            continue
+        kw = q_kwh / (q_min / 60.0)
+        if 0.0 <= kw < 40.0:
+            xs.append((max(0.0, 16.0 - out), tank, kw))
+    if len(xs) < TANK_LOSS_MIN_HOURS:
+        return None
+    import numpy as np
+    a = np.array(xs, dtype=float)
+    design = np.column_stack([np.ones(len(a)), a[:, 0], a[:, 1]])
+    coef = np.linalg.lstsq(design, a[:, 2], rcond=None)[0]
+    c = float(min(TANK_LOSS_CLIP[1], max(TANK_LOSS_CLIP[0], coef[2])))
+    return c, float(a[:, 1].mean())
+
+
+def tank_loss(conn=None) -> Optional[tuple[float, float]]:
+    """Gelernter Speicherverlust-Term aus dem Lern-Archiv, 6 h zwischengespeichert."""
+    import time as _time
+    if _tank_loss_cache["value"] is not None and _time.time() - _tank_loss_cache["at"] < TANK_LOSS_MAX_AGE_S:
+        return _tank_loss_cache["value"]
+    own = conn is None
+    try:
+        if own:
+            from . import forecast_learning as fl
+            conn = fl.connect()
+        rows = conn.execute("SELECT quiet_kwh, quiet_min, kessel_min, tank_c, outdoor_c FROM heat_hours").fetchall()
+    except Exception:
+        return None
+    finally:
+        if own and conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    val = fit_tank_loss(rows)
+    _tank_loss_cache.update(at=_time.time(), value=val)
+    return val
+
+
 def _fmt_when(ts: datetime, now: datetime) -> str:
     if ts.date() == now.date():
         return f"{ts:%H:%M}"
@@ -107,13 +163,14 @@ def _fmt_when(ts: datetime, now: datetime) -> str:
 def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional[float],
          pv_forecast_utc: Optional[dict], now: Optional[datetime] = None,
          kessel_active_now: bool = False, glut_now: bool = False, rate_fn=None, factor_fn=None, solar_fn=None,
-         e_max: Optional[float] = None) -> Recommendation:
+         e_max: Optional[float] = None, extra_fn=None) -> Recommendation:
     """Simuliert die naechsten 36 h und leitet die Empfehlung ab.
 
     rate_fn(lokale Zeit) -> kW ueberschreibt den konstanten rate_kw (temperaturabhaengig),
     factor_fn(lokale Zeit) -> Solar-kWh je PV-kWh ueberschreibt den festen factor.
     solar_fn(lokale Zeit, nutzbarer Inhalt kWh) -> Solar-kW (Kollektor-Modell) hat Vorrang vor beidem.
     e_max: nutzbarer Inhalt bei vollem Speicher (mehr kann die Sonne nicht laden).
+    extra_fn(nutzbarer Inhalt kWh) -> kW Zuschlag/Abschlag zum Verbrauch (Speicherverlust nach Temperatur).
     """
     now = (now or datetime.now()).replace(second=0, microsecond=0)
     if usable_now is None or rate_kw is None:
@@ -148,6 +205,11 @@ def plan(usable_now: Optional[float], rate_kw: Optional[float], factor: Optional
         elif t.date() == now.date() + timedelta(days=1):
             solar_tomorrow += solar
         rate_here = rate_fn(t) if rate_fn is not None else rate_kw
+        if extra_fn is not None:
+            try:
+                rate_here = max(MIN_RATE_KW, rate_here + float(extra_fn(energy)))
+            except Exception:
+                pass
         steps.append((t, rate_here, solar))
         new_energy = energy - rate_here * frac + solar
         if empty_at is None and new_energy <= 0 < energy:
@@ -326,8 +388,17 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
             heat_demand._temp_for(t.replace(minute=0, second=0, microsecond=0), temps_utc or {}, outdoor_now),
             tank_now)
 
+    # Speicherverlust nach Temperatur - nur zusammen mit dem Wettermodell (die gemessene 24-h-Rate
+    # enthaelt den aktuellen Verlust schon)
+    extra_fn = None
+    if rate_fn is not None:
+        tl = tank_loss()
+        if tl and tl[0] > 0:
+            c_loss, tank_ref = tl
+            extra_fn = lambda e: max(-TANK_LOSS_MAX_KW, min(
+                TANK_LOSS_MAX_KW, c_loss * (cfg.usable_from_c + max(0.0, e) / kpk - tank_ref)))
     rec = plan(usable, rate_now, factor, pv_forecast_utc, now=now, kessel_active_now=kessel_now, glut_now=glut_now,
-               rate_fn=rate_fn, factor_fn=factor_fn, solar_fn=solar_fn, e_max=e_max)
+               rate_fn=rate_fn, factor_fn=factor_fn, solar_fn=solar_fn, e_max=e_max, extra_fn=extra_fn)
     rec.outdoor_now = outdoor_now
     rec.solar_live_factor = live_factor
     if temps_utc:

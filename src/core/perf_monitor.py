@@ -181,7 +181,7 @@ def start(root) -> None:
             if stall >= FREEZE_S and reported_for != _last_beat:
                 reported_for = _last_beat
                 frame = sys._current_frames().get(main_ident)
-                stack = traceback.format_stack(frame)[-12:] if frame else []
+                stack = traceback.format_stack(frame)[-30:] if frame else []
                 # warten, bis die Oberflaeche wieder reagiert, um die Gesamtdauer zu kennen
                 beat = _last_beat
                 while _last_beat == beat and time.monotonic() - beat < 120:

@@ -68,7 +68,10 @@ class TouchSlider(tk.Canvas):
             return
         if not force and (self._dragging or time.monotonic() - self._last_user < 3.0):
             return
-        self.value = self._clamp(value)
+        new_value = self._clamp(value)
+        if new_value == self.value and self.find_all():
+            return  # unveraendert -> kein Neuzeichnen (HA-Polling)
+        self.value = new_value
         self._draw()
 
     # Kompatibel zu CTkSlider (get/set), damit bestehender Code einfach umsteigen kann
@@ -119,7 +122,7 @@ class TouchSlider(tk.Canvas):
             self.create_oval(x0, y0, x0 + 2 * r, y1, fill=self.gradient[0], outline="")
             self.create_oval(x1 - 2 * r, y0, x1, y1, fill=self.gradient[-1], outline="")
             span = (x1 - r) - (x0 + r)
-            steps = max(2, int(span / 3))
+            steps = max(2, min(48, int(span / 6)))  # 48 Stufen reichen optisch, spart Canvas-Objekte beim Ziehen
             for i in range(steps):
                 t = i / (steps - 1)
                 c = self._mix(self.gradient, t)

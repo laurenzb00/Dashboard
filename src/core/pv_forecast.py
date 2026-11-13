@@ -419,7 +419,8 @@ def get_forecast(store, cfg: Optional[WeatherConfig] = None, allow_network: bool
                     corrected = corrected * trail_multiplier(model)
                     pred = np.where(future, np.clip(corrected, 0.0, model.get("cap_kw") or None), raw)
                     try:
-                        forecast_log.record_pv(arr[:, 0], pred, arr[:, 1], kw_raw=raw)
+                        forecast_log.record_pv(arr[:, 0], pred, arr[:, 1], kw_raw=raw,
+                                               dni=arr[:, 2], dhi=arr[:, 3], temp=arr[:, 4])
                     except Exception as exc:
                         logger.info("[PV-Prognose] Prognose nicht protokolliert: %s", exc)
                     for ts, kw in zip(arr[:, 0], pred):

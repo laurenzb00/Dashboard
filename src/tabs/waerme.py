@@ -97,6 +97,19 @@ class TankCanvas(tk.Canvas):
 
     def set_state(self, **state) -> None:
         self.state.update(state)
+        # Nur neu zeichnen, wenn sich sichtbar etwas geaendert hat: ein
+        # Redraw erzeugt mehrere hundert Canvas-Objekte (Farbverlauf) und
+        # kostete auf dem Pi spuerbar UI-Zeit - alle 15 s, meist umsonst.
+        def _norm(v):
+            return round(v, 1) if isinstance(v, float) else v
+        try:
+            sig = (self.winfo_width(), self.winfo_height(),
+                   tuple(sorted((k, repr(_norm(v))) for k, v in self.state.items())))
+        except Exception:
+            sig = None
+        if sig is not None and sig == getattr(self, "_drawn_sig", None):
+            return
+        self._drawn_sig = sig
         self.redraw()
 
     def _tank(self, x, y, w, h, t_top, t_bot, title, subtitle, labels=(), note=""):

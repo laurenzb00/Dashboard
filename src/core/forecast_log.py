@@ -42,6 +42,13 @@ def _ensure(conn) -> None:
     # sonst wuerde die Korrektur ihre eigene Wirkung "lernen")
     conn.execute("CREATE TABLE IF NOT EXISTS pv_forecast_log (target_hour INTEGER NOT NULL, lead TEXT NOT NULL, "
                  "kw REAL, kw_raw REAL, ghi REAL, made_at INTEGER, PRIMARY KEY (target_hour, lead))")
+    # 13.11.2026: auch Direkt-/Diffusstrahlung und Temperatur der Vorhersage merken. Senkrechte Module
+    # haengen fast nur an der Direktstrahlung - ohne DNI liess sich nicht messen, ob der Prognosefehler
+    # vom Wetterbericht oder vom Modell kommt. Die Temperatur dient der Heiz-Prognose.
+    have = {r[1] for r in conn.execute("PRAGMA table_info(pv_forecast_log)")}
+    for col in ("dni", "dhi", "temp"):
+        if col not in have:
+            conn.execute(f"ALTER TABLE pv_forecast_log ADD COLUMN {col} REAL")
 
 
 def lead_class(made_at: float, target_hour_end: float) -> Optional[str]:
@@ -57,21 +64,30 @@ def lead_class(made_at: float, target_hour_end: float) -> Optional[str]:
     return None
 
 
+def _num(v) -> Optional[float]:
+    return None if v is None or v != v else float(v)
+
+
 def record_pv(t_end: Sequence[float], kw: Sequence[float], ghi: Sequence[float], made_at: Optional[float] = None,
-              conn=None, kw_raw: Optional[Sequence[float]] = None) -> int:
+              conn=None, kw_raw: Optional[Sequence[float]] = None, dni: Optional[Sequence[float]] = None,
+              dhi: Optional[Sequence[float]] = None, temp: Optional[Sequence[float]] = None) -> int:
     made_at = time.time() if made_at is None else made_at
     kw_raw = kw if kw_raw is None else kw_raw
+    n = len(t_end)
+    dni = [None] * n if dni is None else dni
+    dhi = [None] * n if dhi is None else dhi
+    temp = [None] * n if temp is None else temp
     rows = []
-    for t, p, pr, g in zip(t_end, kw, kw_raw, ghi):
+    for t, p, pr, g, dn, dh, tc in zip(t_end, kw, kw_raw, ghi, dni, dhi, temp):
         lead = lead_class(made_at, float(t))
         if lead:
-            rows.append((int(t), lead, float(p), float(pr), None if g is None or g != g else float(g), int(made_at)))
+            rows.append((int(t), lead, float(p), float(pr), _num(g), int(made_at), _num(dn), _num(dh), _num(tc)))
     own = conn is None
     conn = conn or fl.connect()
     try:
         _ensure(conn)
-        conn.executemany("INSERT OR REPLACE INTO pv_forecast_log (target_hour, lead, kw, kw_raw, ghi, made_at) "
-                         "VALUES (?,?,?,?,?,?)", rows)
+        conn.executemany("INSERT OR REPLACE INTO pv_forecast_log (target_hour, lead, kw, kw_raw, ghi, made_at, "
+                         "dni, dhi, temp) VALUES (?,?,?,?,?,?,?,?,?)", rows)
         conn.execute("DELETE FROM pv_forecast_log WHERE target_hour < ?", (int(made_at - KEEP_DAYS * 86400),))
         conn.commit()
     finally:
@@ -172,3 +188,80 @@ def apply_bias(bias: Optional[dict], t_end, kw, ghi, lat: float, lon: float) -> 
     f = fl.grid_lookup((bias["kt"], bias["el"], bias["season"]), np.asarray(bias["table"], float),
                        kt, el, _season(t_end))
     return kw * np.where((el > 2.0) & ~np.isnan(f), f, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Bandbreite der Tagesprognose
+# ---------------------------------------------------------------------------
+
+BAND_DAYS = 45
+BAND_MIN_DAYS = 10
+BAND_MIN_FC_KWH = 2.0
+BAND_QUANTILES = (15.0, 85.0)
+BAND_CLIP = (0.2, 3.0)
+FOG_RATIO = 0.5                  # Tag mit weniger als der Haelfte der Prognose = "Nebeltag"
+FOG_HINT_SHARE = 0.10            # ab diesem Anteil in den letzten Wochen wird gewarnt
+
+
+def pv_band(days: int = BAND_DAYS, lead: str = "d1", conn=None, now: Optional[float] = None) -> Optional[dict]:
+    """Wie weit lag der Tagesertrag zuletzt neben der Prognose?
+
+    Aus den protokollierten Tagen (Prognose >= 2 kWh): Verhaeltnis gemessen / Prognose. Zurueck kommen
+    die Quantile 15 % / 85 % als Faktoren (lo, hi) - in 7 von 10 Faellen lag der Ertrag dazwischen - und
+    der Anteil der Tage mit weniger als der Haelfte (bei senkrechten Modulen fast immer Nebel/Hochnebel).
+    Auswertung 13.11.2026: Tagesfehler der Vortagsprognose 36 %, ein Einzelwert taeuscht Genauigkeit vor.
+    """
+    now = time.time() if now is None else now
+    own = conn is None
+    conn = conn or fl.connect()
+    try:
+        arr = _pairs(conn, lead, now - (days + 1) * 86400)
+    finally:
+        if own:
+            conn.close()
+    if len(arr) == 0:
+        return None
+    day = np.array([datetime.fromtimestamp(t - 1800).date().toordinal() for t in arr[:, 0]])
+    today = datetime.fromtimestamp(now).date().toordinal()
+    ratios = []
+    for d in np.unique(day):
+        if d >= today:
+            continue
+        m = day == d
+        if m.sum() < 8:
+            continue
+        fc, ist = float(np.nansum(arr[m, 1])), float(np.nansum(arr[m, 3]))
+        if fc < BAND_MIN_FC_KWH:
+            continue
+        ratios.append(ist / fc)
+    if len(ratios) < BAND_MIN_DAYS:
+        return None
+    r = np.array(ratios)
+    lo, hi = (float(np.clip(np.percentile(r, q), *BAND_CLIP)) for q in BAND_QUANTILES)
+    return {"lo": min(lo, 1.0), "hi": max(hi, 1.0), "days": len(ratios),
+            "fog_share": float(np.mean(r < FOG_RATIO)), "median": float(np.median(r))}
+
+
+def band_kwh(kwh: Optional[float], band: Optional[dict]) -> Optional[tuple[float, float]]:
+    """(von, bis) kWh fuer eine Tagesprognose, oder None ohne Band."""
+    if kwh is None or not band:
+        return None
+    return kwh * band["lo"], kwh * band["hi"]
+
+
+def band_text(kwh: Optional[float], band: Optional[dict]) -> str:
+    """'12 kWh (7–16)' bzw. '12 kWh' ohne Band; Nebelhinweis getrennt ueber fog_hint()."""
+    if kwh is None:
+        return "–"
+    rng = band_kwh(kwh, band)
+    if rng is None or kwh < 1.0:
+        return f"{kwh:.0f} kWh"
+    return f"{kwh:.0f} kWh ({rng[0]:.0f}–{rng[1]:.0f})"
+
+
+def fog_hint(band: Optional[dict]) -> str:
+    """Kurzer Hinweis, wenn zuletzt oefter weniger als die Haelfte der Prognose kam."""
+    if not band or band.get("fog_share", 0.0) < FOG_HINT_SHARE:
+        return ""
+    n = int(round(band["fog_share"] * band["days"]))
+    return f"Nebelrisiko: an {n} von {band['days']} Tagen kam weniger als die Hälfte"

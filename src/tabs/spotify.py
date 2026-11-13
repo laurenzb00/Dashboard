@@ -25,6 +25,7 @@ from ui.styles import (
 from ui.components.tab_shell import TabShell
 from ui.components.touch_slider import TouchSlider
 from ui.components.card import Card
+from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.components.glyph_icon import ctk_icon
 try:
     import ttkbootstrap as ttk
@@ -51,7 +52,7 @@ COVER_SIZE = (600, 600)
 PLAYLIST_IMAGE_SIZE = (96, 96)
 
 
-class SpotifyTab:
+class SpotifyTab(UiQueuePumpMixin):
     def safe_toggle_style(self, style_name="round-toggle"):
         try:
             import ttkbootstrap as ttk
@@ -203,6 +204,9 @@ class SpotifyTab:
         self.root = root
         self.notebook = notebook
         self.alive = True
+        self._poll_busy = False
+        self._init_ui_queue()
+        self._start_ui_pump()
         self._portrait_layout = False
 
         # Use provided frame or create legacy one
@@ -652,12 +656,38 @@ class SpotifyTab:
         self._poll_job = self.root.after(500, self._poll_playback)
 
     def _poll_playback(self):
+        """Startet einen Poll-Durchlauf. Die Netzwerkaufrufe (spotipy, HTTPS)
+        laufen im Worker-Thread, damit die UI nicht einfriert (vorher: bis zu
+        mehrere Sekunden Haenger alle 5 s). UI-Updates kommen per _post_ui."""
         if not self.alive:
             return
         if not self.client:
             self._ensure_cached_session()
-        if self.client:
+        if self.client and not self._poll_busy:
+            self._poll_busy = True
+            threading.Thread(target=self._poll_worker, daemon=True).start()
+        else:
+            self._schedule_next_poll()
+
+    def _schedule_next_poll(self):
+        if self.alive:
+            self._poll_job = self.root.after(POLL_INTERVAL_MS, self._poll_playback)
+
+    def _poll_worker(self):
+        try:
             playback = self._safe_spotify_call(self.client.current_playback)
+            devices = self._safe_spotify_call(self.client.devices)
+        except Exception:
+            logging.exception("[SPOTIFY] Poll-Worker Fehler")
+            playback, devices = None, None
+        finally:
+            self._poll_busy = False
+        self._post_ui(lambda: self._apply_poll(playback, devices))
+
+    def _apply_poll(self, playback, devices):
+        if not self.alive:
+            return
+        try:
             if playback:
                 self._last_playback = playback
                 self._update_now_playing(playback)
@@ -665,10 +695,10 @@ class SpotifyTab:
                 self.track_var.set("Keine aktive Wiedergabe")
                 self.artist_var.set("Starte Spotify auf einem verbundenen Gerät")
                 self.album_var.set("Kein Titel ausgewählt")
-            devices = self._safe_spotify_call(self.client.devices)
             if devices:
                 self._update_devices(devices.get("devices", []))
-        self._poll_job = self.root.after(POLL_INTERVAL_MS, self._poll_playback)
+        finally:
+            self._schedule_next_poll()
 
     def _safe_spotify_call(self, func, *args, **kwargs):
         if not self.client:

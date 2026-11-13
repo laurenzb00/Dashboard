@@ -797,6 +797,55 @@ class DataStore:
             for row in rows
         ]
 
+    # Whitelist fuer get_binned_series: (Tabelle, Spalte) -> SQL-Ausdruck des
+    # bereinigten Einzelwerts (NULL = Zeile ignorieren). Spiegelt die bisherige
+    # Python-Filterung in ui/views/pv_sparkline.py.
+    _BINNED_SERIES = {
+        ("fronius", "pv_power"): (
+            "CASE WHEN pv_power IS NULL THEN NULL "
+            "WHEN (CASE WHEN pv_power > 200.0 THEN pv_power / 1000.0 ELSE pv_power END) < -0.2 THEN NULL "
+            "WHEN pv_power > 200.0 THEN pv_power / 1000.0 "
+            "WHEN pv_power < 0.0 THEN 0.0 ELSE pv_power END"
+        ),
+        ("heating", "aussentemp"): (
+            "CASE WHEN aussentemp IS NULL OR aussentemp < -40.0 OR aussentemp > 60.0 "
+            "THEN NULL ELSE aussentemp END"
+        ),
+    }
+
+    def get_binned_series(self, table: str, column: str, hours: int,
+                          bin_minutes: int = 15) -> List[tuple]:
+        """Zeit-gebinnte Mittelwerte (SQL-seitig) fuer Sparklines.
+
+        Liefert [(bin_timestamp_utc_str, mittelwert), ...] aufsteigend. Statt
+        zehntausende Rohzeilen in Python zu parsen (UI-Thread-Haenger), kommen
+        nur noch ~200 Punkte aus SQLite. Ist die Datenreihe aelter als 1 h
+        (Datenstrom pausiert), wird das Fenster am neuesten Messwert verankert.
+        """
+        expr = self._BINNED_SERIES.get((table, column))
+        if expr is None:
+            raise ValueError(f"get_binned_series: {table}.{column} nicht erlaubt")
+        bin_s = max(60, int(bin_minutes) * 60)
+        with self._lock:
+            cur = self.conn.cursor()
+            newest = cur.execute(f"SELECT MAX(timestamp) FROM {table}").fetchone()[0]
+            if not newest:
+                return []
+            cutoff = _hours_ago_iso(hours)
+            newest_dt = parse_db_ts(newest)
+            if newest_dt is not None:
+                now_utc = datetime.now(timezone.utc)
+                if newest_dt.tzinfo is None:
+                    newest_dt = newest_dt.replace(tzinfo=timezone.utc)
+                if (now_utc - newest_dt) > timedelta(hours=1):
+                    cutoff = (newest_dt - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+            sql = (
+                "SELECT datetime((CAST(strftime('%s', timestamp) AS INTEGER) / ?) * ?, 'unixepoch') AS b, "
+                f"AVG(v) FROM (SELECT timestamp, {expr} AS v FROM {table} WHERE timestamp >= ?) "
+                "WHERE v IS NOT NULL GROUP BY b ORDER BY b ASC"
+            )
+            return [(r[0], r[1]) for r in cur.execute(sql, (bin_s, bin_s, cutoff)).fetchall()]
+
     def get_last_heating_record(self) -> Optional[dict]:
         """
         Hole letzten Heizungs-Record als dict mit final keys (schema.py). Cached for 2s.

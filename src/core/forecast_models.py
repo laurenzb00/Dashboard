@@ -46,19 +46,29 @@ _running = threading.Lock()
 def _ensure(conn) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS pv_model_log (model TEXT NOT NULL, target_hour INTEGER NOT NULL, "
                  "lead TEXT NOT NULL, kw REAL, ghi REAL, made_at INTEGER, PRIMARY KEY (model, target_hour, lead))")
+    # 13.11.2026: Direktstrahlung und Temperatur je Modell mitschreiben (senkrechte Module haengen an der DNI)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(pv_model_log)")}
+    for col in ("dni", "temp"):
+        if col not in have:
+            conn.execute(f"ALTER TABLE pv_model_log ADD COLUMN {col} REAL")
 
 
 def record(conn, model_name: str, t_end: Sequence[float], kw: Sequence[float], ghi: Sequence[float],
-           made_at: Optional[float] = None) -> int:
+           made_at: Optional[float] = None, dni: Optional[Sequence[float]] = None,
+           temp: Optional[Sequence[float]] = None) -> int:
     made_at = time.time() if made_at is None else made_at
+    n = len(t_end)
+    dni = [None] * n if dni is None else dni
+    temp = [None] * n if temp is None else temp
+    num = lambda v: None if v is None or v != v else float(v)
     rows = []
-    for t, p, g in zip(t_end, kw, ghi):
+    for t, p, g, dn, tc in zip(t_end, kw, ghi, dni, temp):
         lead = forecast_log.lead_class(made_at, float(t))
         if lead and p == p:
-            rows.append((model_name, int(t), lead, float(p), None if g is None or g != g else float(g), int(made_at)))
+            rows.append((model_name, int(t), lead, float(p), num(g), int(made_at), num(dn), num(tc)))
     _ensure(conn)
-    conn.executemany("INSERT OR REPLACE INTO pv_model_log (model, target_hour, lead, kw, ghi, made_at) "
-                     "VALUES (?,?,?,?,?,?)", rows)
+    conn.executemany("INSERT OR REPLACE INTO pv_model_log (model, target_hour, lead, kw, ghi, made_at, dni, temp) "
+                     "VALUES (?,?,?,?,?,?,?,?)", rows)
     return len(rows)
 
 
@@ -94,7 +104,7 @@ def log_models(pv_model: dict, cfg: Optional[WeatherConfig] = None, models: Opti
                     continue
                 arr = np.array([[np.nan if v is None else v for v in r] for r in rows], dtype=float)
                 kw = predict(pv_model, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4])
-                saved += record(conn, name, arr[:, 0], kw, arr[:, 1], made_at=now)
+                saved += record(conn, name, arr[:, 0], kw, arr[:, 1], made_at=now, dni=arr[:, 2], temp=arr[:, 4])
             except Exception as exc:
                 logger.info("[Wettermodelle] %s nicht abrufbar: %s", name, exc)
         cutoff = int(now - KEEP_DAYS * 86400)

@@ -60,6 +60,12 @@ CO2_WEAK_DELTA = 2.5
 CO2_MIN_PHASE_MIN = 10
 REAL_FIRE_MIN = 10                 # Minuten Teil-/Volllast, ab denen ein Feuer "echt" ist
 GAP_MIN = 10                       # Luecke zwischen zwei Messungen, ab der ein Lauf endet
+# Feuer vermutlich ausgegangen: Teil-/Volllast endet nach kurzer Brennzeit bei noch leerem Puffer.
+# Nachgeprueft an den 7 Uebergaengen nach GLUTERHALT vom 05.-13.11.2026: normale Enden bei Puffer
+# 88-99 % bzw. nach > 150 min Brennzeit, ausgegangen am 09.11. (36 %, 11 min) und 13.11. (23 %, 17 min).
+FIRE_OUT_LADUNG = 70.0             # Puffer darunter ...
+FIRE_OUT_BRENN_MIN = 45.0          # ... und weniger Minuten Teil-/Volllast am Stueck -> Meldung
+FIRE_OUT_MIN_BRENN = 5.0           # kuerzere Teillast-Zuckungen sind kein Feuer
 
 _DATE_RE = re.compile(r"^\d{2}\.\d{2} \d{2}:\d{2}:\d{2}$")
 
@@ -187,11 +193,40 @@ class Deutung:
     phase_min: Optional[float] = None
     abbrand: Optional[str] = None      # gewohnt | schwach
     hinweise: list = field(default_factory=list)
+    feuer_aus: Optional[dict] = None   # gesetzt, solange das Feuer als ausgegangen gilt (siehe FireOut)
+    feuer_aus_neu: bool = False        # nur in der Messung, in der es erkannt wurde -> Meldung senden
 
     def to_dict(self) -> dict:
         d = dict(self.__dict__)
         d["hinweise"] = list(self.hinweise)
         return d
+
+
+_PHASE_TEXT = {"gluterhalt": "Gluterhalt", "aus": "Standby", "anheizen": "Anheizen"}
+
+
+@dataclass(frozen=True)
+class FireOut:
+    """Teil-/Volllast ist nach kurzer Brennzeit bei leerem Puffer zu Ende: Feuer vermutlich ausgegangen."""
+    ts: datetime
+    phase: str                          # Phase, in die der Kessel gewechselt ist
+    brenn_min: float
+    ladung: Optional[float]
+    kessel: Optional[float]
+
+    def title(self) -> str:
+        return "Feuer im Kessel ausgegangen?"
+
+    def message(self) -> str:
+        lad = f"Puffer erst {self.ladung:.0f} %" if self.ladung is not None else "Puffer noch nicht geladen"
+        kes = f", Kessel {self.kessel:.0f} °C" if self.kessel is not None else ""
+        return (f"Die Verbrennung ist nach nur {_fmt_dur(self.brenn_min)} zu Ende "
+                f"(jetzt {_PHASE_TEXT.get(self.phase, self.phase)}). {lad}{kes}. "
+                "Holz zu früh abgebrannt oder Feuer erloschen – nachlegen bzw. neu anzünden?")
+
+    def to_dict(self) -> dict:
+        return {"ts": self.ts.isoformat(), "phase": self.phase, "brenn_min": round(self.brenn_min, 1),
+                "ladung": self.ladung, "kessel": self.kessel, "titel": self.title(), "text": self.message()}
 
 
 def free_capacity(reading: BmkReading, cfg: hs.StorageConfig) -> tuple[Optional[float], Optional[float]]:
@@ -226,6 +261,7 @@ class LiveInterpreter:
         self._hist: deque = deque()
         self._keep = timedelta(minutes=keep_min)
         self._lock = threading.Lock()
+        self._fire_out: Optional[FireOut] = None
 
     @property
     def cfg(self) -> hs.StorageConfig:
@@ -277,14 +313,57 @@ class LiveInterpreter:
             return None                      # mindestens so lang wie der Speicher reicht - unbekannt
         return (now - start).total_seconds() / 60.0
 
+    def burn_minutes(self, until: BmkReading) -> Optional[float]:
+        """Minuten Teil-/Volllast am Stueck bis einschliesslich `until` (None: reicht ueber den Speicher hinaus)."""
+        with self._lock:
+            hist = list(self._hist)
+        run = [r for r in hist if r.ts <= until.ts]
+        if not run or run[-1].ts != until.ts:
+            return None
+        start = until.ts
+        complete = True
+        for r in reversed(run[:-1]):
+            if r.phase not in ("teillast", "volllast") or (start - r.ts) > timedelta(minutes=GAP_MIN):
+                complete = False
+                break
+            start = r.ts
+        if complete and (run[-1].ts - run[0].ts) >= self._keep - timedelta(minutes=2):
+            return None
+        return (until.ts - start).total_seconds() / 60.0 + 1.0
+
+    def _check_fire_out(self, prev: Optional[BmkReading], r: BmkReading) -> bool:
+        """True genau in der Messung, in der "Feuer vermutlich ausgegangen" erkannt wird."""
+        if r.phase in ("teillast", "volllast", "nachlegen", "anheizen"):
+            if not (r.phase == "anheizen" and prev is not None and prev.phase in ("teillast", "volllast")):
+                self._fire_out = None
+        if prev is None or prev.phase not in ("teillast", "volllast"):
+            return False
+        if r.phase not in ("gluterhalt", "aus", "anheizen") or r.ts - prev.ts > timedelta(minutes=GAP_MIN):
+            return False
+        if r.ladung is None or r.ladung >= FIRE_OUT_LADUNG:
+            return False
+        brenn = self.burn_minutes(prev)
+        if brenn is None or not FIRE_OUT_MIN_BRENN <= brenn < FIRE_OUT_BRENN_MIN:
+            return False
+        self._fire_out = FireOut(ts=r.ts, phase=r.phase, brenn_min=brenn, ladung=r.ladung, kessel=r.kessel)
+        return True
+
     def interpret(self, r: BmkReading) -> Deutung:
+        with self._lock:
+            prev = self._hist[-1] if self._hist else None
+        fresh = prev is None or r.ts > prev.ts
         self.add(r)
-        d = deuten(r, self.cfg, trend=self.trend_pct_h(r.ts), phase_min=self.phase_minutes(r.ts))
+        new = self._check_fire_out(prev, r) if fresh else False
+        d = deuten(r, self.cfg, trend=self.trend_pct_h(r.ts), phase_min=self.phase_minutes(r.ts),
+                   fire_out=self._fire_out)
+        d.feuer_aus_neu = new
+        if new and d.feuer_aus is None and self._fire_out is not None:
+            d.feuer_aus = self._fire_out.to_dict()
         return d
 
 
 def deuten(r: BmkReading, cfg: hs.StorageConfig, trend: Optional[float] = None,
-           phase_min: Optional[float] = None) -> Deutung:
+           phase_min: Optional[float] = None, fire_out: Optional[FireOut] = None) -> Deutung:
     """Kombination der Werte -> Aussage. Reine Funktion (gut testbar)."""
     ph = r.phase
     lad = r.ladung
@@ -341,7 +420,12 @@ def deuten(r: BmkReading, cfg: hs.StorageConfig, trend: Optional[float] = None,
         d.empfehlung = "nicht_oeffnen"
 
     elif ph == "gluterhalt":
-        if lad is not None and lad >= LADUNG_VOLL:
+        if fire_out is not None:
+            d.headline, d.tone = f"Feuer vermutlich ausgegangen · Puffer erst {pct}", "warn"
+            d.detail = f"nach nur {_fmt_dur(fire_out.brenn_min)} Brennzeit im Gluterhalt · {platz}".strip(" ·")
+            d.empfehlung = "nachlegen"
+            d.feuer_aus = fire_out.to_dict()
+        elif lad is not None and lad >= LADUNG_VOLL:
             d.headline, d.tone = f"Glut hält · Puffer voll ({pct}) – Nachlegen nicht nötig", "ok"
             d.empfehlung = "nicht_nachlegen"
         elif lad is not None and lad >= LADUNG_NIEDRIG:

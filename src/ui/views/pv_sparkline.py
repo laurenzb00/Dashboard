@@ -454,7 +454,41 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
             return []
         return self._aggregate_series(samples)
 
+    def _load_binned(self, table: str, column: str, hours: int, bin_minutes: int):
+        """Schneller Pfad: SQL-seitiges Binning (siehe datastore.get_binned_series).
+        None, wenn nicht verfuegbar -> Legacy-Pfad."""
+        fn = getattr(self.datastore, "get_binned_series", None)
+        if fn is None:
+            return None
+        try:
+            rows = fn(table, column, hours, bin_minutes)
+        except Exception:
+            return None
+        samples: list[tuple[datetime, float]] = []
+        for ts_raw, val in rows:
+            ts = db_ts_to_local(ts_raw)
+            if ts is None or val is None:
+                continue
+            samples.append((ts, float(val)))
+        return self._aggregate_series(samples)
+
     def _load_pv_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
+        if not self.datastore:
+            return []
+        fast = self._load_binned("fronius", "pv_power", hours, bin_minutes)
+        if fast is not None:
+            return fast
+        return self._load_pv_series_legacy(hours, bin_minutes)
+
+    def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
+        if not self.datastore:
+            return []
+        fast = self._load_binned("heating", "aussentemp", hours, bin_minutes)
+        if fast is not None:
+            return fast
+        return self._load_outdoor_temp_series_legacy(hours, bin_minutes)
+
+    def _load_pv_series_legacy(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
             return []
         now = datetime.now()
@@ -508,7 +542,7 @@ class PVSparklineView(MatplotlibCanvasResizeMixin, tk.Frame):
             samples.append((ts_bin, pv_kw))
         return self._aggregate_series(samples)
 
-    def _load_outdoor_temp_series(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
+    def _load_outdoor_temp_series_legacy(self, hours: int = 24, bin_minutes: int = 15) -> list[tuple[datetime, float]]:
         if not self.datastore:
             return []
         now = datetime.now()

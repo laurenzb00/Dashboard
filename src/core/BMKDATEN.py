@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime
 from typing import Dict, Optional
@@ -275,6 +276,17 @@ def _preload_live() -> None:
         logger.debug("[BMK] Verlauf fuer Deutung nicht geladen: %s", exc)
 
 
+def _notify_fire_out(info: dict) -> None:
+    """Meldung "Feuer ausgegangen?" im Hintergrund senden (HTTP an Home Assistant darf den Abruf nicht aufhalten)."""
+    def run():
+        try:
+            from core import alerts
+            alerts.fire_out_alert(info)
+        except Exception as exc:
+            logger.warning("[BMK] Meldung 'Feuer ausgegangen' fehlgeschlagen: %s", exc)
+    threading.Thread(target=run, daemon=True, name="bmk-feuer-aus").start()
+
+
 def _interpret(values, now_local, zeitstempel) -> Optional[dict]:
     """Rohwerte -> Aussage (Phase, Nachlegen, Platz im Puffer ...) und dauerhaft speichern (1x/min)."""
     global _last_status
@@ -283,7 +295,10 @@ def _interpret(values, now_local, zeitstempel) -> Optional[dict]:
         return None
     if not _live_preloaded:
         _preload_live()
-    deutung = bmk_interpret.live().interpret(reading).to_dict()
+    d = bmk_interpret.live().interpret(reading)
+    deutung = d.to_dict()
+    if d.feuer_aus_neu and d.feuer_aus:
+        _notify_fire_out(d.feuer_aus)
     now = time.time()
     if now - _last_status >= RAW_INTERVAL_S:
         _last_status = now

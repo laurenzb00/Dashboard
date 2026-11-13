@@ -6,6 +6,14 @@ Home Assistant aufs Handy (config/homeassistant.json: "notify_service", z.B.
 Jede Art von Meldung hoechstens alle COOLDOWN_H Stunden. Alle Meldungen landen
 ausserdem in data/forecast_learning.db (Tabelle alerts) und im Log.
 
+Solarthermie
+    Zwei Sonnentage hintereinander (Globalstrahlung >= 3 kWh/m², kein Feuer) mit weniger als 8 kWh
+    Speicherzuwachs. Hoechstens einmal pro Woche; Zeitraeume aus "solar_aus" (config/heizung.json) zaehlen nicht.
+
+Feuer ausgegangen (Kessel)
+    Teil-/Volllast endet nach weniger als 45 min bei Pufferladung < 70 %. Wird von
+    core.BMKDATEN sofort (nicht erst in der 15-min-Schleife) ausgeloest, Cooldown 1 h.
+
 PV-Stoerung
     In den letzten 2 vollen Stunden hat die Prognose (berechnet mit dem fuer diese
     Stunden schon fast gemessenen Wetter) jeweils >= 1,5 kW erwartet, gemessen
@@ -37,13 +45,22 @@ logger = logging.getLogger(__name__)
 
 INTERVAL_S = 15 * 60
 COOLDOWN_H = 12
+FIRE_OUT_COOLDOWN_H = 1.0
 PV_MIN_EXPECTED_KW = 1.5
-PV_MAX_RATIO = 0.35
+PV_MAX_RATIO = 0.10  # vorher 0.35: Nebel/Hochnebel loeste Fehlalarme aus
 PV_SOC_CURTAIL = 97.0
 HEAT_WINDOW_H = 12
 HEAT_MIN_HOURS = 8.0
 HEAT_RATIO = 1.8
 HEAT_EXCESS_KW = 2.0
+SOLAR_MIN_GHI_WH = 3000.0    # Tagessumme Globalstrahlung, ab der die Kollektoren liefern muessen
+SOLAR_MIN_GAIN_KWH = 8.0     # weniger Speicherzuwachs an so einem Tag = "liefert nichts"
+SOLAR_SUN_WM2 = 100.0        # Stunden mit mehr Strahlung zaehlen als Sonnenstunden
+SOLAR_DAYS_NEEDED = 2        # so viele Sonnentage hintereinander ohne Ertrag, dann melden
+SOLAR_LOOKBACK_D = 5
+SOLAR_COOLDOWN_H = 7 * 24.0  # Pool-Betrieb dauert Wochen - nicht taeglich erinnern
+HEAT_SETTLE_H = 4            # so lange nach einem Feuer zaehlen Stunden nicht (Speicher schichtet um ->
+                             # scheinbar hoher Verbrauch; loeste 25.10. und 06.11.2026 Fehlalarme aus)
 
 _started = False
 
@@ -77,15 +94,16 @@ def _default_sender(title: str, message: str) -> bool:
 
 
 def raise_alert(kind: str, title: str, message: str, sender: Optional[Callable[[str, str], bool]] = None,
-                now: Optional[float] = None, conn=None) -> bool:
-    """Meldung senden, ausser dieselbe Art kam in den letzten COOLDOWN_H Stunden schon."""
+                now: Optional[float] = None, conn=None, cooldown_h: Optional[float] = None) -> bool:
+    """Meldung senden, ausser dieselbe Art kam in den letzten `cooldown_h` (Standard COOLDOWN_H) Stunden schon."""
     now = time.time() if now is None else now
+    limit_s = (COOLDOWN_H if cooldown_h is None else cooldown_h) * 3600
     own = conn is None
     conn = conn or fl.connect()
     try:
         _ensure(conn)
         last = conn.execute("SELECT MAX(ts) FROM alerts WHERE kind = ?", (kind,)).fetchone()[0]
-        if last is not None and now - last < COOLDOWN_H * 3600:
+        if last is not None and now - last < limit_s:
             return False
         conn.execute("INSERT INTO alerts (ts, kind, title, message) VALUES (?,?,?,?)", (int(now), kind, title, message))
         conn.commit()
@@ -98,6 +116,25 @@ def raise_alert(kind: str, title: str, message: str, sender: Optional[Callable[[
     except Exception as exc:
         logger.info("[Meldung] Senden an Home Assistant fehlgeschlagen: %s", exc)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Kessel: Feuer ausgegangen
+# ---------------------------------------------------------------------------
+
+def fire_out_alert(info: dict, sender: Optional[Callable[[str, str], bool]] = None, conn=None,
+                   now: Optional[float] = None) -> bool:
+    """Handy-Meldung "Feuer ausgegangen?" (info = FireOut.to_dict() aus core.bmk_interpret).
+
+    Kommt direkt aus dem Kessel-Collector (jede Minute geprueft), nicht aus der 15-min-Schleife,
+    damit man rechtzeitig nachlegen kann. Eigener Cooldown, damit zwei Versuche kurz hintereinander
+    nicht an der 12-h-Sperre der anderen Meldungen scheitern.
+    """
+    if not info:
+        return False
+    return raise_alert("feuer_aus", info.get("titel") or "Feuer im Kessel ausgegangen?",
+                       info.get("text") or "Die Verbrennung ist nach kurzer Brennzeit zu Ende.",
+                       sender=sender, now=now, conn=conn, cooldown_h=FIRE_OUT_COOLDOWN_H)
 
 
 # ---------------------------------------------------------------------------
@@ -167,14 +204,18 @@ def recent_demand(store, cfg: hs.StorageConfig, hours: int = HEAT_WINDOW_H,
     now = now or datetime.now()
     end = now.replace(minute=0, second=0, microsecond=0)
     start = end - timedelta(hours=hours)
-    buckets = hs.load_buckets(store, start - timedelta(hours=1), end)
-    rows = [r for r in fl.heat_hour_rows(buckets, cfg) if start.timestamp() <= r[0] < end.timestamp()]
+    buckets = hs.load_buckets(store, start - timedelta(hours=1 + HEAT_SETTLE_H), end)
+    all_rows = fl.heat_hour_rows(buckets, cfg)
+    fire_hours = [r[0] for r in all_rows if len(r) > 5 and (r[5] or 0.0) > 0.0]
+    rows = [r for r in all_rows if start.timestamp() <= r[0] < end.timestamp()]
     pv = _hourly_fronius(store, start.astimezone(timezone.utc), end.astimezone(timezone.utc))
     kwh = minutes = 0.0
     used = []
     for hour_start, q_kwh, q_min, *_ in rows:
         h_end = datetime.fromtimestamp(hour_start + 3600, timezone.utc)
         if q_min < 30 or pv.get(h_end, (0.0, None))[0] > 0.1:
+            continue
+        if any(0 <= hour_start - f <= HEAT_SETTLE_H * 3600 for f in fire_hours):
             continue
         kwh += max(0.0, q_kwh)
         minutes += q_min
@@ -199,6 +240,78 @@ def check_heat(store, model, wx: Optional[dict], cfg: Optional[hs.StorageConfig]
     return ("Ungewöhnlich hoher Wärmeverbrauch",
             f"In den letzten {HEAT_WINDOW_H} h im Schnitt {actual:.1f} kW statt üblicher {expected:.1f} kW bei diesem "
             f"Wetter ({actual / max(expected, 0.1):.1f}-fach). Fenster offen, Pumpe läuft durch oder Leck?")
+
+
+# ---------------------------------------------------------------------------
+# Solarthermie
+# ---------------------------------------------------------------------------
+
+def solar_day_gains(heat_rows, ghi_by_hour: dict) -> dict:
+    """{lokaler Tag: (GHI Wh/m², Solargewinn kWh, Sonnenstunden)} fuer Tage ohne Kesselbetrieb.
+
+    heat_rows: (hour_start, quiet_kwh, quiet_min, free_kwh, free_min, kessel_min, ...) wie heat_hours;
+    ghi_by_hour: {hour_start: W/m²}. Gewinn = Speicheraenderung in den Sonnenstunden plus der Verbrauch,
+    der in der Zeit gedeckt wurde (Rate aus den Stunden ohne Sonne desselben Tages).
+    """
+    days: dict = {}
+    for r in heat_rows:
+        hour_start, free_kwh, free_min, kessel_min = r[0], r[3], r[4], r[5]
+        d = datetime.fromtimestamp(hour_start).date()
+        a = days.setdefault(d, {"ghi": 0.0, "net": 0.0, "sun_h": 0, "kessel": 0.0, "dark_kwh": 0.0, "dark_h": 0.0})
+        ghi = ghi_by_hour.get(hour_start)
+        ghi = 0.0 if ghi is None else float(ghi)
+        a["ghi"] += ghi
+        a["kessel"] += kessel_min or 0.0
+        if (kessel_min or 0.0) > 0 or free_kwh is None:
+            continue
+        if ghi > SOLAR_SUN_WM2:
+            a["net"] += free_kwh
+            a["sun_h"] += 1
+        elif ghi < 5.0 and (free_min or 0.0) >= 45:
+            a["dark_kwh"] += free_kwh
+            a["dark_h"] += free_min / 60.0
+    out = {}
+    for d, a in days.items():
+        if a["kessel"] > 30 or a["sun_h"] < 3:
+            continue
+        rate = (-a["dark_kwh"] / a["dark_h"]) if a["dark_h"] >= 2 else 1.3     # kW Verbrauch ohne Sonne
+        out[d] = (a["ghi"], a["net"] + max(0.0, rate) * a["sun_h"], a["sun_h"])
+    return out
+
+
+def _solar_paused(day) -> bool:
+    try:
+        from . import heat_demand
+        return any(a <= day <= b for a, b in heat_demand._solar_off_periods())
+    except Exception:
+        return False
+
+
+def check_solar(conn=None, now: Optional[datetime] = None) -> Optional[tuple[str, str]]:
+    """Meldung, wenn die Solarthermie an den letzten Sonnentagen nichts in den Speicher gebracht hat."""
+    now = now or datetime.now()
+    start = int((now - timedelta(days=SOLAR_LOOKBACK_D + 1)).timestamp())
+    own = conn is None
+    conn = conn or fl.connect()
+    try:
+        heat = conn.execute("SELECT hour_start, quiet_kwh, quiet_min, free_kwh, free_min, kessel_min FROM heat_hours "
+                            "WHERE hour_start >= ? ORDER BY hour_start", (start,)).fetchall()
+        ghi = dict(conn.execute("SELECT hour_end - 3600, ghi FROM weather WHERE hour_end >= ?", (start,)).fetchall())
+    finally:
+        if own:
+            conn.close()
+    gains = solar_day_gains(heat, ghi)
+    sunny = [(d, g) for d, g in sorted(gains.items())
+             if d < now.date() and g[0] >= SOLAR_MIN_GHI_WH and not _solar_paused(d)]
+    last = sunny[-SOLAR_DAYS_NEEDED:]
+    if len(last) < SOLAR_DAYS_NEEDED or any(g[1] >= SOLAR_MIN_GAIN_KWH for _, g in last):
+        return None
+    if (now.date() - last[-1][0]).days > 2:
+        return None                                   # zu lange her - nicht mehr aktuell
+    tage = ", ".join(f"{d:%d.%m.} ({g[0] / 1000:.1f} kWh/m² Sonne, {max(0.0, g[1]):.0f} kWh im Speicher)" for d, g in last)
+    return ("Solarthermie liefert nichts",
+            f"An den letzten Sonnentagen kam kaum Wärme in den Speicher: {tage}. "
+            "Pumpe/Regelung prüfen – oder läuft die Anlage auf den Pool?")
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +342,12 @@ def _run_checks(store) -> list[str]:
             sent.append("waerme")
     except Exception as exc:
         logger.info("[Meldung] Waerme-Pruefung fehlgeschlagen: %s", exc)
+    try:
+        res = check_solar()
+        if res and raise_alert("solar", *res, cooldown_h=SOLAR_COOLDOWN_H):
+            sent.append("solar")
+    except Exception as exc:
+        logger.info("[Meldung] Solar-Pruefung fehlgeschlagen: %s", exc)
     return sent
 
 

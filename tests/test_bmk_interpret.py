@@ -170,6 +170,87 @@ class TestLiveInterpreter(unittest.TestCase):
         self.assertEqual(len(live._hist), 1)
 
 
+def run_live(segments, ladung):
+    """segments: [(Modus, Minuten)] minuetlich durch den LiveInterpreter; Liste der Deutungen zurueck."""
+    live = bi.LiveInterpreter(CFG)
+    out, t = [], T0
+    for modus, n in segments:
+        for _ in range(n):
+            out.append(live.interpret(reading(ts=t, modus=modus, ladung=ladung, kessel=65.0)))
+            t += timedelta(minutes=1)
+    return out
+
+
+class TestFeuerAusgegangen(unittest.TestCase):
+    def test_short_fire_with_empty_buffer_alerts_once(self):
+        res = run_live([("NACHLEGEN", 5), ("TEILLAST", 17), ("GLUTERHALT.", 6)], ladung=23)
+        neu = [d for d in res if d.feuer_aus_neu]
+        self.assertEqual(len(neu), 1)
+        self.assertEqual(neu[0].phase, "gluterhalt")
+        self.assertIn("17 min", neu[0].feuer_aus["text"])
+        self.assertIn("23 %", neu[0].feuer_aus["text"])
+        last = res[-1]                                   # Hinweis bleibt im Gluterhalt sichtbar, ohne neue Meldung
+        self.assertFalse(last.feuer_aus_neu)
+        self.assertEqual(last.tone, "warn")
+        self.assertIn("ausgegangen", last.headline)
+        self.assertEqual(last.empfehlung, "nachlegen")
+
+    def test_normal_end_with_full_buffer_is_quiet(self):
+        res = run_live([("TEILLAST", 20), ("VOLLLAST", 100), ("GLUTERHALT.", 5)], ladung=95)
+        self.assertFalse(any(d.feuer_aus_neu for d in res))
+        self.assertNotIn("ausgegangen", res[-1].headline)
+
+    def test_long_burn_with_medium_buffer_is_quiet(self):
+        res = run_live([("TEILLAST", 120), ("VOLLLAST", 123), ("GLUTERHALT.", 5)], ladung=59)   # wie 08.11.
+        self.assertFalse(any(d.feuer_aus_neu for d in res))
+
+    def test_blip_of_two_minutes_is_no_fire(self):
+        res = run_live([("NACHLEGEN", 5), ("TEILLAST", 2), ("GLUTERHALT.", 3)], ladung=30)
+        self.assertFalse(any(d.feuer_aus_neu for d in res))
+
+    def test_refill_during_fire_is_no_alert(self):
+        res = run_live([("TEILLAST", 12), ("NACHLEGEN", 4), ("TEILLAST", 20)], ladung=30)
+        self.assertFalse(any(d.feuer_aus_neu for d in res))
+
+    def test_fire_dies_straight_to_standby(self):
+        res = run_live([("VOLLLAST", 10), ("STANDBY", 3)], ladung=30)
+        self.assertEqual(sum(d.feuer_aus_neu for d in res), 1)
+        self.assertIn("Standby", [d for d in res if d.feuer_aus_neu][0].feuer_aus["text"])
+
+    def test_flag_cleared_by_new_fire(self):
+        res = run_live([("TEILLAST", 10), ("GLUTERHALT.", 5), ("NACHLEGEN", 3), ("TEILLAST", 10), ("GLUTERHALT.", 2)],
+                       ladung=95)
+        self.assertEqual(sum(d.feuer_aus_neu for d in res), 0)
+        res = run_live([("TEILLAST", 10), ("GLUTERHALT.", 5), ("NACHLEGEN", 3), ("TEILLAST", 60), ("GLUTERHALT.", 2)],
+                       ladung=30)
+        self.assertEqual(sum(d.feuer_aus_neu for d in res), 1)      # nur das erste Ende war kurz
+        self.assertNotIn("ausgegangen", res[-1].headline)            # das zweite war lang
+
+
+class TestFeuerAusAlert(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        from core import alerts
+        self.alerts = alerts
+        self.conn = sqlite3.connect(":memory:")
+        info = run_live([("TEILLAST", 17), ("GLUTERHALT.", 1)], ladung=23)[-1].feuer_aus
+        self.info = info
+
+    def test_sent_with_cooldown_of_one_hour(self):
+        sent = []
+        send = lambda title, msg: sent.append((title, msg)) or True
+        t = 1_000_000.0
+        self.assertTrue(self.alerts.fire_out_alert(self.info, sender=send, conn=self.conn, now=t))
+        self.assertFalse(self.alerts.fire_out_alert(self.info, sender=send, conn=self.conn, now=t + 1800))
+        self.assertTrue(self.alerts.fire_out_alert(self.info, sender=send, conn=self.conn, now=t + 3700))
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(sent[0][0], "Feuer im Kessel ausgegangen?")
+        self.assertIn("23 %", sent[0][1])
+
+    def test_empty_info_sends_nothing(self):
+        self.assertFalse(self.alerts.fire_out_alert(None, sender=lambda *a: True, conn=self.conn))
+
+
 def minute_rows(segments, ladung_start=30.0, step=0.1):
     """segments: [(Modus, Minuten)] -> Zeilen im Format bmk_status; Pufferladung steigt waehrend Teil-/Volllast."""
     rows, t, lad = [], T0, ladung_start
