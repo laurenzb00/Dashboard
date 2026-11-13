@@ -612,6 +612,89 @@ def false_start_count(fires: Sequence[Fire]) -> int:
     return sum(1 for f in fires if f.kind == "fehlstart")
 
 
+# --- Einzelne Ofenladung ---------------------------------------------------
+# Ein `Fire` ist eine ganze Brennsitzung und umfasst oft MEHRERE Fuellungen:
+# am 09.11.2026 lief ein "Feuer" 988 min mit sechs Tueroeffnungen dazwischen.
+# Fuer die Frage "wann ist die Fuellung abgebrannt" zaehlt darum nicht
+# Fire.brenn_min, sondern der Abschnitt zwischen zwei NACHLEGEN-Bloecken.
+LOAD_MIN_BURN_MIN = 20.0        # weniger Teil-/Volllast -> Fuellung ist wieder ausgegangen, zaehlt nicht
+                                # (Diagnose 13.11.: Median 84 min, stabil fuer Schwellen 15-30 min;
+                                #  mit 10 min rutschen zwei erloschene Fuellungen rein -> 76 min)
+TYPICAL_LOADS = 20              # Median ueber die letzten N Ofenladungen
+TYPICAL_LOADS_MIN_N = 5         # darunter keine Aussage
+
+
+def load_burn_minutes(rows: Sequence[dict]) -> list[float]:
+    """Minuten Teil-/Volllast je abgeschlossener Ofenladung, aelteste zuerst.
+
+    rows: wie fire_summaries, aufsteigend nach ts (datetime) mit Schluessel modus.
+    Eine Ladung beginnt mit einem NACHLEGEN-Block (Tuer auf) und endet mit dem
+    naechsten - oder, fuer die letzte Ladung, sobald der Kessel in Gluterhalt
+    oder Standby gegangen ist. Eine noch brennende Ladung wird nicht gezaehlt,
+    sonst zoege sie den Median nach unten.
+
+    Ladungen mit weniger als LOAD_MIN_BURN_MIN Brennzeit fallen raus: das sind
+    Tueroeffnungen ohne Feuer und Fuellungen, die gleich wieder ausgegangen sind.
+    Bei einer Datenluecke (> GAP_MIN) ist die laufende Ladung nicht mehr
+    bewertbar und wird verworfen.
+    """
+    out: list[float] = []
+    cur: Optional[float] = None
+    done = False                      # Ladung ist abgebrannt (Gluterhalt/Standby gesehen)
+    for a, b in zip(rows, list(rows[1:]) + [None]):
+        ph = phase_of(a.get("modus") or "")
+        if ph == "nachlegen":
+            if cur is not None and cur >= LOAD_MIN_BURN_MIN:
+                out.append(cur)
+            cur, done = 0.0, False    # Tuer offen -> neue Fuellung beginnt
+            continue
+        if cur is None:
+            continue
+        if b is not None:
+            gap = (b["ts"] - a["ts"]).total_seconds() / 60.0
+            if gap > GAP_MIN:         # Datenluecke -> Ladung nicht mehr bewertbar
+                cur, done = None, False
+                continue
+        else:
+            gap = 1.0
+        if ph in ("teillast", "volllast"):
+            cur += min(5.0, max(0.0, gap))
+            done = False
+        elif ph in ("gluterhalt", "aus"):
+            done = True
+    if cur is not None and done and cur >= LOAD_MIN_BURN_MIN:
+        out.append(cur)
+    return out
+
+
+def typical_load_burn(rows: Sequence[dict], n: int = TYPICAL_LOADS) -> Optional[tuple]:
+    """(frueh, typisch, spaet) Brennminuten einer Ofenladung als 25/50/75-%-Quantil.
+
+    Ein Einzelwert waere zu selbstsicher: ueber die Diagnose 13.11. lag der
+    Median bei 84 min, die Ladungen streuten aber 35-246 min (mittlerer Abstand
+    zum Median 23 min, nur 55 % innerhalb einer halben Stunde). Darum derselbe
+    Weg wie bei der PV-Tagesprognose (forecast_log.pv_band): ein Korridor.
+    None, wenn zu wenige verwertbare Ladungen vorliegen.
+    """
+    burns = sorted(load_burn_minutes(rows)[-n:])
+    if len(burns) < TYPICAL_LOADS_MIN_N:
+        return None
+    k = len(burns)
+
+    def q(p: float) -> float:
+        return burns[min(k - 1, max(0, int(round(p * (k - 1)))))]
+
+    mid = k // 2
+    med = burns[mid] if k % 2 else (burns[mid - 1] + burns[mid]) / 2.0
+    return q(0.25), med, q(0.75)
+
+
+def typical_load_burn_min(rows: Sequence[dict], n: int = TYPICAL_LOADS) -> Optional[float]:
+    """Nur der Median aus typical_load_burn()."""
+    t = typical_load_burn(rows, n)
+    return t[1] if t else None
+
+
 # ---------------------------------------------------------------------------
 # Speicher: Tabelle bmk_status
 # ---------------------------------------------------------------------------

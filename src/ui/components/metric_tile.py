@@ -75,7 +75,10 @@ class MetricTile(ctk.CTkFrame):
         self.caption_label = ctk.CTkLabel(
             header,
             text=caption.upper(),
-            font=get_safe_font("Bahnschrift", max(9, FONT_SIZE_SMALL - 1), "bold"),
+            # War max(9, FONT_SIZE_SMALL - 1) = 10 px: die Beschriftung ueber dem
+            # Wert ("PUFFER NUTZBAR") war aus Kiosk-Betrachtungsabstand kaum zu
+            # entziffern, waehrend der Wert darunter mit 18 px gut lesbar ist.
+            font=get_safe_font("Bahnschrift", max(12, FONT_SIZE_SMALL + 1), "bold"),
             text_color=COLOR_SUBTEXT,
             anchor="w",
         )
