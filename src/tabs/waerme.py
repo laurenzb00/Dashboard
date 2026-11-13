@@ -414,7 +414,7 @@ class WaermeTab(UiQueuePumpMixin):
             try:
                 from core import alerts
                 heat_alert = next(((ts, title) for ts, kind, title, _m in alerts.recent_alerts(24)
-                                   if kind == "waerme"), None)
+                                   if kind in ("waerme", "solar")), None)
             except Exception:
                 heat_alert = None
             self._heat_alert = heat_alert
@@ -529,6 +529,14 @@ class WaermeTab(UiQueuePumpMixin):
                              f"(gelernt aus {model.hours} h)")
             else:
                 parts.append(f"Bedarf ≈ {model.base_kw:.1f} kW (Temperatureinfluss wird noch gelernt)")
+        # Speicherverlust nach Temperatur (core/heating_forecast.tank_loss): steckt in der
+        # Einheiz-Prognose, war aber nirgends sichtbar.
+        try:
+            tl = hf.tank_loss()
+        except Exception:
+            tl = None
+        if tl and tl[0] > 0:
+            parts.append(f"Speicherverlust {tl[0]:.2f} kW je Grad über {tl[1]:.0f} °C Speichermittel")
         self.statusbar.config(text="   ·   ".join(parts))
         self._render_chart(timeline, today_stats, season, rec)
 

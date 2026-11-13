@@ -281,3 +281,35 @@ class TestEnergyStats(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestComfort(unittest.TestCase):
+    def setUp(self):
+        self.cfg = __import__("core.heating_stats", fromlist=["x"]).StorageConfig()
+
+    def test_comfort_before_empty(self):
+        now = datetime(2026, 11, 13, 12, 0)
+        r = hf.plan(200.0, 6.0, None, None, now=now, rate_fn=lambda t: 6.0)
+        c = hf.comfort_at(r.projection, self.cfg)
+        self.assertIsNotNone(c)
+        self.assertLess(c, r.empty_at)                 # oben kalt, bevor der Puffer ganz leer ist
+        kpk = self.cfg.puffer_kwh_per_k + self.cfg.boiler_kwh_per_k
+        self.assertAlmostEqual(hf.comfort_mean_c(self.cfg), 42.0, places=6)
+        hours = (c - now).total_seconds() / 3600.0
+        self.assertAlmostEqual(hours, (200.0 - (42.0 - 35.0) * kpk) / 6.0, delta=0.6)
+
+    def test_already_cold_and_never(self):
+        now = datetime(2026, 11, 13, 12, 0)
+        r = hf.plan(10.0, 6.0, None, None, now=now, rate_fn=lambda t: 6.0)
+        self.assertEqual(hf.comfort_at(r.projection, self.cfg), now)
+        r = hf.plan(300.0, 0.0, None, None, now=now, rate_fn=lambda t: 0.0)
+        self.assertIsNone(hf.comfort_at(r.projection, self.cfg))
+        self.assertIsNone(hf.comfort_at([], self.cfg))
+
+    def test_threshold_from_config(self):
+        import dataclasses
+        warm = dataclasses.replace(self.cfg, comfort_top_c=60.0)
+        self.assertAlmostEqual(hf.comfort_mean_c(warm), 57.0)
+        now = datetime(2026, 11, 13, 12, 0)
+        r = hf.plan(200.0, 6.0, None, None, now=now, rate_fn=lambda t: 6.0)
+        self.assertLess(hf.comfort_at(r.projection, warm), hf.comfort_at(r.projection, self.cfg))

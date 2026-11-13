@@ -81,6 +81,9 @@ class StorageConfig:
     wood_kwh_per_rm: float = 1600.0
     boiler_efficiency: float = 0.60      # wirksam im Jahresmittel inkl. Anheizen/Gluterhalt/Restholz (Abgleich 08.10.2026)
     storage_factor: float = 1.4          # Kalibrierung der Fuehler-Messung (siehe Modul-Doku)
+    # Komfort-Grenze am obersten Fuehler: darunter wird Warmwasser/Heizung knapp
+    # (Auswertung 13.11.2026). Wird von core/heating_forecast fuer "warm bis ..." genutzt.
+    comfort_top_c: float = 45.0
 
     @property
     def puffer_kwh_per_k(self) -> float:
@@ -112,6 +115,7 @@ def load_storage_config() -> StorageConfig:
             wood_kwh_per_rm=float(data.get("holz_kwh_pro_rm", 1600.0)),
             boiler_efficiency=float(data.get("kessel_wirkungsgrad", 0.60)),
             storage_factor=float(data.get("speicher_faktor", 1.4)),
+            comfort_top_c=float(data.get("komfort_oben_c", 45.0)),
         )
     except Exception:
         return StorageConfig()

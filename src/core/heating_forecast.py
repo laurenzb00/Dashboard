@@ -41,6 +41,13 @@ TANK_LOSS_MIN_HOURS = 300
 TANK_LOSS_MAX_AGE_S = 6 * 3600
 TANK_LOSS_MAX_KW = 3.0           # Korrektur begrenzen
 _tank_loss_cache: dict = {"at": 0.0, "value": None}
+# Komfort-Grenze: unter dieser Temperatur am obersten Fuehler wird das Warmwasser/die Heizung
+# knapp (Auswertung 13.11.2026: 76 Stunden unter 45 °C seit 1.10., gehaeuft 7-10 Uhr). Die
+# Simulation rechnet mit dem Speichermittel - der oberste Fuehler liegt im Schnitt rund 4 K
+# darueber (top = 1,19 * Mittel - 4,9, r = 0,96 ueber Sep-Nov), 45 °C oben entsprechen also
+# etwa 42 °C im Mittel. Beide Werte sind in config/heizung.json ueberschreibbar.
+COMFORT_TOP_C = 45.0
+COMFORT_TOP_OVER_MEAN_K = 3.0
 
 
 @dataclass
@@ -57,6 +64,7 @@ class Recommendation:
     steps: list[tuple[datetime, float, float]] = field(default_factory=list)   # (Beginn lokal, Verbrauch kW, Solar kWh)
     temps: list[tuple[datetime, float]] = field(default_factory=list)          # (Stunde lokal, °C) fuer 36 h
     outdoor_now: Optional[float] = None
+    comfort_at: Optional[datetime] = None          # Puffer oben unter COMFORT_TOP_C (lokal, naiv)
     solar_live_factor: Optional[float] = None     # Ist/erwartet der letzten 24 h (Pool, Stoerung)
     model: Optional["heat_demand.DemandModel"] = None
     outlook: Optional["heat_demand.WeekOutlook"] = None
@@ -149,6 +157,37 @@ def tank_loss(conn=None) -> Optional[tuple[float, float]]:
     val = fit_tank_loss(rows)
     _tank_loss_cache.update(at=_time.time(), value=val)
     return val
+
+
+def comfort_mean_c(cfg: hs.StorageConfig, top_c: Optional[float] = None) -> float:
+    """Speichermittel, ab dem der oberste Fuehler unter die Komfort-Grenze faellt."""
+    top = float(top_c) if top_c is not None else float(getattr(cfg, "comfort_top_c", COMFORT_TOP_C))
+    return max(cfg.usable_from_c, top - COMFORT_TOP_OVER_MEAN_K)
+
+
+def comfort_at(projection, cfg: hs.StorageConfig, top_c: Optional[float] = None) -> Optional[datetime]:
+    """Wann faellt der Speicher unter die Komfort-Grenze? (aus der Simulation von plan())
+
+    projection: [(Zeit lokal, nutzbare kWh)] aus Recommendation.projection. Zurueck kommt der
+    Zeitpunkt, an dem das Speichermittel COMFORT_TOP_C am obersten Fuehler unterschreitet, oder
+    None, wenn das im Horizont nicht passiert (oder es jetzt schon so ist: dann die erste Zeit).
+    """
+    if not projection:
+        return None
+    kpk = cfg.puffer_kwh_per_k + cfg.boiler_kwh_per_k
+    if kpk <= 0:
+        return None
+    limit = max(0.0, (comfort_mean_c(cfg, top_c) - cfg.usable_from_c) * kpk)
+    prev_t, prev_e = projection[0]
+    if prev_e <= limit:
+        return prev_t
+    for t, e in projection[1:]:
+        if e <= limit:
+            span = (t - prev_t).total_seconds()
+            frac = (prev_e - limit) / max(1e-6, prev_e - e)
+            return prev_t + timedelta(seconds=span * max(0.0, min(1.0, frac)))
+        prev_t, prev_e = t, e
+    return None
 
 
 def _fmt_when(ts: datetime, now: datetime) -> str:
@@ -401,6 +440,11 @@ def recommend(store, cfg: Optional[hs.StorageConfig] = None, season: Optional[hs
                rate_fn=rate_fn, factor_fn=factor_fn, solar_fn=solar_fn, e_max=e_max, extra_fn=extra_fn)
     rec.outdoor_now = outdoor_now
     rec.solar_live_factor = live_factor
+    rec.comfort_at = comfort_at(rec.projection, cfg)
+    if rec.comfort_at is not None and rec.level in ("ok", "soon", "today") and rec.empty_at != rec.comfort_at:
+        top = float(getattr(cfg, "comfort_top_c", COMFORT_TOP_C))
+        warm = f"Puffer oben unter {top:.0f} ° ca. {_fmt_when(rec.comfort_at, now)}"
+        rec.detail = f"{rec.detail} · {warm}" if rec.detail else warm
     if temps_utc:
         hour0 = now.replace(minute=0, second=0, microsecond=0)
         for i in range(HORIZON_H + 1):

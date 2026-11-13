@@ -10,6 +10,8 @@ from core.datastore import get_shared_datastore
 from core.time_utils import db_cutoff, db_ts_to_local
 from core import energy_day
 from core import pv_forecast
+from core import energy_stats
+from core import forecast_log
 from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
     COLOR_ROOT,
@@ -86,6 +88,8 @@ class ErtragTab(UiQueuePumpMixin):
         # Portrait-only metrics panel; hidden (minsize=0) until set_portrait_layout(True).
         self.tab_frame.grid_rowconfigure(1, minsize=0, weight=0)
         self.tab_frame.grid_rowconfigure(2, weight=1)
+        # Zeile 3: Strom-Auswertung (Grundlast, Dauerlaeufer, Autarkie je Monat)
+        self.tab_frame.grid_rowconfigure(3, weight=0)
         self.tab_frame.grid_columnconfigure(0, weight=1)
 
         topbar = tk.Frame(self.tab_frame, bg=COLOR_CARD)
@@ -203,6 +207,14 @@ class ErtragTab(UiQueuePumpMixin):
         # CTkTabview while another tab was active) becomes visible again -
         # <Configure> alone isn't a reliable signal for that transition.
         self.energy_chart.canvas_widget.bind("<Map>", lambda _event: self.energy_chart.refresh_size())
+
+        # Strom-Auswertung (core/energy_stats): eine kompakte Textzeile unter dem Chart,
+        # analog zur Statuszeile im Waerme-Tab. Wird im Worker-Thread berechnet.
+        self.stromstatus = tk.Label(self.tab_frame, text="", bg=COLOR_ROOT, fg=COLOR_SUBTEXT, anchor="w",
+                                    justify=tk.LEFT, font=get_safe_font("Bahnschrift", FONT_SIZE_SUBTITLE))
+        self.stromstatus.grid(row=3, column=0, sticky="ew", padx=PADDING_SECTION, pady=(6, 8))
+        self.stromstatus.bind("<Configure>",
+                              lambda e: self.stromstatus.configure(wraplength=max(100, e.width - 4)))
 
         self._last_key = None
         self._apply_mode_ui()
@@ -342,7 +354,9 @@ class ErtragTab(UiQueuePumpMixin):
                 logging.exception("[ERTRAG] PV-Prognose fehlgeschlagen")
                 forecast = None
             fc_day = pv_forecast.forecast_for_day(forecast, day)
-            skill_text = _forecast_status_text()
+            band = _pv_band()
+            strom_text = _energy_text(self.store)
+            skill_text = _forecast_status_text(band)
             key = (
                 "tag", day.isoformat(), len(samples),
                 samples[-1].ts.isoformat() if samples else None,
@@ -353,6 +367,8 @@ class ErtragTab(UiQueuePumpMixin):
                 if not self.alive or token != self._update_token:
                     return
                 self._skill_text = skill_text
+                self._band = band
+                self._strom_text = strom_text
                 from core.perf_monitor import timed
                 with timed("ertrag.anzeigen", min_ms=100):
                     self._apply_day_result(day, key, binned, summary, fc_day)
@@ -380,10 +396,18 @@ class ErtragTab(UiQueuePumpMixin):
         self.topbar_status.config(text=getattr(self, "_skill_text", ""))
         self._set_tile("pv", f"{summary.pv_kwh:.1f} kWh" if has_data else dash)
         fc_kwh = pv_forecast.forecast_kwh(fc_day)
+        band = getattr(self, "_band", None)
         if fc_kwh is None:
             self._set_tile("slot2", dash, color=COLOR_SUBTEXT)
+            self._set_caption("slot2", "Prognose")
         else:
             self._set_tile("slot2", f"{fc_kwh:.1f} kWh", color=COLOR_WARNING)
+            # Die Vortagsprognose lag im Herbst 2026 im Schnitt 36 % neben dem Tagesertrag -
+            # darum die Bandbreite (15-/85-%-Quantil der letzten Wochen) dazu, statt einen
+            # Einzelwert so zu zeigen, als waere er genau.
+            rng = forecast_log.band_kwh(fc_kwh, band) if fc_kwh >= 1.0 else None
+            self._set_caption("slot2", f"Prognose {rng[0]:.0f}–{rng[1]:.0f}" if rng else "Prognose")
+        self.stromstatus.config(text=getattr(self, "_strom_text", ""))
         self._set_tile("verbrauch", f"{summary.load_kwh:.1f} kWh" if has_data else dash)
         self._set_tile("bezug", f"{summary.import_kwh:.1f} kWh" if has_data else dash)
         self._set_tile("einspeisung", f"{summary.export_kwh:.1f} kWh" if has_data else dash)
@@ -794,6 +818,7 @@ class ErtragTab(UiQueuePumpMixin):
         self.energy_chart.render(data)
 
         self.topbar_status.config(text="")
+        self.stromstatus.config(text=getattr(self, "_strom_text", ""))
         self._set_tile("pv", f"{pv_kwh:.1f} kWh")
         self._set_tile("verbrauch", f"{load_kwh:.1f} kWh")
         self._set_tile("bezug", f"{grid_import_kwh:.1f} kWh")
@@ -839,8 +864,53 @@ class ErtragTab(UiQueuePumpMixin):
 
 
 
-def _forecast_status_text() -> str:
-    """Kopfzeile: Treffsicherheit der Vortagsprognose + PV-Warnung der letzten 24 h."""
+_BAND_CACHE: dict = {"at": 0.0, "value": None}
+_ENERGY_CACHE: dict = {"at": 0.0, "value": ""}
+_CACHE_S = 30 * 60
+
+
+def _pv_band():
+    """Bandbreite der Tagesprognose, 30 min zwischengespeichert (nur im Worker-Thread aufrufen)."""
+    import time as _time
+    if _BAND_CACHE["value"] is not None and _time.time() - _BAND_CACHE["at"] < _CACHE_S:
+        return _BAND_CACHE["value"]
+    try:
+        band = forecast_log.pv_band()
+    except Exception:
+        logging.exception("[ERTRAG] Prognose-Bandbreite fehlgeschlagen")
+        return None
+    _BAND_CACHE.update(at=_time.time(), value=band)
+    return band
+
+
+def _energy_text(store) -> str:
+    """Strom-Auswertung als Textzeile (Grundlast, Dauerlaeufer, Autarkie je Monat).
+
+    Laeuft ueber die ganze fronius-Tabelle, darum nur im Worker-Thread und 30 min gecacht.
+    """
+    import time as _time
+    if _ENERGY_CACHE["value"] and _time.time() - _ENERGY_CACHE["at"] < _CACHE_S:
+        return _ENERGY_CACHE["value"]
+    conn = getattr(store, "conn", None)
+    if conn is None:
+        return ""
+    try:
+        lock = getattr(store, "_lock", None)
+        if lock is not None:
+            with lock:
+                stats = energy_stats.compute(conn)
+        else:
+            stats = energy_stats.compute(conn)
+        text = "   ·   ".join(energy_stats.summary_lines(stats))
+    except Exception:
+        logging.exception("[ERTRAG] Strom-Auswertung fehlgeschlagen")
+        return _ENERGY_CACHE["value"]
+    _ENERGY_CACHE.update(at=_time.time(), value=text)
+    return text
+
+
+def _forecast_status_text(band=None) -> str:
+    """Kopfzeile: Treffsicherheit der Vortagsprognose, Nebelrisiko + PV-Warnung der letzten 24 h."""
     parts = []
     try:
         from core import alerts
@@ -860,6 +930,12 @@ def _forecast_status_text() -> str:
             parts.append(f"Prognose vom Vortag: Ø {sk['mape_pct']:.0f} % daneben ({sk['days']} Tage){tend}")
         else:
             parts.append("Prognose-Güte: wird gesammelt")
+    except Exception:
+        pass
+    try:
+        hint = forecast_log.fog_hint(band)
+        if hint:
+            parts.append(hint)
     except Exception:
         pass
     try:
