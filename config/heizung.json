@@ -1,0 +1,23 @@
+{
+  "_hinweis": "Werte der Heizungsauswertung. Vorher gab es diese Datei nicht, alles kam aus den Standardwerten in core/heating_stats.StorageConfig. Siehe claude/heizung-einstellungen-pruefung.md.",
+
+  "puffer_liter": 4000,
+  "boiler_liter": 500,
+
+  "_nutzbar_ab_c": "War 35. Messung Okt-Nov 2026: der untere Pufferfuehler faellt rund um die Uhr nie unter 41 Grad, weil der OG-Heizkreis wegen des Badheizkoerpers mit 60 Grad laufen muss und der Ruecklauf entsprechend warm zurueckkommt. Das ist kein Einstellfehler, sondern eine Eigenschaft der Anlage. Mit 35 zeigte die Kachel Puffer nutzbar dauerhaft Energie an, an die niemand herankommt.",
+  "nutzbar_ab_c": 42,
+
+  "voll_bei_c": 80,
+
+  "_komfort_oben_c": "Unter diesem Wert am obersten Fuehler wird Warmwasser und Heizung knapp. Auswertung 13.11.2026: 76 Stunden darunter seit 1.10., gehaeuft 7-10 Uhr.",
+  "komfort_oben_c": 45,
+
+  "_holz_kwh_pro_rm": "Gemischtes Brennholz bei 15-20 Prozent Wassergehalt (LWF Bayern Merkblatt 20: Buche 1900, Kiefer 1500, Fichte 1350 kWh je Raummeter).",
+  "holz_kwh_pro_rm": 1600,
+
+  "_kessel_wirkungsgrad": "Wirksam im Jahresmittel inklusive Anheizen, Gluterhalt und nicht ganz abgebrannter Fuellungen (Abgleich 08.10.2026).",
+  "kessel_wirkungsgrad": 0.6,
+
+  "_speicher_faktor": "Kalibrierung der Fuehlermessung: drei Fuehler fuer 2 x 2000 Liter erfassen nur einen Teil der gespeicherten Waerme. 1.4 ist ein Kompromiss und laut datenanalyse-2026-11-13.md fraglich - die Solarwerte sprechen fuer einen kleineren Wert. Am Saisonende mit dem echten Holzverbrauch nachjustieren.",
+  "speicher_faktor": 1.4
+}

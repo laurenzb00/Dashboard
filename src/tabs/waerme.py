@@ -434,6 +434,7 @@ class WaermeTab(UiQueuePumpMixin):
         # Zustand fuer die Kartenleiste (wird im Worker gefuellt)
         self._deutung = None            # bmk_interpret.Deutung der letzten Messung
         self._cur_load = None           # laufende Ofenladung {min, kwh, kw}
+        self._burn_power = None         # {kw, r2, min} aus der Steigung der Waermekurve
         self._burn_min = None           # Minuten Teil-/Volllast am Stueck
         self._last_fire = None          # letztes abgeschlossenes Feuer
         self._typ_burn_cache = None     # Minuten-Korridor, siehe _typical_burn_min()
@@ -648,7 +649,7 @@ class WaermeTab(UiQueuePumpMixin):
             # BMK-Verlauf. Bewusst ueber den Store statt ueber bmk_interpret.live():
             # der gemeinsame Interpreter gehoert dem Collector-Thread und waere leer,
             # wenn der Collector in diesem Prozess gar nicht laeuft.
-            self._deutung, self._burn_min, self._cur_load = None, None, None
+            self._deutung, self._burn_min, self._cur_load, self._burn_power = None, None, None, None
             try:
                 rows = self.datastore.get_bmk_status(hours=LIVE_BMK_HOURS) or []
                 readings = [bmk_interpret.reading_from_row(r["ts"], r) for r in rows if r.get("ts")]
@@ -659,6 +660,10 @@ class WaermeTab(UiQueuePumpMixin):
                     # Laufende Ofenladung inkl. Pufferzuwachs und Ladeleistung
                     self._cur_load = bmk_interpret.current_load(rows, self.cfg)
                     self._burn_min = (self._cur_load or {}).get("min")
+                    # Leistung aus der Steigung der Waermekurve. Belastbarer als
+                    # kWh/Laufzeit, weil die Ausgleichsgerade den Saegezahn der
+                    # Fuehleruebergaenge herausmittelt.
+                    self._burn_power = bmk_interpret.burn_power(rows, self.cfg)
             except Exception:
                 logger.exception("[WAERME] Live-Deutung fehlgeschlagen")
 
@@ -785,16 +790,12 @@ class WaermeTab(UiQueuePumpMixin):
             typ_kwh = getattr(self, "_typ_kwh_cache", None)
             kwh = load.get("kwh")
 
-            # Fortschritt aus Zeit UND Waermemenge, der weitere von beiden zaehlt.
-            # Rueckrechnung an der Diagnose 13.11.: die Waermemenge allein ist als
-            # Zeitprognose deutlich schlechter (mittlerer Fehler 101 statt 42 min),
-            # weil der Pufferzuwachs saettigt, sobald der Puffer voll ist, und
-            # zusammenbricht, wenn das Haus gleichzeitig Waerme zieht. Zusammen
-            # mit der Zeit schadet sie nicht und spricht frueher an, wenn ein
-            # heisses Feuer den Puffer schnell fuellt.
+            # Fortschritt NUR ueber die Zeit. Die Waermemenge taugt dafuer nicht:
+            # als Zeitprognose war sie deutlich schlechter (mittlerer Fehler 101
+            # statt 42 min, Diagnose 13.11.), und ihr Korridor stammt aus denselben
+            # sprunghaften Fuehlerwerten - dadurch sprang der Balken zu frueh auf
+            # 100 %. Die kWh stehen weiter als Information in der Unterzeile.
             frac = max(0.0, min(1.0, burn_min / med))
-            if typ_kwh and kwh is not None and typ_kwh[1] > 0:
-                frac = max(frac, min(1.0, kwh / typ_kwh[1]))
             rest = med * (1.0 - frac)
             if frac >= 1.0:
                 val = "überfällig" if burn_min >= late else "gleich"
@@ -810,8 +811,10 @@ class WaermeTab(UiQueuePumpMixin):
                 sub = f"{kwh:.0f} von ~{typ_kwh[1]:.0f} kWh  ·  seit {self._fmt_hm(burn_min)}"
             note = f"{frac * 100:.0f} % · aus {n_loads} Ladungen"
             # Schwacher Abbrand: die Ladeleistung trennt das klar (4-10 kW gegen
-            # 15-60 kW in der Diagnose 13.11.).
-            kw = load.get("kw")
+            # 15-60 kW in der Diagnose 13.11.). Bevorzugt die Ausgleichsgerade -
+            # kWh/Laufzeit verfaelscht der Saegezahn der Fuehler.
+            bp = getattr(self, "_burn_power", None)
+            kw = bp["kw"] if bp else load.get("kw")
             weak = kw is not None and typ_kwh and med > 0 and kw < (typ_kwh[1] / (med / 60.0)) * WEAK_LOAD_SHARE
             cards.append({"cap": "FÜLLUNG ABGEBRANNT",
                           "color": COLOR_WARNING if weak else COLOR_WOOD,
@@ -819,7 +822,8 @@ class WaermeTab(UiQueuePumpMixin):
                           # Korridor auf dem Balken sichtbar machen: so ist zu sehen,
                           # wie unscharf die Aussage ist, statt nur eines Fuellstands.
                           "span": (early / med, late / med) if med > 0 else None,
-                          "note": (f"schwach · {kw:.0f} kW" if weak else note)})
+                          "note": (f"schwach · {kw:.0f} kW" if weak
+                                   else (f"{kw:.0f} kW · {frac * 100:.0f} %" if kw else note))})
         elif burning:
             cards.append({"cap": "FÜLLUNG", "val": "brennt", "color": COLOR_WOOD, "kind": None,
                           "sub": (f"seit {self._fmt_hm(burn_min)}" if burn_min else "Brennzeit wird gemessen"),

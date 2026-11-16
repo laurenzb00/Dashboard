@@ -553,7 +553,18 @@ def logs_and_perf(zf: zipfile.ZipFile) -> None:
             if "ERROR" in line or "WARNING" in line or "Traceback" in line:
                 msg = line.split(" - ")[-1] if " - " in line else line
                 c[norm.sub("#", msg)[:140]] += 1
-        say(f"{rel}: {p.stat().st_size / 1e6:.1f} MB, häufigste Warnungen/Fehler (letzte 3000 Zeilen):")
+        # Alter und Zeitraum ausweisen: datenerfassung.log wurde zuletzt im
+        # Februar 2026 beschrieben, der Bericht zeigte die 353 Fehler daraus aber
+        # wie aktuelle. Ohne diese Zeile ist ein totes Log nicht zu erkennen.
+        alter_tage = (time.time() - p.stat().st_mtime) / 86400.0
+        stempel = re.findall(r"^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2})", text, re.M)
+        zeitraum = f"{stempel[0]} … {stempel[-1]}" if stempel else "keine Zeitstempel erkannt"
+        hinweis = "  << VERALTET" if alter_tage > 2 else ""
+        say(f"{rel}: {p.stat().st_size / 1e6:.1f} MB, zuletzt beschrieben vor "
+            f"{alter_tage:.1f} Tagen{hinweis}")
+        say(f"             ausgewertete Zeilen: {zeitraum}")
+        if not c:
+            say("             keine Warnungen/Fehler darin")
         for msg, n in c.most_common(12):
             say(f"  {n:5d}× {redact(msg)}")
     perf = ROOT / "data" / "perf_log.jsonl"
@@ -590,6 +601,18 @@ def logs_and_perf(zf: zipfile.ZipFile) -> None:
             say(f"  RAM-Trend: erste Stunde Ø {sum(rss[:60]) / 60:.0f} MB -> letzte Stunde Ø {sum(rss[-60:]) / 60:.0f} MB")
         thr = {r.get("throttled") for r in mins if r.get("throttled")}
         say(f"  Drosselung gemeldet: {thr or '-'}")
+    mem = [r for r in rows if r.get("kind") == "memtop"]
+    if mem:
+        last = mem[-1]
+        say(f"Speicher (tracemalloc, {len(mem)} Messungen, zuletzt {last.get('traced_mb')} MB verfolgt):")
+        say("  groesste Zuwaechse seit Programmstart:")
+        for row in last.get("top", [])[:8]:
+            say(f"  {row.get('kb', 0):7d} KB  {row.get('n', 0):6d} Objekte  {row.get('wo', '')}")
+        if len(mem) > 1:
+            say(f"  Verlauf verfolgt: {mem[0].get('traced_mb')} MB -> {last.get('traced_mb')} MB")
+    else:
+        say("Speicher: keine tracemalloc-Messung im Protokoll "
+            "(Dashboard mit neuem perf_monitor noch nicht lange genug gelaufen)")
     say(f"Hänger der Oberfläche (> 1 s): {len(frz)}")
     where = Counter()
     for f in frz:

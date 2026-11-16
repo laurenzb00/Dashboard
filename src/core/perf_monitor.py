@@ -10,6 +10,11 @@ Schreibt nach data/perf_log.jsonl (eine JSON-Zeile je Eintrag, max. 5 MB + 1 Alt
             gerade steckte (Stack) - zeigt direkt, welche Funktion blockiert.
 * "timing"  Dauer von bekannten schweren Aufgaben (Lernen, Prognose ...),
             Aufruf ueber `with timed("name"):`.
+* "memtop"  alle MEMTOP_MIN Minuten: die Stellen im Code, an denen der Speicher
+            seit dem Start am staerksten gewachsen ist (tracemalloc). Nur so
+            laesst sich ein Leck benennen statt zu raten - im November 2026
+            wuchs der Speicher gleichmaessig um rund 23 MB je Stunde, ohne dass
+            Threads oder Dateihandles zunahmen.
 
 Auswertung: python src/diagnose.py packt alles zusammen.
 """
@@ -34,12 +39,19 @@ MAX_BYTES = 5 * 1024 * 1024
 TICK_MS = 250
 FREEZE_S = 1.0
 SUMMARY_S = 60
+# tracemalloc kostet Rechenzeit und Speicher, darum selten und flach:
+MEMTOP_MIN = 30                 # Abstand zwischen zwei Speicher-Auswertungen
+MEMTOP_FRAMES = 3               # Tiefe der mitgefuehrten Aufrufpfade
+MEMTOP_N = 8                    # so viele Stellen protokollieren
+MEMTOP_MIN_KB = 200             # kleinere Zuwaechse sind Rauschen
 
 _lock = threading.Lock()
 _started = False
 _lags: list[float] = []
 _last_beat = time.monotonic()
 _freezes = 0
+_mem_base = None                # tracemalloc-Schnappschuss kurz nach dem Start
+_mem_next = 0.0
 
 
 def _write(entry: dict) -> None:
@@ -101,6 +113,43 @@ def _throttled() -> Optional[str]:
         return None
 
 
+def _mem_top() -> Optional[dict]:
+    """Groesste Speicherzuwaechse seit dem Startschnappschuss, oder None.
+
+    Vergleicht gegen einen Schnappschuss vom Programmstart, nicht gegen den
+    vorigen - ein Leck faellt dadurch auch dann auf, wenn es langsam ist.
+    """
+    global _mem_base, _mem_next
+    now = time.monotonic()
+    if now < _mem_next:
+        return None
+    _mem_next = now + MEMTOP_MIN * 60
+    try:
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            tracemalloc.start(MEMTOP_FRAMES)
+            _mem_base = tracemalloc.take_snapshot()
+            return None                      # erster Durchlauf ist nur der Nullpunkt
+        snap = tracemalloc.take_snapshot()
+        if _mem_base is None:
+            _mem_base = snap
+            return None
+        rows = []
+        for st in snap.compare_to(_mem_base, "traceback")[:MEMTOP_N * 3]:
+            kb = st.size_diff / 1024.0
+            if kb < MEMTOP_MIN_KB:
+                continue
+            wo = " <- ".join(f"{f.filename.split('/src/')[-1]}:{f.lineno}" for f in st.traceback)
+            rows.append({"kb": round(kb), "n": st.count_diff, "wo": wo})
+            if len(rows) >= MEMTOP_N:
+                break
+        cur, peak = tracemalloc.get_traced_memory()
+        return {"kind": "memtop", "traced_mb": round(cur / 1e6, 1),
+                "peak_mb": round(peak / 1e6, 1), "top": rows}
+    except Exception:
+        return None
+
+
 def _summary(proc) -> dict:
     global _lags, _freezes
     with _lock:
@@ -133,6 +182,9 @@ def _summary(proc) -> dict:
             e["sys_cpu_pct"] = psutil.cpu_percent(None)
         except Exception:
             pass
+    mt = _mem_top()
+    if mt is not None:
+        _write(mt)
     return e
 
 

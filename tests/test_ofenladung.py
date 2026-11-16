@@ -87,6 +87,67 @@ class TestLoadEnergy(unittest.TestCase):
         self.assertEqual(bi.load_burn_kwh(rows), [])
 
 
+class TestBurnPower(unittest.TestCase):
+    """Leistung der laufenden Fuellung aus der Steigung der Waermekurve.
+
+    Hintergrund: Waehrend der Kessel brennt ist die Waermezufuhr gleichmaessig
+    (R^2 0,86-0,99 ueber sechs Abbraende). Die drei Pufferfuehler zeigen den
+    Zuwachs aber sprunghaft, weil die untere Haelfte von Puffer 1 keinen Fuehler
+    hat. Die Ausgleichsgerade mittelt diesen Saegezahn heraus.
+    """
+
+    def _burn(self, minutes, kw_echt, cfg, stufen=False, start_lad=20.0):
+        """Minutenzeilen mit linear (oder sprunghaft) steigender Ladung."""
+        kwh_per_pct = cfg.puffer_kwh_per_k * (bi.T_LADUNG_100 - bi.T_LADUNG_0) / 100.0
+        rows = [{"ts": datetime(2026, 11, 16, 10, 0), "modus": "NACHLEGEN", "ladung": start_lad}]
+        t = datetime(2026, 11, 16, 10, 1)
+        for i in range(minutes):
+            zuwachs = kw_echt * (i / 60.0) / kwh_per_pct
+            if stufen:
+                # wie die echten Fuehler: haelt, dann springt
+                zuwachs = (int(zuwachs / 8.0) * 8.0)
+            rows.append({"ts": t, "modus": "VOLLLAST", "ladung": start_lad + zuwachs})
+            t += timedelta(minutes=1)
+        return rows
+
+    def test_power_from_linear_rise(self):
+        cfg = hs.StorageConfig()
+        bp = bi.burn_power(self._burn(120, 25.0, cfg), cfg)
+        self.assertIsNotNone(bp)
+        self.assertAlmostEqual(bp["kw"], 25.0, delta=1.0)
+        self.assertGreater(bp["r2"], 0.99)
+        self.assertAlmostEqual(bp["min"], 119, delta=2)
+
+    def test_stepped_sensors_still_give_the_right_slope(self):
+        """Der Saegezahn darf die Leistung nicht verfaelschen."""
+        cfg = hs.StorageConfig()
+        bp = bi.burn_power(self._burn(180, 25.0, cfg, stufen=True), cfg)
+        self.assertIsNotNone(bp)
+        self.assertAlmostEqual(bp["kw"], 25.0, delta=3.0)
+
+    def test_door_opening_does_not_cut_the_window(self):
+        """Nachsehen unterbricht die Waermezufuhr nur um Minuten."""
+        cfg = hs.StorageConfig()
+        rows = self._burn(150, 25.0, cfg)
+        rows[80]["modus"] = "NACHLEGEN"          # Blick mittendrin
+        bp = bi.burn_power(rows, cfg)
+        self.assertIsNotNone(bp)
+        self.assertAlmostEqual(bp["kw"], 25.0, delta=2.0)
+        self.assertGreater(bp["min"], 140)
+
+    def test_gluterhalt_ends_the_window(self):
+        cfg = hs.StorageConfig()
+        rows = self._burn(120, 25.0, cfg) + [
+            {"ts": datetime(2026, 11, 16, 12, 10), "modus": "GLUTERHALT.", "ladung": 60.0}]
+        self.assertIsNone(bi.burn_power(rows, cfg))
+
+    def test_too_short_and_flat_give_none(self):
+        cfg = hs.StorageConfig()
+        self.assertIsNone(bi.burn_power(self._burn(15, 25.0, cfg), cfg))   # zu kurz
+        self.assertIsNone(bi.burn_power(self._burn(120, 0.0, cfg), cfg))   # kein Anstieg
+        self.assertIsNone(bi.burn_power([], cfg))
+
+
 class TestCurrentLoad(unittest.TestCase):
     def test_running_load_is_reported(self):
         cfg = hs.StorageConfig()
@@ -118,21 +179,40 @@ class TestCurrentLoad(unittest.TestCase):
 
 
 class TestLoadBurnMinutes(unittest.TestCase):
-    def test_splits_one_session_into_loads(self):
-        # Eine durchgehende Sitzung mit drei Tueroeffnungen = drei Ladungen
-        rows = _rows([("STANDBY", 30),
-                      ("NACHLEGEN", 3), ("TEILLAST", 60), ("VOLLLAST", 30),      # 90
-                      ("NACHLEGEN", 3), ("TEILLAST", 45),                        # 45
-                      ("NACHLEGEN", 3), ("VOLLLAST", 70), ("GLUTERHALT.", 40)])  # 70
-        self.assertEqual([round(b) for b in bi.load_burn_minutes(rows)], [90, 45, 70])
+    def test_only_burnt_down_sections_count(self):
+        """Nur Abschnitte zaehlen, die wirklich abgebrannt sind.
 
-    def test_fire_brenn_min_would_lump_them_together(self):
-        """Gegenprobe: ueber die ganze Sitzung waeren es 205 min statt 3x ~68."""
-        rows = _rows([("NACHLEGEN", 3), ("TEILLAST", 60), ("VOLLLAST", 30),
-                      ("NACHLEGEN", 3), ("TEILLAST", 45),
-                      ("NACHLEGEN", 3), ("VOLLLAST", 70), ("GLUTERHALT.", 40)])
-        self.assertEqual(sum(bi.load_burn_minutes(rows)), 205)
-        self.assertEqual(len(bi.load_burn_minutes(rows)), 3)
+        Drei Tueroeffnungen, aber nur der letzte Abschnitt erreicht Gluterhalt.
+        Die ersten beiden enden, weil die Tuer aufging, waehrend es noch brannte -
+        sie sagen nichts darueber, wie lange eine Fuellung haelt.
+
+        Hintergrund (16.11.2026): Zaehlte jede Tueroeffnung mit, kamen 31 statt
+        5 Ladungen und ein Median von 91 statt 158 min heraus. Laurenz' voll
+        eingeraeumter Kessel brannte an dem Tag 234 min durchgehend, waehrend er
+        zwischendurch nur nachgesehen hatte - die Prognose lag dadurch zwei
+        Stunden zu frueh.
+        """
+        rows = _rows([("STANDBY", 30),
+                      ("NACHLEGEN", 3), ("TEILLAST", 60), ("VOLLLAST", 30),      # Bruchstueck
+                      ("NACHLEGEN", 3), ("TEILLAST", 45),                        # Bruchstueck
+                      ("NACHLEGEN", 3), ("VOLLLAST", 70), ("GLUTERHALT.", 40)])  # abgebrannt
+        self.assertEqual([round(b) for b in bi.load_burn_minutes(rows)], [70])
+
+    def test_burnt_down_then_relit_counts_both(self):
+        """Zwei Fuellungen, die beide wirklich abgebrannt sind, zaehlen beide."""
+        rows = _rows([("NACHLEGEN", 3), ("TEILLAST", 80), ("GLUTERHALT.", 20),
+                      ("NACHLEGEN", 3), ("VOLLLAST", 60), ("GLUTERHALT.", 15)])
+        self.assertEqual([round(b) for b in bi.load_burn_minutes(rows)], [80, 60])
+
+    def test_peek_during_burn_does_not_split(self):
+        """Nachsehen mitten im Brand darf die Fuellung nicht zerschneiden.
+
+        Der Abschnitt vor dem Blick ist ein Bruchstueck und faellt weg; gezaehlt
+        wird nur, was danach bis zum Gluterhalt durchlief.
+        """
+        rows = _rows([("NACHLEGEN", 3), ("VOLLLAST", 100),
+                      ("NACHLEGEN", 1), ("VOLLLAST", 110), ("GLUTERHALT.", 30)])
+        self.assertEqual([round(b) for b in bi.load_burn_minutes(rows)], [110])
 
     def test_extinguished_load_is_dropped(self):
         # 12 min Brennzeit = Fuellung praktisch wieder ausgegangen -> zaehlt nicht
@@ -184,9 +264,25 @@ class TestTypicalLoadBurn(unittest.TestCase):
         self.assertLessEqual(abs(a - b), 15.0)
 
     def test_too_few_loads_gives_none(self):
-        self.assertIsNone(bi.typical_load_burn(self._with_loads([60, 70, 80])))
-        self.assertIsNone(bi.typical_load_burn_min(self._with_loads([60, 70, 80])))
+        self.assertIsNone(bi.typical_load_burn(self._with_loads([60, 70])))
+        self.assertIsNone(bi.typical_load_burn_min(self._with_loads([60, 70])))
         self.assertIsNone(bi.typical_load_burn([]))
+
+    def test_small_sample_shows_full_range(self):
+        """Wenige Ladungen -> volle Spanne statt 25/75, sonst wirkt es zu genau."""
+        lo, med, hi, n = bi.typical_load_burn(self._with_loads([107, 158, 165, 246]))
+        self.assertEqual(n, 4)
+        self.assertEqual(lo, 107.0)
+        self.assertEqual(hi, 246.0)
+        self.assertAlmostEqual(med, 161.5)
+
+    def test_large_sample_uses_quantiles(self):
+        """Ab genug Ladungen wieder 25/75, sonst wird die Spanne von Ausreissern bestimmt."""
+        werte = [60, 70, 75, 80, 85, 90, 95, 100, 105, 300]
+        lo, med, hi, n = bi.typical_load_burn(self._with_loads(werte))
+        self.assertEqual(n, len(werte))
+        self.assertGreater(lo, 60.0)
+        self.assertLess(hi, 300.0)
 
     def test_min_helper_matches_median(self):
         rows = self._with_loads([40, 60, 70, 80, 90])

@@ -627,7 +627,8 @@ LOAD_MIN_KWH_SHARE = 0.10       # Anteil einer vollen Fuellung (~19 kWh); stabil
                                 # (Diagnose 13.11.: Median 84 min, stabil fuer Schwellen 15-30 min;
                                 #  mit 10 min rutschen zwei erloschene Fuellungen rein -> 76 min)
 TYPICAL_LOADS = 20              # Median ueber die letzten N Ofenladungen
-TYPICAL_LOADS_MIN_N = 5         # darunter keine Aussage
+TYPICAL_LOADS_MIN_N = 3         # darunter keine Aussage
+TYPICAL_LOADS_WIDE_N = 8        # bis dahin die volle Spanne statt 25/75 zeigen
 
 
 def _scan_loads(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) -> list[dict]:
@@ -656,9 +657,16 @@ Ein Abschnitt beginnt mit einem NACHLEGEN-Block (die Tuer zu oeffnen setzt den
     def close(by_nachlegen: bool):
         if cur is None:
             return
-        # Ohne Ladungsdaten kann die Waerme nicht geprueft werden -> nur die Zeit zaehlt
+        # Eine Ladung zaehlt NUR, wenn sie nachweislich abgebrannt ist, also
+        # Gluterhalt oder Standby erreicht hat. Wird die Tuer geoeffnet, waehrend
+        # das Feuer noch laeuft (nachsehen, schueren, nachlegen auf Glut), ist der
+        # Abschnitt ein Bruchstueck und sagt nichts darueber, wie lange eine
+        # Fuellung haelt. Vorher schloss jede Tueroeffnung eine Ladung ab:
+        # 31 statt 5 Ladungen und Median 91 statt 158 min - waehrend Laurenz'
+        # voll eingeraeumter Kessel am 16.11.2026 234 min durchgehend brannte.
+        # Ohne Ladungsdaten kann die Waerme nicht geprueft werden -> nur die Zeit zaehlt.
         enough_heat = cur["kwh"] is None or cur["kwh"] >= min_kwh
-        if cur["min"] >= LOAD_MIN_BURN_MIN and enough_heat and (by_nachlegen or cur["done"]):
+        if cur["min"] >= LOAD_MIN_BURN_MIN and enough_heat and cur["done"]:
             cur["closed"] = True
             out.append(cur)
         elif not by_nachlegen and cur["min"] > 0:
@@ -706,6 +714,76 @@ def load_burn_kwh(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) 
     return [k for _, k in load_burns(rows, cfg) if k is not None]
 
 
+BURN_POWER_MIN_MIN = 25.0       # kuerzer ist die Gerade nicht belastbar
+BURN_POWER_CLIP = (2.0, 60.0)   # kW, ausserhalb ist es kein plausibler Abbrand
+BURN_POWER_MIN_R2 = 0.80        # darunter ist die Gerade noch nicht belastbar
+
+
+def burn_power(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) -> Optional[dict]:
+    """Leistung der laufenden Fuellung als {kw, r2, min} - oder None.
+
+    Waehrend der Kessel brennt ist die Waermezufuhr annaehernd gleichmaessig:
+    ueber fuenf vollstaendige Abbraende (Diagnose 16.11.2026) liegt das
+    Bestimmtheitsmass der Ausgleichsgeraden bei 0,89 bis 0,99. Die Leistung
+    schwankt aber von Abbrand zu Abbrand um rund 28 % (10,7 bis 27,0 kW), darum
+    wird die Gerade je Brand neu gefittet statt eine feste Leistung anzunehmen.
+
+    Der Nutzen: die drei Pufferfuehler zeigen den Zuwachs nur sprunghaft, weil
+    die untere Haelfte von Puffer 1 gar keinen Fuehler hat und die Waermefront
+    dort unbeobachtet steht (siehe claude/puffer-waermefront-sprung.md: zwei
+    Spruenge von je rund 52 kWh an einem einzigen Abbrand). Die Gerade mittelt
+    diesen Saegezahn heraus - gemessen +-20 kWh um die Gerade.
+    """
+    cfg = cfg or hs.load_storage_config()
+    kwh_per_pct = cfg.puffer_kwh_per_k * (T_LADUNG_100 - T_LADUNG_0) / 100.0
+    # Rueckwaerts bis zum Beginn des laufenden Brands sammeln
+    # Fenster ist die ganze zusammenhaengende Brennphase. Eine Tueroeffnung
+    # beendet sie NICHT: nachsehen, schueren und Nachlegen auf Glut unterbrechen
+    # die Waermezufuhr nur um Minuten. Bricht man dort ab, bleiben Bruchstuecke
+    # uebrig, in denen der Saegezahn der Fuehler die Steigung voellig verfaelscht
+    # (am 16.11.2026 schwankte die Schaetzung dadurch zwischen 7 und 60 kW).
+    if not rows or phase_of(rows[-1].get("modus") or "") in ("gluterhalt", "aus"):
+        return None                       # brennt gerade nicht
+    pts: list[tuple] = []
+    for r in reversed(rows):
+        ph = phase_of(r.get("modus") or "")
+        if ph in ("gluterhalt", "aus"):
+            break
+        if ph in ("teillast", "volllast", "nachlegen", "anheizen"):
+            lad = r.get("ladung")
+            if lad is not None:
+                pts.append((r["ts"], lad * kwh_per_pct))
+            continue
+        if pts:
+            break
+    if len(pts) < 10:
+        return None
+    pts.reverse()
+    t0 = pts[0][0]
+    minutes = (pts[-1][0] - t0).total_seconds() / 60.0
+    if minutes < BURN_POWER_MIN_MIN:
+        return None
+    xs = [(t - t0).total_seconds() / 3600.0 for t, _ in pts]
+    ys = [q for _, q in pts]
+    n = len(xs)
+    mx, my = sum(xs) / n, sum(ys) / n
+    den = sum((x - mx) ** 2 for x in xs)
+    if den <= 0:
+        return None
+    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
+    inter = my - slope * mx
+    sst = sum((y - my) ** 2 for y in ys)
+    ssr = sum((y - (inter + slope * x)) ** 2 for x, y in zip(xs, ys))
+    r2 = (1 - ssr / sst) if sst > 0 else 0.0
+    if slope < BURN_POWER_CLIP[0] or r2 < BURN_POWER_MIN_R2:
+        # Solange die Waermefront noch im unbeobachteten Teil von Puffer 1 steht,
+        # ist die Messkurve flach und die Gerade sagt nichts. Erst wenn ein Fuehler
+        # erreicht ist, wird der Fit tragfaehig - am 16.11.2026 nach rund 90 min.
+        return None
+    return {"kw": max(BURN_POWER_CLIP[0], min(BURN_POWER_CLIP[1], slope)),
+            "r2": r2, "min": minutes}
+
+
 def current_load(rows: Sequence[dict], cfg: Optional[hs.StorageConfig] = None) -> Optional[dict]:
     """Die gerade brennende Ofenladung als {min, kwh, kw} - oder None.
 
@@ -736,9 +814,15 @@ def _quantiles(values: Sequence[float], n: int) -> Optional[tuple]:
     if len(xs) < TYPICAL_LOADS_MIN_N:
         return None
     k = len(xs)
-    q = lambda p: xs[min(k - 1, max(0, int(round(p * (k - 1)))))]
     mid = k // 2
     med = xs[mid] if k % 2 else (xs[mid - 1] + xs[mid]) / 2.0
+    if k < TYPICAL_LOADS_WIDE_N:
+        # Bei wenigen Werten liegen die 25-/75-%-Quantile dicht am Median und
+        # taeuschen eine Genauigkeit vor, die nicht da ist: aus [107, 158, 165, 246]
+        # wuerde 158-165, obwohl die Ladungen zwischen 107 und 246 min streuen.
+        # Darum die volle Spanne, bis genug Ladungen beisammen sind.
+        return xs[0], med, xs[-1], k
+    q = lambda p: xs[min(k - 1, max(0, int(round(p * (k - 1)))))]
     return q(0.25), med, q(0.75), k
 
 
