@@ -42,6 +42,7 @@ except ImportError:
 
 
 POLL_INTERVAL_MS = 5000
+POLL_IDLE_MS = 30000            # Takt, solange der Spotify-Tab nicht sichtbar ist
 # War (260, 260), dann (380, 380), dann (480, 480) - auf erneuten Wunsch
 # nochmal groesser. Die linke Haelfte des Now-Playing-Cards ist eine feste
 # Grid-Spalte (container.columnconfigure(0, weight=1)) unabhaengig von der
@@ -106,7 +107,14 @@ class SpotifyTab(UiQueuePumpMixin):
         body.pack(fill=BOTH, expand=True, pady=(16, 0))
         self.device_container = tk.Frame(body, bg=COLOR_ROOT)
         self.device_container.pack(fill=BOTH, expand=True)
-        tk.Label(self.device_container, text="Keine Geräte geladen", bg=COLOR_ROOT, fg=COLOR_TEXT).grid(row=0, column=0, pady=12)
+        # Platzhalter in einem Attribut halten, damit _update_devices ihn
+        # gezielt entfernen kann. Vorher raeumte dort ein destroy() ueber alle
+        # Kinder auf; seit die Kacheln wiederverwendet werden, gibt es diesen
+        # Rundumschlag nicht mehr.
+        self._device_empty_label = tk.Label(
+            self.device_container, text="Keine Geräte geladen",
+            bg=COLOR_ROOT, fg=COLOR_TEXT)
+        self._device_empty_label.grid(row=0, column=0, pady=12)
 
     def _update_login_url(self, url: str) -> None:
         """Speichert die aktuelle Login-URL und aktualisiert die UI-Variable."""
@@ -212,6 +220,16 @@ class SpotifyTab(UiQueuePumpMixin):
         # Use provided frame or create legacy one
         if tab_frame is not None:
             self.tab_frame = tab_frame
+            # Sichtbar werden heisst: sofort frische Daten holen, statt bis
+            # zu POLL_IDLE_MS zu warten (siehe _schedule_next_poll).
+            # Faellt das Ereignis bei diesem Tabview nicht an, bleibt
+            # winfo_ismapped() ohnehin dauerhaft wahr und die Drosselung
+            # greift gar nicht - in beiden Faellen stimmt das Verhalten.
+            try:
+                self.tab_frame.bind("<Map>", lambda _e: self._on_tab_shown(),
+                                    add="+")
+            except Exception:
+                pass
         else:
             self.tab_frame = tk.Frame(self.notebook, bg=COLOR_ROOT)
             # Icon ergaenzt, damit dieser Fallback-Pfad (nur relevant, wenn
@@ -669,9 +687,36 @@ class SpotifyTab(UiQueuePumpMixin):
         else:
             self._schedule_next_poll()
 
+    def _tab_sichtbar(self) -> bool:
+        try:
+            return bool(self.tab_frame.winfo_ismapped())
+        except Exception:
+            return True
+
     def _schedule_next_poll(self):
+        # Zwei HTTPS-Abfragen alle 5 s, rund um die Uhr - das sind gut 17000
+        # Abrufe am Tag, und jede Antwort loest Widget-Arbeit im
+        # Oberflaechen-Thread aus. Wer gerade einen anderen Tab ansieht,
+        # bekommt davon nichts zu sehen. Niemand ausserhalb dieses Tabs
+        # benutzt die Wiedergabedaten (geprueft am 16.11.2026), also reicht
+        # im Hintergrund ein deutlich langsamerer Takt. Beim Wechsel zurueck
+        # holt _on_tab_shown() sofort einen frischen Stand.
         if self.alive:
-            self._poll_job = self.root.after(POLL_INTERVAL_MS, self._poll_playback)
+            delay = POLL_INTERVAL_MS if self._tab_sichtbar() else POLL_IDLE_MS
+            self._poll_job = self.root.after(delay, self._poll_playback)
+
+    def _on_tab_shown(self) -> None:
+        """Vom Haupt-Tabwechsel aufrufen: sofort neu abfragen."""
+        if not self.alive:
+            return
+        # <Map> kann feuern, bevor die erste Abfrage ueberhaupt eingeplant war.
+        try:
+            job = getattr(self, "_poll_job", None)
+            if job:
+                self.root.after_cancel(job)
+        except Exception:
+            pass
+        self._poll_job = self.root.after(50, self._poll_playback)
 
     def _poll_worker(self):
         try:
@@ -745,29 +790,45 @@ class SpotifyTab(UiQueuePumpMixin):
         artists = ", ".join(a.get("name", "") for a in item.get("artists", [])) or "–"
         album = item.get("album", {}).get("name") or "–"
 
-        self.track_var.set(track)
-        self.artist_var.set(artists)
-        self.album_var.set(album)
+        # Diese Methode laeuft alle 5 s. Jeder Schreibzugriff auf eine
+        # StringVar und jedes configure() ist ein Tk-Aufruf, der ein Neuzeichnen
+        # anstossen kann - auch dann, wenn sich der Wert nicht geaendert hat.
+        # Zwischen zwei Abfragen aendert sich normalerweise nur die Laufzeit.
+        def _setze(var, wert):
+            try:
+                if var.get() != wert:
+                    var.set(wert)
+            except Exception:
+                var.set(wert)
+
+        _setze(self.track_var, track)
+        _setze(self.artist_var, artists)
+        _setze(self.album_var, album)
 
         duration_ms = item.get("duration_ms") or 0
         progress_ms = playback.get("progress_ms") or 0
-        self.progress_var.set(f"{self._fmt_time(progress_ms)} / {self._fmt_time(duration_ms)}")
+        _setze(self.progress_var,
+               f"{self._fmt_time(progress_ms)} / {self._fmt_time(duration_ms)}")
 
-        is_playing = playback.get("is_playing")
-        if is_playing:
-            self.play_button.configure(image=self._icon_pause, fg_color=COLOR_SUCCESS, border_color=COLOR_SUCCESS)
-        else:
-            self.play_button.configure(image=self._icon_play, fg_color=COLOR_CARD, border_color=COLOR_BORDER)
+        is_playing = bool(playback.get("is_playing"))
+        if is_playing != getattr(self, "_last_is_playing", None):
+            self._last_is_playing = is_playing
+            if is_playing:
+                self.play_button.configure(image=self._icon_pause, fg_color=COLOR_SUCCESS, border_color=COLOR_SUCCESS)
+            else:
+                self.play_button.configure(image=self._icon_play, fg_color=COLOR_CARD, border_color=COLOR_BORDER)
 
         volume = playback.get("device", {}).get("volume_percent")
         if volume is not None:
             # set_value ignoriert Updates, waehrend der Finger auf dem Regler ist
             self.volume_scale.set_value(volume)
 
-        self.shuffle_var.set(bool(playback.get("shuffle_state", False)))
+        _setze(self.shuffle_var, bool(playback.get("shuffle_state", False)))
         repeat = playback.get("repeat_state", "off")
-        self.repeat_mode.set(repeat)
-        self.repeat_button.configure(text=f"Repeat: {repeat}")
+        if repeat != getattr(self, "_last_repeat", None):
+            self._last_repeat = repeat
+            self.repeat_mode.set(repeat)
+            self.repeat_button.configure(text=f"Repeat: {repeat}")
 
         if track_id != self._last_track_id and track_id:
             images = item.get("album", {}).get("images") or item.get("images") or []
@@ -807,10 +868,22 @@ class SpotifyTab(UiQueuePumpMixin):
         threading.Thread(target=worker, daemon=True).start()
 
     def _update_like_state(self, track_id: str) -> None:
+        """Netzabfrage in einem Worker - sie lief vorher im Oberflaechen-Thread.
+
+        _update_now_playing wird per _post_ui im Tk-Thread ausgefuehrt und rief
+        diese Methode bei jedem Titelwechsel direkt auf. Der HTTPS-Aufruf hat
+        damit die Oberflaeche angehalten; im Leistungslog vom 16.11.2026 stehen
+        152 Haenger mit ssl.read als letztem Frame.
+        """
+        threading.Thread(target=self._update_like_state_worker,
+                         args=(track_id,), daemon=True).start()
+
+    def _update_like_state_worker(self, track_id: str) -> None:
         liked = self._safe_spotify_call(self.client.current_user_saved_tracks_contains, [track_id])
         if isinstance(liked, list) and liked:
             self._liked_track = bool(liked[0])
-            self._sync_like_button()
+            # Widgets nur aus dem Tk-Thread anfassen.
+            self._post_ui(self._sync_like_button)
 
     def _sync_like_button(self) -> None:
         if self._liked_track:
@@ -1033,11 +1106,31 @@ class SpotifyTab(UiQueuePumpMixin):
             return
         self._devices_sig = sig
         self._devices = devices
-        for child in self.device_container.winfo_children():
-            child.destroy()
+        # Fruehere Fassung hat bei jeder Aenderung alle Kacheln zerstoert und
+        # neu angelegt. Im Leistungslog vom 16.11.2026 war das mit 234 Haengern
+        # und 498 Sekunden der groesste Einzelposten: eine CTkButton besteht aus
+        # mehreren Tk-Widgets, und jedes destroy() hinterlaesst Eintraege in der
+        # Tcl-Befehlstabelle, die alle spaeteren Canvas- und Widget-Aufrufe
+        # langsamer machen. Jetzt werden die Kacheln anhand der Geraete-ID
+        # wiederverwendet; im haeufigsten Fall - nur is_active hat gewechselt -
+        # bleibt es bei zwei configure()-Aufrufen.
+        tiles: dict = getattr(self, "_device_tiles", None)
+        if tiles is None:
+            tiles = self._device_tiles = {}
+
         if not devices:
-            tk.Label(self.device_container, text="Keine Ger\u00e4te", bg=COLOR_ROOT, fg=COLOR_TEXT).grid(row=0, column=0, pady=8)
+            for btn, _ in tiles.values():
+                btn.destroy()
+            tiles.clear()
+            if getattr(self, "_device_empty_label", None) is None:
+                self._device_empty_label = tk.Label(
+                    self.device_container, text="Keine Ger\u00e4te",
+                    bg=COLOR_ROOT, fg=COLOR_TEXT)
+                self._device_empty_label.grid(row=0, column=0, pady=8)
             return
+        if getattr(self, "_device_empty_label", None) is not None:
+            self._device_empty_label.destroy()
+            self._device_empty_label = None
 
         # Raster-Layout (statt Liste)
         container_width = self.device_container.winfo_width()
@@ -1051,24 +1144,46 @@ class SpotifyTab(UiQueuePumpMixin):
             self.device_container.grid_columnconfigure(col, weight=1, uniform="device")
 
         active_id = next((dev.get("id") for dev in devices if dev.get("is_active")), None)
+        seen = set()
         for idx, dev in enumerate(devices):
+            dev_id = dev.get("id") or f"_pos{idx}"
+            seen.add(dev_id)
             is_active = dev.get("id") == active_id
             text = f"{dev.get('name', 'Gerät')}\n{dev.get('type', '')}"
-            row = idx // col_count
-            col = idx % col_count
-            ctk.CTkButton(
-                self.device_container,
-                text=text,
-                height=56,
-                command=lambda d=dev: self._activate_device(d),
-                fg_color=COLOR_PRIMARY if is_active else COLOR_CARD,
-                hover_color=COLOR_PRIMARY if is_active else COLOR_BORDER,
-                text_color=COLOR_TEXT,
-                border_width=1,
-                border_color=COLOR_PRIMARY if is_active else COLOR_BORDER,
-                corner_radius=14,
-                font=get_safe_font("Bahnschrift", 12, "bold"),
-            ).grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+            row, col = idx // col_count, idx % col_count
+            accent = COLOR_PRIMARY if is_active else COLOR_CARD
+            border = COLOR_PRIMARY if is_active else COLOR_BORDER
+            hover = COLOR_PRIMARY if is_active else COLOR_BORDER
+            entry = tiles.get(dev_id)
+            if entry is None:
+                btn = ctk.CTkButton(
+                    self.device_container,
+                    text=text,
+                    height=56,
+                    command=lambda d=dev: self._activate_device(d),
+                    fg_color=accent,
+                    hover_color=hover,
+                    text_color=COLOR_TEXT,
+                    border_width=1,
+                    border_color=border,
+                    corner_radius=14,
+                    font=get_safe_font("Bahnschrift", 12, "bold"),
+                )
+                btn.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+                tiles[dev_id] = (btn, (text, accent, border, row, col))
+                continue
+            btn, prev = entry
+            # Jedes configure() ist ein Tk-Aufruf, also nur bei echter Aenderung.
+            if prev[:3] != (text, accent, border):
+                btn.configure(text=text, fg_color=accent,
+                              hover_color=hover, border_color=border)
+            btn.configure(command=lambda d=dev: self._activate_device(d))
+            if prev[3:] != (row, col):
+                btn.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+            tiles[dev_id] = (btn, (text, accent, border, row, col))
+
+        for gone in [k for k in tiles if k not in seen]:
+            tiles.pop(gone)[0].destroy()
 
     def _activate_device(self, device: dict):
         if not self.client or not device.get("id"):
@@ -1084,20 +1199,47 @@ class SpotifyTab(UiQueuePumpMixin):
             self._update_devices(devices.get("devices", []))
 
     def _refresh_playlists(self):
+        """Wird beim Wechsel auf den Playlists-Unterreiter aufgerufen.
+
+        Der Abruf lief vorher im Oberflaechen-Thread: ein Tipp auf den Reiter
+        hielt die Anzeige fuer eine HTTPS-Antwort an. Jetzt im Worker.
+        """
         if not self.client:
             return
-        response = self._safe_spotify_call(self.client.current_user_playlists, limit=40)
-        self._playlists_data = (response or {}).get("items", [])
-        self._render_playlists()
+        def worker():
+            response = self._safe_spotify_call(
+                self.client.current_user_playlists, limit=40)
+            items = (response or {}).get("items", [])
+
+            def apply():
+                if not self.alive:
+                    return
+                self._playlists_data = items
+                self._render_playlists()
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _render_playlists(self):
+        # Neuaufbau nur, wenn sich die Liste wirklich geaendert hat. Jeder
+        # Durchlauf zerstoert bis zu 40 Zellen samt Bild-Button und legt sie
+        # neu an - und jedes destroy() macht alle spaeteren Tk-Aufrufe ein
+        # Stueck langsamer. Beim blossen Hin- und Herwechseln des Reiters war
+        # das komplett umsonst.
+        sig = tuple((pl.get("id"), pl.get("name"),
+                     pl.get("tracks", {}).get("total"))
+                    for pl in self._playlists_data)
+        if sig == getattr(self, "_playlists_sig", None):
+            return
+        self._playlists_sig = sig
         for child in self.playlist_inner.winfo_children():
             child.destroy()
-        # Sort playlists by last played (if available), else by size
-            def id_key(pl):
-                # Use the 'id' field for sorting
-                return pl.get('id', '')
-            filtered = sorted(self._playlists_data, key=id_key)
+        # Einrueckung korrigiert: id_key und filtered standen im destroy-Loop.
+        # Dadurch wurde die Liste einmal pro vorhandenem Kind-Widget sortiert -
+        # und war beim ersten Aufruf, wenn es noch keine Kinder gab, ueberhaupt
+        # nicht gesetzt (NameError in der Zeile darunter).
+        filtered = sorted(self._playlists_data, key=lambda pl: pl.get('id', ''))
         if not filtered:
             tk.Label(self.playlist_inner, text="Keine Playlists gefunden", bg=COLOR_ROOT, fg=COLOR_TEXT).pack(pady=16)
             return

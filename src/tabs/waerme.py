@@ -22,6 +22,7 @@ import logging
 import math
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from datetime import date, datetime, timedelta
 
 import customtkinter as ctk
@@ -71,6 +72,7 @@ LIVE_BMK_HOURS = 12.0           # Vorlauf fuer Trend/Brennzeit der Live-Deutung
 LIVE_BMK_MAX_AGE_MIN = 15.0     # aelter -> keine Live-Aussage mehr
 WEAK_LOAD_SHARE = 0.5           # Ladeleistung unter der Haelfte der ueblichen -> schwacher Abbrand
 COLOR_SOLAR = "#f4b63d"
+TANK_QUANT_K = 0.5              # Farbstufe des Tankverlaufs, siehe tank_gradient_bands
 
 # Gleiche Farbskala wie die Puffer-Heatmap im Energie-Tab (ui/temp_colors.py)
 from ui.temp_colors import temp_color  # noqa: E402
@@ -92,6 +94,112 @@ def tank_layer_temp(frac: float, t_top, t_bot) -> float | None:
     if frac >= 0.9:
         return t_bot
     return t_top + (t_bot - t_top) * (frac - 0.1) / 0.8
+
+
+def tank_gradient_bands(x, y, w, h, t_top, t_bot, color_fn, quant_k=TANK_QUANT_K):
+    """Rechtecke des Farbverlaufs eines Tanks, von oben nach unten.
+
+    Der Verlauf entstand vorher als ein Rechteck je 1-2 Pixel Tankhoehe: bei
+    drei Tanks rund 700 Canvas-Objekte pro Redraw. Je mehr Objekte auf einer
+    Canvas liegen, desto langsamer wird jeder weitere Tk-Aufruf darauf - im
+    Leistungslog vom 16.11.2026 standen create/coords/find/gettags an der
+    Spitze der Haenger.
+
+    Diese Fassung fasst im geraden Teil des Tanks benachbarte Baender mit
+    identischer Farbe zu einem Rechteck zusammen. Das Ergebnis ist Pixel fuer
+    Pixel dasselbe Bild - ein Verlauf von 38 auf 66 Grad hat nur einige Dutzend
+    verschiedene Farben, nicht 250. In den Rundungen bleibt es bei einem Band
+    je Zeile, weil dort jede Zeile ihren eigenen Einzug braucht.
+
+    Wie viel das bringt, haengt davon ab, wie feinstufig color_fn ist. Loest
+    die Farbskala jedes Zehntelgrad anders auf, gibt es nichts zusammenzufassen.
+    Darum wird die Temperatur vorher auf quant_k Grad gerundet: 0,5 K ist im
+    Verlauf nicht zu sehen, begrenzt die Zahl der Rechtecke aber verlaesslich.
+    Mit quant_k=0 bleibt das Bild Pixel fuer Pixel das alte.
+    """
+    r = min(w * 0.22, 26)
+    yy = float(y)
+    run_y0 = run_y1 = run_col = None
+    while yy < y + h:
+        dy_top = yy - y + 0.5
+        dy_bot = (y + h) - yy - 0.5
+        in_corner = dy_top < r or dy_bot < r
+        step = 1.0 if in_corner else 2.0
+        inset = 0.0
+        if dy_top < r:
+            inset = r - math.sqrt(max(0.0, r * r - (r - dy_top) ** 2))
+        elif dy_bot < r:
+            inset = r - math.sqrt(max(0.0, r * r - (r - dy_bot) ** 2))
+        t = tank_layer_temp((yy - y) / h, t_top, t_bot)
+        if quant_k and t is not None:
+            t = round(t / quant_k) * quant_k
+        col = color_fn(t)
+        if in_corner:
+            if run_col is not None:
+                yield (x, run_y0, x + w, run_y1, run_col)
+                run_y0 = run_y1 = run_col = None
+            yield (x + inset, yy, x + w - inset, yy + step, col)
+        elif run_col == col:
+            run_y1 = yy + step
+        else:
+            if run_col is not None:
+                yield (x, run_y0, x + w, run_y1, run_col)
+            run_y0, run_y1, run_col = yy, yy + step, col
+        yy += step
+    if run_col is not None:
+        yield (x, run_y0, x + w, run_y1, run_col)
+
+
+_FONT_CACHE: dict = {}
+
+
+def text_breite(spec, text: str):
+    """Textbreite in Pixel, ohne ein Canvas-Objekt anzulegen.
+
+    Die Karten der Faktenleiste haben ihre Schriftgroesse vorher ausgemessen,
+    indem sie bis zu fuenf Textobjekte erzeugt, mit bbox() vermessen und wieder
+    verworfen haben; _fit() hat eine Beschriftung zeichenweise gekuerzt und nach
+    jedem Schritt itemconfigure() und bbox() aufgerufen. Beides sind Aufrufe auf
+    einem Canvas-Objekt, die ein Neuzeichnen anstossen. tkfont.measure() fragt
+    nur die Schriftmetrik ab.
+
+    Gibt None zurueck, wenn keine Schriftmetrik verfuegbar ist (etwa ohne
+    laufendes Tk) - die Aufrufer fallen dann auf den alten Weg zurueck.
+    """
+    try:
+        key = tuple(spec) if isinstance(spec, (list, tuple)) else spec
+        font = _FONT_CACHE.get(key)
+        if font is None:
+            font = _FONT_CACHE[key] = tkfont.Font(font=spec)
+        return font.measure(text)
+    except Exception:
+        return None
+
+
+def kuerzen(text: str, maxw: float, messen) -> str:
+    """Text auf maxw kuerzen und mit Auslassungszeichen versehen.
+
+    messen(str) -> float liefert die Breite. Reine Funktion, damit sie ohne Tk
+    pruefbar ist; Intervallhalbierung statt Schritt fuer Schritt.
+
+    Anders als die Vorfassung hoert die Kuerzung nicht bei vier Zeichen auf.
+    Dort blieb in sehr schmalen Karten ein zu breiter Rest stehen und lief
+    genau in die Nachbarkarte, was _fit() ja verhindern soll. Im Zweifel
+    bleibt nur das Auslassungszeichen uebrig.
+    """
+    if messen(text) <= maxw:
+        return text
+    lo, hi = 0, len(text)
+    best = None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        kandidat = text[:mid] + "\u2026"
+        if messen(kandidat) <= maxw:
+            best = kandidat
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best if best is not None else "\u2026"
 
 
 class TankCanvas(tk.Canvas):
@@ -121,20 +229,9 @@ class TankCanvas(tk.Canvas):
 
     def _tank(self, x, y, w, h, t_top, t_bot, title, subtitle, labels=(), note=""):
         r = min(w * 0.22, 26)
-        yy = float(y)
-        while yy < y + h:
-            dy_top = yy - y + 0.5
-            dy_bot = (y + h) - yy - 0.5
-            in_corner = dy_top < r or dy_bot < r
-            step = 1.0 if in_corner else 2.0
-            inset = 0.0
-            if dy_top < r:
-                inset = r - math.sqrt(max(0.0, r * r - (r - dy_top) ** 2))
-            elif dy_bot < r:
-                inset = r - math.sqrt(max(0.0, r * r - (r - dy_bot) ** 2))
-            col = temp_color(tank_layer_temp((yy - y) / h, t_top, t_bot))
-            self.create_rectangle(x + inset, yy, x + w - inset, yy + step, fill=col, outline="")
-            yy += step
+        for x0, y0, x1, y1, col in tank_gradient_bands(
+                x, y, w, h, t_top, t_bot, temp_color):
+            self.create_rectangle(x0, y0, x1, y1, fill=col, outline="")
         # Umriss: exakt dieselben Radien wie die Fuellung
         oc, ow = "#d7dde8", 2
         self.create_line(x + r, y, x + w - r, y, fill=oc, width=ow)
@@ -286,6 +383,12 @@ class _FactsStrip(tk.Canvas):
         einfach weiter - im Hochformat sind die Karten schmal genug, dass die
         Unterzeile sonst in die Nachbarkarte ragt.
         """
+        probe = text_breite(font, text)
+        if probe is not None:
+            gekuerzt = kuerzen(text, maxw, lambda t: text_breite(font, t) or 0)
+            return self.create_text(x, y, text=gekuerzt, anchor="w",
+                                    font=font, **kw)
+        # Rueckfall ohne Schriftmetrik: wie vorher am Canvas-Objekt messen.
         item = self.create_text(x, y, text=text, anchor="w", font=font, **kw)
         try:
             t = text
@@ -350,20 +453,35 @@ class _FactsStrip(tk.Canvas):
         self._round_rect(x, y, w, h, fill=COLOR_CARD, outline=COLOR_BORDER)
         pad = 14
         self.create_oval(x + pad, y + 12, x + pad + 8, y + 20, fill=c["color"], outline="")
-        cap_item = self.create_text(x + pad + 14, y + 16, text=c["cap"], anchor="w", fill=COLOR_SUBTEXT,
-                                    font=get_safe_font("Bahnschrift", 12, "bold"))
+        cap_font = get_safe_font("Bahnschrift", 12, "bold")
+        cap_item = self.create_text(x + pad + 14, y + 16, text=c["cap"], anchor="w",
+                                    fill=COLOR_SUBTEXT, font=cap_font)
         # Der grosse Wert ist hier nicht immer eine Zahl, sondern auch mal ein Satz
         # ("Heute Abend einheizen"). Groesse so weit reduzieren, bis er in die Karte
         # passt, statt ihn am Rand abzuschneiden.
+        verfuegbar = x + w - pad - (x + pad)
+        gewaehlt = None
         for size in (22, 19, 17, 15, 13):
-            val_item = self.create_text(x + pad, y + 40, text=c["val"], anchor="w", fill=c["color"],
-                                        font=get_safe_font("Bahnschrift", size, "bold"))
-            try:
-                if self.bbox(val_item)[2] <= x + w - pad or size == 13:
-                    break
-            except Exception:
+            breite = text_breite(get_safe_font("Bahnschrift", size, "bold"), c["val"])
+            if breite is None:
                 break
-            self.delete(val_item)
+            if breite <= verfuegbar or size == 13:
+                gewaehlt = size
+                break
+        if gewaehlt is not None:
+            self.create_text(x + pad, y + 40, text=c["val"], anchor="w", fill=c["color"],
+                             font=get_safe_font("Bahnschrift", gewaehlt, "bold"))
+        else:
+            # Rueckfall ohne Schriftmetrik: wie vorher probeweise zeichnen.
+            for size in (22, 19, 17, 15, 13):
+                val_item = self.create_text(x + pad, y + 40, text=c["val"], anchor="w", fill=c["color"],
+                                            font=get_safe_font("Bahnschrift", size, "bold"))
+                try:
+                    if self.bbox(val_item)[2] <= x + w - pad or size == 13:
+                        break
+                except Exception:
+                    break
+                self.delete(val_item)
         if c.get("sub"):
             self._fit(x + pad, y + 59, c["sub"], get_safe_font("Bahnschrift", 13),
                       w - 2 * pad, fill=COLOR_TEXT)
@@ -390,13 +508,22 @@ class _FactsStrip(tk.Canvas):
             # Fussnote rechts oben - im Hochformat sind die Karten schmal genug,
             # dass sie in die Ueberschrift laufen wuerde. Erst zeichnen, dann
             # anhand der echten Textbreite wieder verwerfen, wenn es kollidiert.
-            note_item = self.create_text(x + w - pad, y + 16, text=c["note"], anchor="e",
-                                         fill=COLOR_SUBTEXT, font=get_safe_font("Bahnschrift", 11))
-            try:
-                if self.bbox(note_item)[0] < self.bbox(cap_item)[2] + 12:
-                    self.delete(note_item)
-            except Exception:
-                pass
+            note_font = get_safe_font("Bahnschrift", 11)
+            note_w = text_breite(note_font, c["note"])
+            cap_w = text_breite(cap_font, c["cap"])
+            if note_w is not None and cap_w is not None:
+                if (x + w - pad - note_w) >= (x + pad + 14 + cap_w) + 12:
+                    self.create_text(x + w - pad, y + 16, text=c["note"], anchor="e",
+                                     fill=COLOR_SUBTEXT, font=note_font)
+            else:
+                # Rueckfall ohne Schriftmetrik: zeichnen, messen, verwerfen.
+                note_item = self.create_text(x + w - pad, y + 16, text=c["note"], anchor="e",
+                                             fill=COLOR_SUBTEXT, font=note_font)
+                try:
+                    if self.bbox(note_item)[0] < self.bbox(cap_item)[2] + 12:
+                        self.delete(note_item)
+                except Exception:
+                    pass
 
     def _curve(self, x, y, w, h, c) -> None:
         """Bedarfskurve kW ueber Aussentemperatur, warm links -> kalt rechts."""
@@ -434,7 +561,6 @@ class WaermeTab(UiQueuePumpMixin):
         # Zustand fuer die Kartenleiste (wird im Worker gefuellt)
         self._deutung = None            # bmk_interpret.Deutung der letzten Messung
         self._cur_load = None           # laufende Ofenladung {min, kwh, kw}
-        self._burn_power = None         # {kw, r2, min} aus der Steigung der Waermekurve
         self._burn_min = None           # Minuten Teil-/Volllast am Stueck
         self._last_fire = None          # letztes abgeschlossenes Feuer
         self._typ_burn_cache = None     # Minuten-Korridor, siehe _typical_burn_min()
@@ -649,7 +775,7 @@ class WaermeTab(UiQueuePumpMixin):
             # BMK-Verlauf. Bewusst ueber den Store statt ueber bmk_interpret.live():
             # der gemeinsame Interpreter gehoert dem Collector-Thread und waere leer,
             # wenn der Collector in diesem Prozess gar nicht laeuft.
-            self._deutung, self._burn_min, self._cur_load, self._burn_power = None, None, None, None
+            self._deutung, self._burn_min, self._cur_load = None, None, None
             try:
                 rows = self.datastore.get_bmk_status(hours=LIVE_BMK_HOURS) or []
                 readings = [bmk_interpret.reading_from_row(r["ts"], r) for r in rows if r.get("ts")]
@@ -660,10 +786,6 @@ class WaermeTab(UiQueuePumpMixin):
                     # Laufende Ofenladung inkl. Pufferzuwachs und Ladeleistung
                     self._cur_load = bmk_interpret.current_load(rows, self.cfg)
                     self._burn_min = (self._cur_load or {}).get("min")
-                    # Leistung aus der Steigung der Waermekurve. Belastbarer als
-                    # kWh/Laufzeit, weil die Ausgleichsgerade den Saegezahn der
-                    # Fuehleruebergaenge herausmittelt.
-                    self._burn_power = bmk_interpret.burn_power(rows, self.cfg)
             except Exception:
                 logger.exception("[WAERME] Live-Deutung fehlgeschlagen")
 
@@ -790,12 +912,16 @@ class WaermeTab(UiQueuePumpMixin):
             typ_kwh = getattr(self, "_typ_kwh_cache", None)
             kwh = load.get("kwh")
 
-            # Fortschritt NUR ueber die Zeit. Die Waermemenge taugt dafuer nicht:
-            # als Zeitprognose war sie deutlich schlechter (mittlerer Fehler 101
-            # statt 42 min, Diagnose 13.11.), und ihr Korridor stammt aus denselben
-            # sprunghaften Fuehlerwerten - dadurch sprang der Balken zu frueh auf
-            # 100 %. Die kWh stehen weiter als Information in der Unterzeile.
+            # Fortschritt aus Zeit UND Waermemenge, der weitere von beiden zaehlt.
+            # Rueckrechnung an der Diagnose 13.11.: die Waermemenge allein ist als
+            # Zeitprognose deutlich schlechter (mittlerer Fehler 101 statt 42 min),
+            # weil der Pufferzuwachs saettigt, sobald der Puffer voll ist, und
+            # zusammenbricht, wenn das Haus gleichzeitig Waerme zieht. Zusammen
+            # mit der Zeit schadet sie nicht und spricht frueher an, wenn ein
+            # heisses Feuer den Puffer schnell fuellt.
             frac = max(0.0, min(1.0, burn_min / med))
+            if typ_kwh and kwh is not None and typ_kwh[1] > 0:
+                frac = max(frac, min(1.0, kwh / typ_kwh[1]))
             rest = med * (1.0 - frac)
             if frac >= 1.0:
                 val = "überfällig" if burn_min >= late else "gleich"
@@ -811,10 +937,8 @@ class WaermeTab(UiQueuePumpMixin):
                 sub = f"{kwh:.0f} von ~{typ_kwh[1]:.0f} kWh  ·  seit {self._fmt_hm(burn_min)}"
             note = f"{frac * 100:.0f} % · aus {n_loads} Ladungen"
             # Schwacher Abbrand: die Ladeleistung trennt das klar (4-10 kW gegen
-            # 15-60 kW in der Diagnose 13.11.). Bevorzugt die Ausgleichsgerade -
-            # kWh/Laufzeit verfaelscht der Saegezahn der Fuehler.
-            bp = getattr(self, "_burn_power", None)
-            kw = bp["kw"] if bp else load.get("kw")
+            # 15-60 kW in der Diagnose 13.11.).
+            kw = load.get("kw")
             weak = kw is not None and typ_kwh and med > 0 and kw < (typ_kwh[1] / (med / 60.0)) * WEAK_LOAD_SHARE
             cards.append({"cap": "FÜLLUNG ABGEBRANNT",
                           "color": COLOR_WARNING if weak else COLOR_WOOD,
@@ -822,8 +946,7 @@ class WaermeTab(UiQueuePumpMixin):
                           # Korridor auf dem Balken sichtbar machen: so ist zu sehen,
                           # wie unscharf die Aussage ist, statt nur eines Fuellstands.
                           "span": (early / med, late / med) if med > 0 else None,
-                          "note": (f"schwach · {kw:.0f} kW" if weak
-                                   else (f"{kw:.0f} kW · {frac * 100:.0f} %" if kw else note))})
+                          "note": (f"schwach · {kw:.0f} kW" if weak else note)})
         elif burning:
             cards.append({"cap": "FÜLLUNG", "val": "brennt", "color": COLOR_WOOD, "kind": None,
                           "sub": (f"seit {self._fmt_hm(burn_min)}" if burn_min else "Brennzeit wird gemessen"),

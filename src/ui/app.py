@@ -449,7 +449,10 @@ class MainApp(UiQueuePumpMixin):
 
     def handle_bmkdaten_data(self, data: dict):
         """Echtzeit-Heizungsdaten aus dem Worker-Thread übernehmen."""
-        logging.info("[BMK] handle_bmkdaten_data called with keys: %s", list(data.keys()) if data else None)
+        # war logging.info: lief alle 10 s und formatierte die komplette
+        # Schluesselliste - siehe Begruendung in run() weiter unten.
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            logging.debug("[BMK] handle_bmkdaten_data, %d Felder", len(data or {}))
         process_bmkdaten_data(data, self.app_state, self._source_health)
 
     def __init__(self, root: ctk.CTk, datastore: DataStore | None = None):
@@ -1655,6 +1658,7 @@ class MainApp(UiQueuePumpMixin):
         tick = int(getattr(self, "_watch_lazy_tab_charts_tick", 0)) + 1
         self._watch_lazy_tab_charts_tick = tick
         log_this_tick = (tick % 5 == 0)  # ca. alle 5s eine Debug-Zeile pro Tab
+        any_mapped = False
         try:
             for tab_attr in ("historical_tab", "tagesproduktion_tab"):
                 tab = getattr(self, tab_attr, None)
@@ -1665,19 +1669,25 @@ class MainApp(UiQueuePumpMixin):
                 if canvas_widget is None or not callable(resize_fn):
                     continue
                 try:
+                    # Erst die Sichtbarkeit abfragen und bei unsichtbarem Tab
+                    # sofort aussteigen. Vorher wurden auch fuer verborgene
+                    # Tabs Breite und Hoehe geholt und eine Logzeile gebaut -
+                    # bei drei Charts jede Sekunde neun Tk-Abfragen, die im
+                    # Log vom 16.11. durchgehend mapped=0 ergaben.
                     mapped = canvas_widget.winfo_ismapped()
+                    if not mapped:
+                        continue
+                    any_mapped = True
                     w = int(canvas_widget.winfo_width() or 0)
                     h = int(canvas_widget.winfo_height() or 0)
                     last_w, last_h = getattr(tab, "_last_synced_wh", (0, 0))
                     if log_this_tick:
-                        logging.info(
-                            "[WATCHDOG] %s mapped=%s canvas=%sx%s last_synced=%sx%s",
-                            tab_attr, mapped, w, h, last_w, last_h,
+                        logging.debug(
+                            "[WATCHDOG] %s canvas=%sx%s last_synced=%sx%s",
+                            tab_attr, w, h, last_w, last_h,
                         )
-                    if not mapped:
-                        continue
                     if w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
-                        logging.info("[WATCHDOG] %s Groessenabweichung erkannt -> resize_fn()", tab_attr)
+                        logging.debug("[WATCHDOG] %s Groessenabweichung -> resize_fn()", tab_attr)
                         resize_fn()
                 except Exception:
                     logging.exception("[WATCHDOG] Fehler bei %s", tab_attr)
@@ -1690,24 +1700,30 @@ class MainApp(UiQueuePumpMixin):
                 if canvas_widget is not None and callable(refresh_fn):
                     try:
                         mapped = canvas_widget.winfo_ismapped()
-                        w = int(canvas_widget.winfo_width() or 0)
-                        h = int(canvas_widget.winfo_height() or 0)
-                        last_w, last_h = getattr(energy_chart, "_last_synced_wh", (0, 0))
-                        if log_this_tick:
-                            logging.info(
-                                "[WATCHDOG] ertrag_tab mapped=%s canvas=%sx%s last_synced=%sx%s",
-                                mapped, w, h, last_w, last_h,
-                            )
-                        if mapped and w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
-                            logging.info("[WATCHDOG] ertrag_tab Groessenabweichung erkannt -> refresh_fn()")
-                            refresh_fn()
+                        if mapped:
+                            any_mapped = True
+                            w = int(canvas_widget.winfo_width() or 0)
+                            h = int(canvas_widget.winfo_height() or 0)
+                            last_w, last_h = getattr(energy_chart, "_last_synced_wh", (0, 0))
+                            if log_this_tick:
+                                logging.debug(
+                                    "[WATCHDOG] ertrag_tab canvas=%sx%s last_synced=%sx%s",
+                                    w, h, last_w, last_h,
+                                )
+                            if w > 50 and h > 50 and (abs(w - last_w) > 4 or abs(h - last_h) > 4):
+                                logging.debug("[WATCHDOG] ertrag_tab Groessenabweichung -> refresh_fn()")
+                                refresh_fn()
                     except Exception:
                         logging.exception("[WATCHDOG] Fehler bei ertrag_tab")
         except Exception:
             logging.exception("[WATCHDOG] Fehler im Haupt-Loop")
         finally:
+            # Solange keines der ueberwachten Charts sichtbar ist, gibt es
+            # nichts zu resynchronisieren: dann reicht ein Blick alle 3 s.
+            # Sobald eines sichtbar ist, wieder sekundengenau.
             try:
-                self.root.after(1000, self._watch_lazy_tab_charts)
+                self.root.after(1000 if any_mapped else 3000,
+                                self._watch_lazy_tab_charts)
             except Exception:
                 pass
 
@@ -2154,10 +2170,18 @@ def run():
     try:
         log_path = os.path.join(_PROJECT_ROOT, "data", "app_debug.log")
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        # Standardstufe WARNING statt INFO. Die Messung vom 16.11.2026 hat
+        # gezeigt, dass der Log im Betrieb rund 1,3 Zeilen pro Sekunde
+        # schreibt (2999 Zeilen in 39 Minuten, 1,4 MB) - fast alles
+        # Routinemeldungen, darunter mehrfach pro Messwert das komplette
+        # 78-Felder-Dict der Heizung. Das kostet Formatierzeit im Hauptthread
+        # und begraebt echte Fehler. Mit WARNING enthaelt die Datei genau das,
+        # was die Diagnose auswertet. Voller Log bei Bedarf: DASHBOARD_DEBUG=1
+        _log_level = logging.DEBUG if DEBUG_LOG else logging.WARNING
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
+        root_logger.setLevel(_log_level)
         file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-        file_handler.setLevel(logging.INFO)
+        file_handler.setLevel(_log_level)
         file_handler.setFormatter(logging.Formatter(
             "%(asctime)s %(levelname)s %(name)s: %(message)s"
         ))

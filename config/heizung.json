@@ -1,11 +1,11 @@
 {
-  "_hinweis": "Werte der Heizungsauswertung. Vorher gab es diese Datei nicht, alles kam aus den Standardwerten in core/heating_stats.StorageConfig. Siehe claude/heizung-einstellungen-pruefung.md.",
+  "_hinweis": "Werte der Heizungsauswertung. Vorher gab es diese Datei nicht, alles kam aus den Standardwerten in core/heating_stats.StorageConfig. Siehe claude/heizung-einstellungen-pruefung.md und claude/bmk-rohjson-kanaele.md.",
 
   "puffer_liter": 4000,
   "boiler_liter": 500,
 
-  "_nutzbar_ab_c": "War 35. Messung Okt-Nov 2026: der untere Pufferfuehler faellt rund um die Uhr nie unter 41 Grad, weil der OG-Heizkreis wegen des Badheizkoerpers mit 60 Grad laufen muss und der Ruecklauf entsprechend warm zurueckkommt. Das ist kein Einstellfehler, sondern eine Eigenschaft der Anlage. Mit 35 zeigte die Kachel Puffer nutzbar dauerhaft Energie an, an die niemand herankommt.",
-  "nutzbar_ab_c": 42,
+  "_nutzbar_ab_c": "Korrektur 16.11.2026, zurueck auf den Standardwert 35. Am 13.11. hatte ich 42 eingetragen mit der Begruendung, der untere Pufferfuehler falle nie unter 41 Grad. Die 29780 Rohwerte der API vom 26.10.-16.11.2026 widerlegen das: Minimum 31,9 Grad, 1. Perzentil 33,1, 5. Perzentil 36,3, ein Drittel aller Messwerte unter 42. Am 16.11. lag der Fuehler ganztags bei 32-38 Grad. Die 42 haetten also rund 46 kWh echte nutzbare Waerme ausgeblendet. 35 liegt zwischen dem 1. und 5. Perzentil und ist damit der gemessene Boden, bis zu dem die Anlage tatsaechlich entlaedt.",
+  "nutzbar_ab_c": 35,
 
   "voll_bei_c": 80,
 

@@ -83,7 +83,10 @@ PP_INDEX_MAPPING = {
     29: "Hysterese_DG",
     30: "Reserve_Pumpe_Status",
     31: "Hysterese_31",
-    32: "Ruecklauftemp_Heizkreis",
+    # 32/40/61/62/63 tragen in allen 29780 Rohwerten vom 26.10.-16.11.2026 denselben
+    # Wert: Puffer_Oben abgeschnitten auf eine ganze Zahl (max. Abweichung 1,0 K).
+    # Es ist also KEINE Ruecklauftemperatur und KEINE Anforderungstemperatur.
+    32: "Ruecklauftemp_Heizkreis",  # falscher Name, siehe oben
     33: "Kesselpumpe_Status",
     34: "Mischer_EG_Elektronisch",
     35: "Hysterese_35",
@@ -91,7 +94,7 @@ PP_INDEX_MAPPING = {
     37: "Grenzwert_37",
     38: "Mischer_OG_Elektronisch",
     39: "Hysterese_39",
-    40: "Temperatur_Sensor_40",
+    40: "Temperatur_Sensor_40",    # dito: Puffer_Oben als ganze Zahl
     41: "Relais_41",
     42: "Modus_Status",
     43: "Brenner_Status",
@@ -104,17 +107,22 @@ PP_INDEX_MAPPING = {
     50: "Relais_14_Status",
     51: "Relais_15_Status",
     52: "Geraetenummer",
+    # 53 stand ueber 124 Betriebsstunden konstant auf "32h", zaehlt also nicht ab.
     53: "Service_Intervall",
+    # Bestaetigt an den Rohwerten: 54 zaehlt genau eine Stunde hoch, solange der
+    # Kessel laeuft (2898 -> 3022 in 21 Tagen = 124 Betriebsstunden).
     54: "Betriebsstunden",
+    # 55 zaehlt taeglich gegen 15:36 Ortszeit um eins hoch (628 -> 649), ist also
+    # ein Tageszaehler und KEIN Zaehler der Anheizvorgaenge.
     55: "Betriebstage",
     56: "Wert_56",
     57: "Wert_57",
     58: "Wert_58",
     59: "Wert_59",
     60: "Wert_60",
-    61: "Wert_61",
-    62: "Wert_62",
-    63: "Wert_63",
+    61: "Wert_61",                 # dito
+    62: "Wert_62",                 # dito
+    63: "Wert_63",                 # dito
     64: "Wert_64",
     65: "Wert_65",
     66: "Wert_66",
@@ -325,12 +333,13 @@ def _persist_raw(values, zeitstempel) -> None:
 def _persist_to_datastore(payload: Dict[str, float]) -> None:
     try:
         store = get_shared_datastore()
-        logger.info("[DB] Speichere Heizungsdaten: ts=%s kessel=%s puffer_top=%s", 
-                    payload.get('Zeitstempel'), 
-                    payload.get('Kesseltemperatur'),
-                    payload.get('Pufferspeicher Oben') or payload.get('Puffer_Oben'))
+        # Routinemeldungen: liefen als info alle 10 s, zwei Zeilen je Messwert.
+        logger.debug("[DB] Speichere Heizungsdaten: ts=%s kessel=%s puffer_top=%s",
+                     payload.get('Zeitstempel'),
+                     payload.get('Kesseltemperatur'),
+                     payload.get('Pufferspeicher Oben') or payload.get('Puffer_Oben'))
         store.insert_heating_record(payload)
-        logger.info("[DB] Heizungseintrag erfolgreich")
+        logger.debug("[DB] Heizungseintrag erfolgreich")
     except Exception as exc:
         logger.error(f"[DB] Heizungseintrag fehlgeschlagen: {exc}")
 
