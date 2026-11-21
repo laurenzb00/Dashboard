@@ -34,8 +34,27 @@ from ui.styles import (
 )
 from ui.views.energy_chart import build_energy_chart
 from ui.components.tab_shell import TabShell
-from ui.visibility import (ANZEIGE_VERZUG_MS, eigenes_map_event, ist_sichtbar,
-                           naechster_takt)
+# Die Sichtbarkeitsbremse ist eine Optimierung und darf NIE tragend sein:
+# fehlt ui/visibility.py (neue Datei - beim Kopieren auf den Pi leicht zu
+# vergessen), wuerde ein harter Import diesen Tab komplett scheitern lassen
+# und er bliebe leer. Darum mit Rueckfall auf das alte Verhalten.
+try:
+    from ui.visibility import (ANZEIGE_VERZUG_MS, eigenes_map_event,
+                               ist_sichtbar, naechster_takt)
+except Exception:  # pragma: no cover - nur wenn die Datei fehlt
+    ANZEIGE_VERZUG_MS = 30
+
+    def ist_sichtbar(_widget):
+        return True
+
+    def darf_ueberspringen(_besitzer, _widget, _merker=None):
+        return False
+
+    def eigenes_map_event(event, widget):
+        return event is None or getattr(event, "widget", widget) is widget
+
+    def naechster_takt(sichtbar, aktiv_ms, ruhe_ms=None):
+        return int(aktiv_ms)
 from ui.components.metric_tile import MetricTile
 
 # Austrian energy price defaults (EUR/kWh)
@@ -703,7 +722,6 @@ class ErtragTab(UiQueuePumpMixin):
         return out
 
     PLOT_AKTIV_MS = 60 * 1000
-    PLOT_RUHE_MS = 10 * 60 * 1000
 
     def _update_plot(self):
         if not self.alive:
@@ -711,7 +729,7 @@ class ErtragTab(UiQueuePumpMixin):
         if getattr(self, "energy_chart", None) is None:
             return
 
-        if not ist_sichtbar(self._shell):
+        if darf_ueberspringen(self, self._shell):
             # Verborgen wurde bisher jede Minute neu gezeichnet - und im Zweig
             # "Daten unveraendert" trotzdem refresh_size() aufgerufen, was die
             # Figure neu rendert. Im Protokoll vom 16.11.2026 ist Ertrag/PV
@@ -722,8 +740,12 @@ class ErtragTab(UiQueuePumpMixin):
                     self.root.after_cancel(self._update_task_id)
                 except Exception:
                     pass
+            # Bewusst der normale Takt und kein langsamerer: der
+            # Durchlauf kostet verborgen ja nichts mehr, und sollte <Map>
+            # einmal nicht ankommen, ist der Tab so nach einer Minute wieder
+            # aktuell statt nach zehn.
             self._update_task_id = self.root.after(
-                naechster_takt(False, self.PLOT_AKTIV_MS, self.PLOT_RUHE_MS),
+                naechster_takt(False, self.PLOT_AKTIV_MS),
                 self._update_plot)
             return
         self._plot_nachholen = False

@@ -157,10 +157,32 @@ class MetricTile(ctk.CTkFrame):
         wuerde z.B. beim Wechsel von "-- kWh" auf "42 kWh" sinnlos von 0
         hochgezaehlt.
         """
-        if color:
+        # Unveraenderter Wert: nichts tun. Die Kacheln werden bei jeder
+        # Aktualisierung komplett neu gesetzt, obwohl sich meist nur einzelne
+        # aendern - jedes configure() ist ein Tk-Aufruf, der ein Neuzeichnen
+        # anstossen kann.
+        if text == getattr(self, "_letzter_text", None) and \
+                color == getattr(self, "_letzte_farbe", None):
+            return
+        self._letzter_text = text
+        self._letzte_farbe = color
+
+        if color and color != getattr(self, "_gesetzte_farbe", None):
+            self._gesetzte_farbe = color
             self.value_label.configure(text_color=color)
             try:
                 self.accent_label.configure(text_color=color)
+            except Exception:
+                pass
+
+        # Nicht sichtbar? Dann direkt auf den Endwert springen. Das Hochzaehlen
+        # sind je nach Sprungweite und Dezimalstellen 5 bis 19 Bilder a 40 ms
+        # (nachgerechnet in tests/test_metric_tile_guard.py), also ebenso viele
+        # after()- und configure()-Aufrufe je Kachel. Sichtbar ist das schoen,
+        # unsichtbar nur Last auf dem Thread, der auch zeichnet.
+        if animate:
+            try:
+                animate = bool(self.winfo_ismapped())
             except Exception:
                 pass
 

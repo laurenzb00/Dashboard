@@ -95,3 +95,64 @@ class TestVerzug(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Besitzer:
+    pass
+
+
+class TestDarfUeberspringen(unittest.TestCase):
+    """Die Regel, die den Ausfall vom 21.11.2026 verhindert."""
+
+    def test_sichtbar_wird_nie_uebersprungen(self):
+        from ui.visibility import darf_ueberspringen
+        b, w = Besitzer(), FakeWidget(1)
+        self.assertFalse(darf_ueberspringen(b, w))
+
+    def test_noch_nie_sichtbar_gewesen_wird_nie_uebersprungen(self):
+        """Der Kern: ein Tab, der noch nie zu sehen war, muss arbeiten.
+
+        Kommt <Map> in einer Widget-Verschachtelung nicht beim Tab-Rahmen an,
+        bliebe er sonst fuer immer leer.
+        """
+        from ui.visibility import darf_ueberspringen
+        b, w = Besitzer(), FakeWidget(0)
+        self.assertFalse(darf_ueberspringen(b, w))
+
+    def test_erst_nach_einmal_sichtbar_wird_gespart(self):
+        from ui.visibility import darf_ueberspringen
+        b, w = Besitzer(), FakeWidget(1)
+        self.assertFalse(darf_ueberspringen(b, w))   # sichtbar, merkt sich das
+        w._mapped = 0
+        self.assertTrue(darf_ueberspringen(b, w))    # jetzt darf gespart werden
+
+    def test_merker_bleibt_dauerhaft(self):
+        from ui.visibility import darf_ueberspringen
+        b, w = Besitzer(), FakeWidget(1)
+        darf_ueberspringen(b, w)
+        w._mapped = 0
+        for _ in range(5):
+            self.assertTrue(darf_ueberspringen(b, w))
+
+    def test_fehlerhafte_abfrage_arbeitet_weiter(self):
+        from ui.visibility import darf_ueberspringen
+        b, w = Besitzer(), FakeWidget(raise_on_call=True)
+        self.assertFalse(darf_ueberspringen(b, w))
+
+    def test_besitzer_ohne_attributzuweisung(self):
+        """Ein Objekt mit __slots__ darf nicht alles zum Absturz bringen."""
+        from ui.visibility import darf_ueberspringen
+
+        class Eng:
+            __slots__ = ()
+        self.assertFalse(darf_ueberspringen(Eng(), FakeWidget(1)))
+
+    def test_eigener_merker_trennt_zwei_takte(self):
+        """Live und Chart im Waerme-Tab teilen sich einen Merker - hier der
+        Nachweis, dass getrennte Merker moeglich sind."""
+        from ui.visibility import darf_ueberspringen
+        b, w = Besitzer(), FakeWidget(1)
+        darf_ueberspringen(b, w, "_a")
+        w._mapped = 0
+        self.assertTrue(darf_ueberspringen(b, w, "_a"))
+        self.assertFalse(darf_ueberspringen(b, w, "_b"))

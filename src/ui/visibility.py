@@ -52,6 +52,29 @@ def eigenes_map_event(event, widget) -> bool:
         return True
 
 
+def darf_ueberspringen(besitzer, widget, merker: str = "_je_sichtbar_gewesen") -> bool:
+    """Ob die Arbeit dieses Durchlaufs entfallen darf.
+
+    Zwei Bedingungen, und die zweite ist die wichtige: der Tab muss verborgen
+    sein UND schon mindestens einmal sichtbar gewesen sein.
+
+    Grund: ob `<Map>` in einer bestimmten Widget-Verschachtelung wirklich beim
+    Tab-Rahmen ankommt, laesst sich nicht garantieren. Kommt es nicht an und
+    wuerde trotzdem uebersprungen, bliebe ein Tab fuer immer leer - genau das
+    ist am 21.11.2026 im Ertrag- und Waerme-Tab passiert. Mit dieser Regel ist
+    der schlimmste Fall, dass einmal beim Start unsichtbar gezeichnet wird;
+    danach ist bewiesen, dass die Sichtbarkeitserkennung fuer dieses Widget
+    funktioniert, und erst dann wird gespart.
+    """
+    if ist_sichtbar(widget):
+        try:
+            setattr(besitzer, merker, True)
+        except Exception:
+            pass
+        return False
+    return bool(getattr(besitzer, merker, False))
+
+
 def naechster_takt(sichtbar: bool, aktiv_ms: int, ruhe_ms: int | None = None) -> int:
     """Wartezeit bis zum naechsten Durchlauf.
 

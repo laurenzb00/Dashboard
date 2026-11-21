@@ -43,8 +43,27 @@ from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_BOTTOM_C, BUF_MID_C,
 from ui.components.chart_style import apply_chart_style
 from ui.components.metric_tile import MetricTile
 from ui.components.tab_shell import TabShell
-from ui.visibility import (ANZEIGE_VERZUG_MS, eigenes_map_event, ist_sichtbar,
-                           naechster_takt)
+# Die Sichtbarkeitsbremse ist eine Optimierung und darf NIE tragend sein:
+# fehlt ui/visibility.py (neue Datei - beim Kopieren auf den Pi leicht zu
+# vergessen), wuerde ein harter Import diesen Tab komplett scheitern lassen
+# und er bliebe leer. Darum mit Rueckfall auf das alte Verhalten.
+try:
+    from ui.visibility import (ANZEIGE_VERZUG_MS, eigenes_map_event,
+                               ist_sichtbar, naechster_takt)
+except Exception:  # pragma: no cover - nur wenn die Datei fehlt
+    ANZEIGE_VERZUG_MS = 30
+
+    def ist_sichtbar(_widget):
+        return True
+
+    def darf_ueberspringen(_besitzer, _widget, _merker=None):
+        return False
+
+    def eigenes_map_event(event, widget):
+        return event is None or getattr(event, "widget", widget) is widget
+
+    def naechster_takt(sichtbar, aktiv_ms, ruhe_ms=None):
+        return int(aktiv_ms)
 from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
     BUTTON_HEIGHT_SECONDARY,
@@ -81,10 +100,6 @@ from ui.temp_colors import temp_color  # noqa: E402
 
 LIVE_REFRESH_MS = 15_000
 CHART_REFRESH_MS = 5 * 60_000
-# Takt, solange der Tab nicht zu sehen ist. Siehe ui/visibility.py: die
-# Auswertung wird dann uebersprungen und beim Sichtbarwerden nachgeholt.
-LIVE_IDLE_MS = 60_000
-CHART_IDLE_MS = 15 * 60_000
 
 
 def tank_layer_temp(frac: float, t_top, t_bot) -> float | None:
@@ -733,40 +748,66 @@ class WaermeTab(UiQueuePumpMixin):
     def _refresh_live(self) -> None:
         if not self.alive:
             return
-        if not ist_sichtbar(self._shell):
+        if darf_ueberspringen(self, self._shell):
             # Verborgen: weder Datenbankabfrage noch Neuzeichnen der Tanks.
             self._live_nachholen = True
+            # Bewusst der normale Takt und kein langsamerer: der Durchlauf
+            # kostet verborgen ja nichts mehr, und sollte <Map> einmal nicht
+            # ankommen, ist der Tab so nach einem Takt wieder aktuell.
             self._live_job = self.root.after(
-                naechster_takt(False, LIVE_REFRESH_MS, LIVE_IDLE_MS),
-                self._refresh_live)
+                naechster_takt(False, LIVE_REFRESH_MS), self._refresh_live)
             return
         self._live_nachholen = False
-        try:
-            rec = self.datastore.get_last_heating_record() if self.datastore else None
-        except Exception:
-            rec = None
-        rec = rec or {}
 
-        def val(key):
-            return hs._heat_val(rec.get(key))
+        # Datenbankabfrage und Rechnung im Worker, nur das Zeichnen im
+        # Tk-Thread. Vorher lief get_last_heating_record() alle 15 Sekunden
+        # im Oberflaechen-Thread; datastore-Aufrufe stehen im Leistungslog
+        # vom 16.11.2026 mit 488 s in der Haengerliste. Der Takt wird erst
+        # nach dem Zeichnen neu gesetzt, damit sich bei einer langsamen
+        # Abfrage keine Durchlaeufe stapeln.
+        def worker() -> None:
+            try:
+                rec = self.datastore.get_last_heating_record() if self.datastore else None
+            except Exception:
+                rec = None
+            rec = rec or {}
 
-        top, mid, bot = val(BUF_TOP_C), val(BUF_MID_C), val(BUF_BOTTOM_C)
-        self.tank.set_state(cfg=self.cfg, top=top, mid=mid, bot=bot, warm=val(BMK_WARMWASSER_C),
-                            kessel=val(BMK_KESSEL_C))
-        usable = hs.tanks_usable_kwh(top, mid, bot, self.cfg)   # Summe beider Puffer
-        self.tiles["nutzbar"].set_value(f"{usable:.0f} kWh" if usable is not None else "--")
-        self._live_job = self.root.after(LIVE_REFRESH_MS, self._refresh_live)
+            def val(key):
+                return hs._heat_val(rec.get(key))
+
+            try:
+                top, mid, bot = val(BUF_TOP_C), val(BUF_MID_C), val(BUF_BOTTOM_C)
+                warm, kessel = val(BMK_WARMWASSER_C), val(BMK_KESSEL_C)
+                usable = hs.tanks_usable_kwh(top, mid, bot, self.cfg)
+            except Exception:
+                logger.exception("[WAERME] Live-Auswertung fehlgeschlagen")
+                top = mid = bot = warm = kessel = usable = None
+
+            def apply() -> None:
+                if not self.alive:
+                    return
+                try:
+                    self.tank.set_state(cfg=self.cfg, top=top, mid=mid, bot=bot,
+                                        warm=warm, kessel=kessel)
+                    self.tiles["nutzbar"].set_value(
+                        f"{usable:.0f} kWh" if usable is not None else "--")
+                finally:
+                    self._live_job = self.root.after(LIVE_REFRESH_MS,
+                                                     self._refresh_live)
+
+            self._post_ui(apply)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # --- Auswertung (Worker-Thread) -----------------------------------------
 
     def _refresh_chart(self) -> None:
         if not self.alive:
             return
-        if not ist_sichtbar(self._shell):
+        if darf_ueberspringen(self, self._shell):
             self._chart_nachholen = True
             self._chart_job = self.root.after(
-                naechster_takt(False, CHART_REFRESH_MS, CHART_IDLE_MS),
-                self._refresh_chart)
+                naechster_takt(False, CHART_REFRESH_MS), self._refresh_chart)
             return
         self._chart_nachholen = False
         self._update_token += 1

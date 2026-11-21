@@ -687,11 +687,16 @@ class SpotifyTab(UiQueuePumpMixin):
         else:
             self._schedule_next_poll()
 
-    def _tab_sichtbar(self) -> bool:
+    def _darf_bremsen(self) -> bool:
+        """Dieselbe Regel wie in ui/visibility.py: gedrosselt wird erst, wenn
+        der Tab nachweislich schon einmal sichtbar war. Kommt <Map> in dieser
+        Verschachtelung nicht an, bleibt es beim schnellen Takt statt dauerhaft
+        beim langsamen."""
         try:
-            return bool(self.tab_frame.winfo_ismapped())
+            from ui.visibility import darf_ueberspringen
+            return darf_ueberspringen(self, self.tab_frame)
         except Exception:
-            return True
+            return False
 
     def _schedule_next_poll(self):
         # Zwei HTTPS-Abfragen alle 5 s, rund um die Uhr - das sind gut 17000
@@ -702,7 +707,7 @@ class SpotifyTab(UiQueuePumpMixin):
         # im Hintergrund ein deutlich langsamerer Takt. Beim Wechsel zurueck
         # holt _on_tab_shown() sofort einen frischen Stand.
         if self.alive:
-            delay = POLL_INTERVAL_MS if self._tab_sichtbar() else POLL_IDLE_MS
+            delay = POLL_IDLE_MS if self._darf_bremsen() else POLL_INTERVAL_MS
             self._poll_job = self.root.after(delay, self._poll_playback)
 
     def _on_tab_shown(self) -> None:
