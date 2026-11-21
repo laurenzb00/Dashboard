@@ -34,6 +34,8 @@ from ui.styles import (
 )
 from ui.views.energy_chart import build_energy_chart
 from ui.components.tab_shell import TabShell
+from ui.visibility import (ANZEIGE_VERZUG_MS, eigenes_map_event, ist_sichtbar,
+                           naechster_takt)
 from ui.components.metric_tile import MetricTile
 
 # Austrian energy price defaults (EUR/kWh)
@@ -217,6 +219,7 @@ class ErtragTab(UiQueuePumpMixin):
                               lambda e: self.stromstatus.configure(wraplength=max(100, e.width - 4)))
 
         self._last_key = None
+        self._plot_nachholen = False
         self._apply_mode_ui()
         self.store = get_shared_datastore()
         self._update_task_id = self.root.after(100, self._update_plot)
@@ -240,7 +243,7 @@ class ErtragTab(UiQueuePumpMixin):
         """
         if not self.alive:
             return
-        if event is not None and event.widget is not self._shell:
+        if not eigenes_map_event(event, self._shell):
             return
         changed = False
         if self._period_var.get() != "Tag":
@@ -254,7 +257,13 @@ class ErtragTab(UiQueuePumpMixin):
         if changed:
             self._last_key = None
             self._apply_mode_ui()
-            self._update_plot()
+        # Auch ohne Umschalten auf "Tag" muss nachgeholt werden, was waehrend
+        # der Unsichtbarkeit uebersprungen wurde - sonst bliebe die Figure in
+        # ihrer alten Groesse stehen. Genau dafuer gab es vorher den
+        # refresh_size()-Aufruf jede Minute.
+        if changed or getattr(self, "_plot_nachholen", False):
+            # Verzoegert, damit der Tabwechsel selbst nicht blockiert.
+            self.root.after(ANZEIGE_VERZUG_MS, self._update_plot)
 
     def set_portrait_layout(self, portrait: bool) -> None:
         if hasattr(self, "_shell"):
@@ -693,11 +702,31 @@ class ErtragTab(UiQueuePumpMixin):
             out.append({"timestamp": ts, "pv_power": pv_kw, "house_consumption": load_kw, "grid_power": grid_kw})
         return out
 
+    PLOT_AKTIV_MS = 60 * 1000
+    PLOT_RUHE_MS = 10 * 60 * 1000
+
     def _update_plot(self):
         if not self.alive:
             return
         if getattr(self, "energy_chart", None) is None:
             return
+
+        if not ist_sichtbar(self._shell):
+            # Verborgen wurde bisher jede Minute neu gezeichnet - und im Zweig
+            # "Daten unveraendert" trotzdem refresh_size() aufgerufen, was die
+            # Figure neu rendert. Im Protokoll vom 16.11.2026 ist Ertrag/PV
+            # mit 686 s der zweitgroesste Posten der Haengezeit.
+            self._plot_nachholen = True
+            if self._update_task_id:
+                try:
+                    self.root.after_cancel(self._update_task_id)
+                except Exception:
+                    pass
+            self._update_task_id = self.root.after(
+                naechster_takt(False, self.PLOT_AKTIV_MS, self.PLOT_RUHE_MS),
+                self._update_plot)
+            return
+        self._plot_nachholen = False
 
         if self._update_task_id:
             try:

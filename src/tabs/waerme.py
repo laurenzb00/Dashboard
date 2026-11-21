@@ -43,6 +43,8 @@ from core.schema import BMK_KESSEL_C, BMK_WARMWASSER_C, BUF_BOTTOM_C, BUF_MID_C,
 from ui.components.chart_style import apply_chart_style
 from ui.components.metric_tile import MetricTile
 from ui.components.tab_shell import TabShell
+from ui.visibility import (ANZEIGE_VERZUG_MS, eigenes_map_event, ist_sichtbar,
+                           naechster_takt)
 from ui.components.ui_dispatch import UiQueuePumpMixin
 from ui.styles import (
     BUTTON_HEIGHT_SECONDARY,
@@ -79,6 +81,10 @@ from ui.temp_colors import temp_color  # noqa: E402
 
 LIVE_REFRESH_MS = 15_000
 CHART_REFRESH_MS = 5 * 60_000
+# Takt, solange der Tab nicht zu sehen ist. Siehe ui/visibility.py: die
+# Auswertung wird dann uebersprungen und beim Sichtbarwerden nachgeholt.
+LIVE_IDLE_MS = 60_000
+CHART_IDLE_MS = 15 * 60_000
 
 
 def tank_layer_temp(frac: float, t_top, t_bot) -> float | None:
@@ -658,6 +664,22 @@ class WaermeTab(UiQueuePumpMixin):
         self.root.after(300, self._refresh_live)
         self.root.after(600, self._refresh_chart)
         self.root.after(1500, self.chart.refresh_size)
+        self._live_nachholen = False
+        self._chart_nachholen = False
+        self._shell.bind("<Map>", self._on_tab_shown, add="+")
+
+    def _on_tab_shown(self, event=None) -> None:
+        """Tab ist sichtbar geworden: Uebersprungenes nachholen.
+
+        Bewusst verzoegert - wird hier sofort gezeichnet, blockiert gerade der
+        Tabwechsel, der dadurch schneller werden soll (siehe ui/visibility.py).
+        """
+        if not self.alive or not eigenes_map_event(event, self._shell):
+            return
+        if getattr(self, "_live_nachholen", False):
+            self.root.after(ANZEIGE_VERZUG_MS, self._refresh_live)
+        if getattr(self, "_chart_nachholen", False):
+            self.root.after(ANZEIGE_VERZUG_MS * 2, self._refresh_chart)
 
     # --- Layout -------------------------------------------------------------
 
@@ -711,6 +733,14 @@ class WaermeTab(UiQueuePumpMixin):
     def _refresh_live(self) -> None:
         if not self.alive:
             return
+        if not ist_sichtbar(self._shell):
+            # Verborgen: weder Datenbankabfrage noch Neuzeichnen der Tanks.
+            self._live_nachholen = True
+            self._live_job = self.root.after(
+                naechster_takt(False, LIVE_REFRESH_MS, LIVE_IDLE_MS),
+                self._refresh_live)
+            return
+        self._live_nachholen = False
         try:
             rec = self.datastore.get_last_heating_record() if self.datastore else None
         except Exception:
@@ -732,6 +762,13 @@ class WaermeTab(UiQueuePumpMixin):
     def _refresh_chart(self) -> None:
         if not self.alive:
             return
+        if not ist_sichtbar(self._shell):
+            self._chart_nachholen = True
+            self._chart_job = self.root.after(
+                naechster_takt(False, CHART_REFRESH_MS, CHART_IDLE_MS),
+                self._refresh_chart)
+            return
+        self._chart_nachholen = False
         self._update_token += 1
         token = self._update_token
 
