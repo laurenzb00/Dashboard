@@ -206,6 +206,41 @@ def _heat_val(v) -> Optional[float]:
     return x
 
 
+def _bucket_key(ts_raw, cache: dict, konvertieren=None):
+    """Bucket-Zeitpunkt zu einem Rohzeitstempel, mit Zwischenspeicher.
+
+    load_buckets ruft das fuer JEDE Zeile auf. Ein Tag in der heating-Tabelle
+    sind bei 10-Sekunden-Takt rund 8600 Zeilen, und day_timeline laedt 26
+    Stunden - alle fuenf Minuten neu, solange der Waerme-Tab offen ist. Jede
+    Umrechnung ist ein datetime.fromisoformat() plus astimezone(); im
+    Leistungslog vom 16.11.2026 stehen parse_db_ts und db_ts_to_local mit
+    zusammen rund 290 s in der Haengerliste.
+
+    Da die Buckets 15 Minuten breit sind, liefern alle Zeilen derselben Minute
+    denselben Bucket. Gespeichert wird deshalb nach Minute - aus 8600
+    Umrechnungen werden 1440, also ein Sechstel.
+
+    Der Schluessel laesst die Sekunden weg, behaelt aber alles danach: stuenden
+    in der Tabelle gemischt Zeitzonen-Angaben, duerfen "13:42:37+01:00" und
+    "13:42:11+02:00" nicht in denselben Topf fallen.
+    """
+    if konvertieren is None:
+        konvertieren = db_ts_to_local
+    schluessel = ts_raw
+    if isinstance(ts_raw, str) and len(ts_raw) >= 19:
+        schluessel = ts_raw[:16] + ts_raw[19:]
+    if schluessel in cache:
+        return cache[schluessel]
+    dt = konvertieren(ts_raw)
+    if dt is None:
+        cache[schluessel] = None
+        return None
+    k = dt.replace(minute=dt.minute - dt.minute % BUCKET_MIN,
+                   second=0, microsecond=0)
+    cache[schluessel] = k
+    return k
+
+
 def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
     """15-min-Mittelwerte (lokale Zeit) aus der heating-Tabelle."""
     conn = getattr(store, "conn", None)
@@ -214,11 +249,10 @@ def load_buckets(store, start: datetime, end: datetime) -> list[Bucket]:
     s, e = to_db_ts(start, naive_is_local=True), to_db_ts(end, naive_is_local=True)
     acc: dict[datetime, dict[str, list[float]]] = {}
 
+    key_cache: dict = {}
+
     def _key(ts_raw) -> Optional[datetime]:
-        dt = db_ts_to_local(ts_raw)
-        if dt is None:
-            return None
-        return dt.replace(minute=dt.minute - dt.minute % BUCKET_MIN, second=0, microsecond=0)
+        return _bucket_key(ts_raw, key_cache)
 
     try:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(heating)")}
