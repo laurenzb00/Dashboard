@@ -39,8 +39,8 @@ from ui.components.tab_shell import TabShell
 # vergessen), wuerde ein harter Import diesen Tab komplett scheitern lassen
 # und er bliebe leer. Darum mit Rueckfall auf das alte Verhalten.
 try:
-    from ui.visibility import (ANZEIGE_VERZUG_MS, eigenes_map_event,
-                               ist_sichtbar, naechster_takt)
+    from ui.visibility import (ANZEIGE_VERZUG_MS, darf_ueberspringen,
+                               eigenes_map_event, ist_sichtbar, naechster_takt)
 except Exception:  # pragma: no cover - nur wenn die Datei fehlt
     ANZEIGE_VERZUG_MS = 30
 
