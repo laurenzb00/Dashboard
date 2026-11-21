@@ -107,11 +107,22 @@ class TestPVAlert(TmpDB):
         self.fc = {self.last - timedelta(hours=1): 5.0, self.last: 5.5}
 
     def test_alert_when_far_below(self):
+        # 0.8 kW gegen 5.0 kW Erwartung sind 16 % - das lag unter der alten
+        # Schwelle PV_MAX_RATIO = 0.35, liegt aber ueber den jetzigen 0.10.
+        # Die Schwelle wurde bewusst gesenkt ("vorher 0.35: Nebel/Hochnebel
+        # loeste Fehlalarme aus"), der Test blieb stehen und schlug seither
+        # fehl. 0.3 kW sind 6 % und loesen weiterhin aus.
         st = FakeStore()
-        st.pv(self.last, 2, 0.8)
+        st.pv(self.last, 2, 0.3)
         res = alerts.check_pv(st, self.fc, now=self.now)
         self.assertIsNotNone(res)
-        self.assertIn("1.6 kWh", res[1].replace(",", "."))
+        self.assertIn("0.6 kWh", res[1].replace(",", "."))
+
+    def test_knapp_unter_der_schwelle_schweigt(self):
+        """Gegenprobe zur gesenkten Schwelle: 16 % sind kein Alarm mehr."""
+        st = FakeStore()
+        st.pv(self.last, 2, 0.8)
+        self.assertIsNone(alerts.check_pv(st, self.fc, now=self.now))
 
     def test_inverter_off(self):
         st = FakeStore()
