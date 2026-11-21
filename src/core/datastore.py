@@ -446,23 +446,36 @@ class DataStore:
             and (now - self._cache_daily_totals_ts) < self._DAILY_CACHE_TTL):
             return self._cache_daily_totals
         
-        cursor = self.conn.cursor()
-        if days is not None:
-            cutoff = _hours_ago_iso(days * 24)
-            rows = cursor.execute(
-                "SELECT timestamp, pv_power FROM fronius WHERE timestamp >= ? ORDER BY timestamp ASC",
-                (cutoff,),
-            )
-        else:
-            rows = cursor.execute(
+        # _integrate_daily_energy ist ausdruecklich als "streaming,
+        # speichersparend" gebaut und liest die Zeilen in einem Durchgang.
+        # Das fetchall() davor hat genau das zunichte gemacht: bei
+        # days=None (so ruft heating_forecast.recommend() auf) sind das
+        # saemtliche rund 750000 Zeilen der fronius-Tabelle, auf einmal als
+        # Liste von Tupeln im Speicher. Im Profil vom 21.11.2026 war diese
+        # eine Zeile mit 3,63 s der groesste Posten aller Worker-Threads,
+        # und sie passt zum Speicherzuwachs von 35 MB je Minute beim
+        # Blaettern. Jetzt wird der Cursor direkt durchgereicht.
+        def _zeilen():
+            cursor = self.conn.cursor()
+            if days is not None:
+                cutoff = _hours_ago_iso(days * 24)
+                return cursor.execute(
+                    "SELECT timestamp, pv_power FROM fronius WHERE timestamp >= ? ORDER BY timestamp ASC",
+                    (cutoff,),
+                )
+            return cursor.execute(
                 "SELECT timestamp, pv_power FROM fronius ORDER BY timestamp ASC"
             )
-        raw_rows = rows.fetchall()
-        result = _integrate_daily_energy(raw_rows)
+
+        result = _integrate_daily_energy(_zeilen())
 
         if not result:
+            # Notnagel, greift nur wenn die Integration nichts ergab. Der
+            # Cursor von oben ist dann schon leer, also nochmal abfragen -
+            # das kostet in diesem seltenen Fall eine zweite Abfrage statt
+            # im Normalfall dauerhaft den Speicher.
             fallback: dict[str, dict[str, float | int | bool]] = {}
-            for timestamp, power in raw_rows:
+            for timestamp, power in _zeilen():
                 if timestamp is None or power is None:
                     continue
                 try:
